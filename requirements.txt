@@ -1,0 +1,30 @@
+# file: requirements.txt
+#
+# Python Version: 3.13.5
+# Date: September 14, 2025
+#
+# This file contains the Python dependencies for the Hybrid Memory System project.
+# To install, run: pip install -r requirements.txt
+
+# --- Core Frameworks & Data Validation ---
+pydantic==2.8.2          # For data validation, settings management, and defining our data schemas.
+
+# --- Operating Memory Layer (Redis) ---
+redis==5.0.7             # The official Python client for Redis.
+
+# --- Persistent Knowledge Layer (Specialized Databases) ---
+
+# Vector Store Client
+qdrant-client==1.9.2     # The official Python client for the Qdrant vector database.
+sentence-transformers==3.0.1 # Used for creating high-quality sentence/text embeddings.
+# Note: sentence-transformers will pull in PyTorch, transformers, etc.
+
+# Graph Store Client
+neo4j==5.22.0            # The official Python driver for the Neo4j graph database.
+
+# Search Store Client
+meilisearch==0.28.0      # The official Python client for the Meilisearch engine.
+
+# --- Development & Testing Utilities ---
+fakeredis==2.23.1        # A mock Redis client, useful for running tests without a live Redis server.
+# Note: For the __main__ demo block in memory_system.py to run self-contained.
