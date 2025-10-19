@@ -69,7 +69,43 @@ graph TD
 
 *   **Unified Memory System (`UnifiedMemorySystem`):** A single, clean facade that provides agents with a unified interface for all memory operations, intelligently routing requests to the appropriate underlying layer.
 
-## 4. Code Structure
+## 4. Evaluation & Benchmarking
+
+To rigorously validate the performance of our hybrid memory architecture, we are conducting a comprehensive benchmark evaluation using the **GoodAI LTM (Long-Term Memory) Benchmark**. This benchmark is specifically designed to test the temporal dynamics and information lifecycle management of memory systems across long-running conversations.
+
+### Benchmark Approach
+
+Our evaluation strategy compares three distinct system configurations:
+
+1. **Full Hybrid System:** Our complete architecture utilizing both Operating Memory (L1/L2) and Persistent Knowledge Layer (L3) with intelligent consolidation.
+2. **Standard RAG Baseline:** A conventional single-layer RAG agent using only vector search without tiered memory management.
+3. **Full-Context Baseline:** A naive approach that passes the entire conversation history to the LLM on every turn, establishing an upper bound for accuracy but demonstrating severe efficiency limitations.
+
+The benchmark tests measure two critical dimensions:
+- **Functional Correctness:** Accuracy in retrieving and synthesizing information from long conversation histories
+- **Operational Efficiency:** Latency, token cost, and cache hit rates across different memory span sizes (32k and 120k tokens)
+
+### Documentation
+
+Comprehensive documentation for our benchmark evaluation approach is available in the `docs/` directory:
+
+- **Evaluation Discussion & Strategy:** [`docs/ADR/discussion-evaluation.md`](docs/ADR/discussion-evaluation.md) - Detailed analysis of benchmark selection rationale and our phased implementation plan
+- **Use Case Specifications:**
+  - [`docs/uc-01.md`](docs/uc-01.md) - GoodAI LTM Benchmark with Full Hybrid System
+  - [`docs/uc-02.md`](docs/uc-02.md) - GoodAI LTM Benchmark with Standard RAG Baseline
+  - [`docs/uc-03.md`](docs/uc-03.md) - GoodAI LTM Benchmark with Full-Context Baseline
+- **Sequence Diagrams:**
+  - [`docs/sd-01.md`](docs/sd-01.md) - Full System execution flow
+  - [`docs/sd-02.md`](docs/sd-02.md) - Standard RAG execution flow
+  - [`docs/sd-03.md`](docs/sd-03.md) - Full-Context execution flow
+- **Data Dictionaries:**
+  - [`docs/dd-01.md`](docs/dd-01.md) - Full System data structures
+  - [`docs/dd-02.md`](docs/dd-02.md) - Standard RAG data structures
+  - [`docs/dd-03.md`](docs/dd-03.md) - Full-Context data structures
+
+These documents provide detailed specifications of the experimental setup, component interactions, data flows, and success criteria for each benchmark configuration.
+
+## 5. Code Structure
 
 The repository is organized into a modular and decoupled structure:
 
@@ -84,13 +120,20 @@ The repository is organized into a modular and decoupled structure:
 │   ├── graph_store_client.py    # Neo4j client
 │   └── search_store_client.py   # Meilisearch client
 |
+├── docs/
+│   ├── ADR/
+│   │   └── discussion-evaluation.md  # Benchmark strategy and rationale
+│   ├── uc-*.md                        # Use case specifications
+│   ├── sd-*.md                        # Sequence diagrams
+│   └── dd-*.md                        # Data dictionaries
+|
 ├── examples/
 │   └── logistics_simulation.py # A demo script showing the system in action
 |
 └── README.md
 ```
 
-## 5. Getting Started
+## 6. Getting Started
 
 ### Prerequisites
 
@@ -123,7 +166,7 @@ The `examples/logistics_simulation.py` script provides a concrete demonstration 
 python examples/logistics_simulation.py
 ```
 
-## 6. How to Use
+## 7. How to Use
 
 The core of the system is the `UnifiedMemorySystem` class. An agent interacts with it through a simple and clean API.
 
@@ -151,7 +194,7 @@ vessel_info = memory.query_knowledge(
 )
 ```
 
-## 7. Future Work & Contributions
+## 8. Future Work & Contributions
 
 This architecture provides a robust foundation for building highly capable multi-agent systems. Future research will focus on:
 
