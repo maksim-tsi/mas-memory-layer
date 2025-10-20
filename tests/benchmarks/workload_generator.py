@@ -58,6 +58,8 @@ class WorkloadGenerator:
             'neo4j': [],
             'typesense': []
         }
+        # Separate tracking for Neo4j entity IDs (for relationship referential integrity)
+        self.neo4j_entity_ids = []
     
     def generate_workload(
         self,
@@ -209,10 +211,19 @@ class WorkloadGenerator:
         }
         
         if data['type'] == 'relationship':
-            # Add relationship-specific fields
-            data['from'] = random.choice(self.stored_ids['neo4j']) if self.stored_ids['neo4j'] else entity_id
-            data['to'] = random.choice(self.stored_ids['neo4j']) if self.stored_ids['neo4j'] else entity_id
+            # Add relationship-specific fields using only entity IDs (not relationship IDs)
+            # This ensures referential integrity - relationships only reference actual entities
+            if self.neo4j_entity_ids:
+                data['from'] = random.choice(self.neo4j_entity_ids)
+                data['to'] = random.choice(self.neo4j_entity_ids)
+            else:
+                # Fallback: if no entities exist yet, use current entity_id
+                data['from'] = entity_id
+                data['to'] = entity_id
             data['relationship'] = random.choice(['KNOWS', 'RELATED_TO', 'MENTIONS', 'FOLLOWS'])
+        else:
+            # Track entity IDs separately for relationship references
+            self.neo4j_entity_ids.append(entity_id)
         
         self.stored_ids['neo4j'].append(entity_id)
         
