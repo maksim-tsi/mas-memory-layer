@@ -1,15 +1,20 @@
 import pytest
+import pytest_asyncio
 import os
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from src.storage.postgres_adapter import PostgresAdapter
 from src.storage.base import StorageConnectionError, StorageDataError
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def postgres_adapter():
     """Create and connect PostgreSQL adapter"""
+    url = os.getenv('POSTGRES_URL')
+    if not url:
+        pytest.skip("POSTGRES_URL environment variable not set")
+    
     config = {
-        'url': os.getenv('POSTGRES_URL'),
+        'url': url,
         'pool_size': 5,
         'table': 'active_context'
     }
@@ -116,7 +121,7 @@ async def test_ttl_expiration(postgres_adapter, session_id):
         'session_id': session_id,
         'turn_id': 1,
         'content': 'Expired message',
-        'ttl_expires_at': datetime.utcnow() - timedelta(hours=1)
+        'ttl_expires_at': datetime.now(timezone.utc) - timedelta(hours=1)
     }
     record_id = await postgres_adapter.store(data)
     
@@ -140,8 +145,12 @@ async def test_ttl_expiration(postgres_adapter, session_id):
 @pytest.mark.asyncio
 async def test_context_manager():
     """Test context manager protocol"""
+    url = os.getenv('POSTGRES_URL')
+    if not url:
+        pytest.skip("POSTGRES_URL environment variable not set")
+    
     config = {
-        'url': os.getenv('POSTGRES_URL'),
+        'url': url,
         'table': 'active_context'
     }
     
@@ -156,8 +165,12 @@ async def test_context_manager():
 @pytest.mark.asyncio
 async def test_working_memory_table():
     """Test working_memory table operations"""
+    url = os.getenv('POSTGRES_URL')
+    if not url:
+        pytest.skip("POSTGRES_URL environment variable not set")
+    
     config = {
-        'url': os.getenv('POSTGRES_URL'),
+        'url': url,
         'table': 'working_memory'
     }
     

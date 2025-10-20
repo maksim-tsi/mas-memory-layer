@@ -13,7 +13,7 @@ import psycopg
 from psycopg_pool import AsyncConnectionPool
 from psycopg import AsyncConnection, sql
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 
@@ -225,7 +225,7 @@ class PostgresAdapter(StorageAdapter):
         
         # Set TTL if not provided (24 hours)
         if 'ttl_expires_at' not in data:
-            data['ttl_expires_at'] = datetime.utcnow() + timedelta(hours=24)
+            data['ttl_expires_at'] = datetime.now(timezone.utc) + timedelta(hours=24)
         
         # Prepare metadata
         metadata = json.dumps(data.get('metadata', {}))
@@ -246,7 +246,7 @@ class PostgresAdapter(StorageAdapter):
                         data['turn_id'],
                         data['content'],
                         metadata,
-                        datetime.utcnow(),
+                        datetime.now(timezone.utc),
                         data['ttl_expires_at']
                     )
                 )
@@ -266,7 +266,7 @@ class PostgresAdapter(StorageAdapter):
         
         # Set TTL if not provided (7 days)
         if 'ttl_expires_at' not in data:
-            data['ttl_expires_at'] = datetime.utcnow() + timedelta(days=7)
+            data['ttl_expires_at'] = datetime.now(timezone.utc) + timedelta(days=7)
         
         # Prepare metadata and arrays
         metadata = json.dumps(data.get('metadata', {}))
@@ -290,8 +290,8 @@ class PostgresAdapter(StorageAdapter):
                         data['content'],
                         data.get('confidence', 1.0),
                         source_turn_ids,
-                        datetime.utcnow(),
-                        datetime.utcnow(),
+                        datetime.now(timezone.utc),
+                        datetime.now(timezone.utc),
                         data['ttl_expires_at']
                     )
                 )
