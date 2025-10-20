@@ -88,7 +88,6 @@ class WorkloadGenerator:
             }
         
         operations = []
-        neo4j_relationship_ops = []  # Separate queue for Neo4j relationships
         
         for i in range(size):
             # Select adapter based on distribution
@@ -99,13 +98,7 @@ class WorkloadGenerator:
             
             if op_rand < 0.25:  # 25% writes
                 op = self._generate_store_op(adapter)
-                
-                # Defer ALL Neo4j relationship operations until the end
-                # This ensures all entity nodes exist before creating relationships
-                if adapter == 'neo4j' and op.data and 'relationship' in op.data:
-                    neo4j_relationship_ops.append(op)
-                else:
-                    operations.append(op)
+                operations.append(op)
             elif op_rand < 0.90:  # 65% reads (70% - 5%)
                 # Mix of retrieve and search
                 if random.random() < 0.5 and self.stored_ids[adapter]:
@@ -119,9 +112,22 @@ class WorkloadGenerator:
                     # If nothing to delete, do a read instead
                     operations.append(self._generate_search_op(adapter))
         
-        # Insert all Neo4j relationship operations at the end
-        # This guarantees all entity nodes are created before relationships
-        operations.extend(neo4j_relationship_ops)
+        # === POST-GENERATION PHASE: Neo4j Relationships ===
+        # Now that all entities exist, generate relationships from the complete entity pool
+        # This ensures perfect referential integrity - all relationships reference existing entities
+        if self.neo4j_entity_ids:
+            # Calculate number of relationships to generate (aim for ~30% of entities)
+            # This maintains realistic graph density while ensuring good test coverage
+            num_relationships = max(1, int(len(self.neo4j_entity_ids) * 0.3))
+            
+            for _ in range(num_relationships):
+                # Select two random entities from the complete pool
+                from_id = random.choice(self.neo4j_entity_ids)
+                to_id = random.choice(self.neo4j_entity_ids)
+                
+                # Generate relationship between these entities
+                rel_op = self._generate_neo4j_relationship(from_id, to_id)
+                operations.append(rel_op)
         
         return operations
     
@@ -197,11 +203,20 @@ class WorkloadGenerator:
         )
     
     def _generate_neo4j_store(self) -> WorkloadOperation:
-        """Generate Neo4j store operation (entity/relationship)."""
+        """
+        Generate Neo4j store operation (entity only - relationships generated separately).
+        
+        This method now ONLY creates entity nodes. Relationships are generated in a separate
+        phase after all entities exist, ensuring referential integrity.
+        """
+        return self._generate_neo4j_entity()
+    
+    def _generate_neo4j_entity(self) -> WorkloadOperation:
+        """Generate Neo4j entity node."""
         entity_id = str(uuid.uuid4())
         
         data = {
-            'type': random.choice(['entity', 'relationship']),
+            'type': 'entity',
             'label': random.choice(['Person', 'Topic', 'Event', 'Concept']),
             'properties': {
                 'name': self._random_text(5, 20),
@@ -210,22 +225,42 @@ class WorkloadGenerator:
             }
         }
         
-        if data['type'] == 'relationship':
-            # Add relationship-specific fields using only entity IDs (not relationship IDs)
-            # This ensures referential integrity - relationships only reference actual entities
-            if self.neo4j_entity_ids:
-                data['from'] = random.choice(self.neo4j_entity_ids)
-                data['to'] = random.choice(self.neo4j_entity_ids)
-            else:
-                # Fallback: if no entities exist yet, use current entity_id
-                data['from'] = entity_id
-                data['to'] = entity_id
-            data['relationship'] = random.choice(['KNOWS', 'RELATED_TO', 'MENTIONS', 'FOLLOWS'])
-        else:
-            # Track entity IDs separately for relationship references
-            self.neo4j_entity_ids.append(entity_id)
-        
+        # Track entity ID for relationship generation later
+        self.neo4j_entity_ids.append(entity_id)
         self.stored_ids['neo4j'].append(entity_id)
+        
+        return WorkloadOperation(
+            op_type='store',
+            adapter='neo4j',
+            data=data
+        )
+    
+    def _generate_neo4j_relationship(self, from_id: str, to_id: str) -> WorkloadOperation:
+        """
+        Generate Neo4j relationship between two existing entities.
+        
+        Args:
+            from_id: Source entity ID (must exist in neo4j_entity_ids)
+            to_id: Target entity ID (must exist in neo4j_entity_ids)
+        
+        Returns:
+            WorkloadOperation for relationship creation
+        """
+        relationship_id = str(uuid.uuid4())
+        
+        data = {
+            'type': 'relationship',
+            'label': random.choice(['Person', 'Topic', 'Event', 'Concept']),  # Kept for consistency
+            'from': from_id,
+            'to': to_id,
+            'relationship': random.choice(['KNOWS', 'RELATED_TO', 'MENTIONS', 'FOLLOWS']),
+            'properties': {
+                'session_id': random.choice(self.session_ids),
+                'created_at': datetime.now(timezone.utc).isoformat()
+            }
+        }
+        
+        self.stored_ids['neo4j'].append(relationship_id)
         
         return WorkloadOperation(
             op_type='store',
