@@ -14,6 +14,9 @@ pytest tests/storage/ -v
 # Run specific adapter
 pytest tests/storage/test_postgres_adapter.py -v
 
+# Run metrics tests
+pytest tests/storage/test_metrics.py -v
+
 # Run with coverage
 pytest tests/storage/ --cov=src/storage --cov-report=html --cov-report=term
 ```
@@ -44,3 +47,13 @@ Tests require access to:
 - Typesense (test collections will be deleted)
 
 Configuration from `.env` file.
+
+## Metrics Tests
+
+Metrics collection functionality is tested in `test_metrics.py` and integration tests
+are available in `test_redis_metrics.py`. These tests verify that:
+
+- Metrics are correctly collected for all operations
+- Metrics can be exported in various formats
+- Metrics aggregation works correctly
+- Performance impact is minimal

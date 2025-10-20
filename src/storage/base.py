@@ -7,7 +7,7 @@ for consistent error handling.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from contextlib import asynccontextmanager
 
 
@@ -165,6 +165,11 @@ class StorageAdapter(ABC):
         """
         self.config = config
         self._connected = False
+        
+        # Initialize metrics collector
+        from .metrics import MetricsCollector
+        metrics_config = config.get('metrics', {})
+        self.metrics = MetricsCollector(metrics_config)
     
     @abstractmethod
     async def connect(self) -> None:
@@ -501,6 +506,51 @@ class StorageAdapter(ABC):
                 'error': str(e),
                 'timestamp': datetime.now(timezone.utc).isoformat()
             }
+    
+    async def get_metrics(self) -> Dict[str, Any]:
+        """
+        Get collected metrics from adapter.
+        
+        Returns:
+            Dictionary with comprehensive metrics including:
+            - adapter_type: Adapter class name
+            - uptime_seconds: Time since initialization
+            - operations: Per-operation statistics
+            - connection: Connection metrics
+            - errors: Error statistics
+            - backend_specific: Adapter-specific metrics
+        """
+        base_metrics = await self.metrics.get_metrics()
+        
+        # Add adapter-specific information
+        base_metrics['adapter_type'] = self.__class__.__name__.replace('Adapter', '').lower()
+        
+        # Subclasses can override to add backend-specific metrics
+        backend_metrics = await self._get_backend_metrics()
+        if backend_metrics:
+            base_metrics['backend_specific'] = backend_metrics
+        
+        return base_metrics
+    
+    async def _get_backend_metrics(self) -> Optional[Dict[str, Any]]:
+        """
+        Override in subclasses to provide backend-specific metrics.
+        
+        Example for Qdrant:
+            return {
+                'vector_count': self.collection_info.points_count,
+                'collection_name': self.collection_name
+            }
+        """
+        return None
+    
+    async def export_metrics(self, format: str = 'dict') -> Union[Dict, str]:
+        """Export metrics in specified format."""
+        return await self.metrics.export_metrics(format)
+    
+    async def reset_metrics(self) -> None:
+        """Reset all collected metrics."""
+        await self.metrics.reset_metrics()
     
     async def __aenter__(self):
         """

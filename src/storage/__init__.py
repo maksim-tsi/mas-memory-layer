@@ -29,6 +29,15 @@ from .qdrant_adapter import QdrantAdapter
 from .neo4j_adapter import Neo4jAdapter
 from .typesense_adapter import TypesenseAdapter
 
+# Metrics components
+from .metrics import (
+    MetricsCollector,
+    OperationTimer,
+    MetricsStorage,
+    MetricsAggregator,
+    export_metrics,
+)
+
 __all__ = [
     "StorageAdapter",
     "StorageError",
@@ -44,4 +53,9 @@ __all__ = [
     "QdrantAdapter",
     "Neo4jAdapter",
     "TypesenseAdapter",
+    "MetricsCollector",
+    "OperationTimer",
+    "MetricsStorage",
+    "MetricsAggregator",
+    "export_metrics",
 ]

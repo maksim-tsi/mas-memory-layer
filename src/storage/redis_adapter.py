@@ -46,6 +46,7 @@ from .base import (
     StorageTimeoutError,
     validate_required_fields,
 )
+from .metrics import OperationTimer
 
 logger = logging.getLogger(__name__)
 
@@ -230,18 +231,19 @@ class RedisAdapter(StorageAdapter):
         
         Safe to call multiple times (idempotent).
         """
-        if not self.client:
-            logger.warning("No active Redis connection")
-            return
-        
-        try:
-            await self.client.aclose()
-            self.client = None
-            self._connected = False
-            logger.info("Disconnected from Redis")
-        except Exception as e:
-            logger.error(f"Error during Redis disconnect: {e}", exc_info=True)
-            # Don't raise - disconnect should always succeed
+        async with OperationTimer(self.metrics, 'disconnect'):
+            if not self.client:
+                logger.warning("No active Redis connection")
+                return
+            
+            try:
+                await self.client.aclose()
+                self.client = None
+                self._connected = False
+                logger.info("Disconnected from Redis")
+            except Exception as e:
+                logger.error(f"Error during Redis disconnect: {e}", exc_info=True)
+                # Don't raise - disconnect should always succeed
     
     async def store(self, data: Dict[str, Any]) -> str:
         """
@@ -273,58 +275,59 @@ class RedisAdapter(StorageAdapter):
             StorageDataError: If required fields missing
             StorageQueryError: If Redis operation fails
         """
-        if not self._connected or not self.client:
-            raise StorageConnectionError("Not connected to Redis")
-        
-        # Validate required fields
-        validate_required_fields(data, ['session_id', 'turn_id', 'content'])
-        
-        try:
-            session_id = data['session_id']
-            turn_id = data['turn_id']
-            key = self._make_key(session_id)
+        async with OperationTimer(self.metrics, 'store', metadata={'has_session_id': 'session_id' in data}):
+            if not self._connected or not self.client:
+                raise StorageConnectionError("Not connected to Redis")
             
-            # Prepare turn data for storage
-            turn_data = {
-                'turn_id': turn_id,
-                'content': data['content'],
-                'timestamp': data.get('timestamp', datetime.now(timezone.utc).isoformat()),
-                'metadata': data.get('metadata', {})
-            }
+            # Validate required fields
+            validate_required_fields(data, ['session_id', 'turn_id', 'content'])
             
-            # Serialize to JSON
-            serialized = json.dumps(turn_data)
-            
-            # Use pipeline for atomic operations
-            async with self.client.pipeline(transaction=True) as pipe:
-                # Add to head of list (most recent first)
-                await pipe.lpush(key, serialized)
+            try:
+                session_id = data['session_id']
+                turn_id = data['turn_id']
+                key = self._make_key(session_id)
                 
-                # Trim to window size (keep only N most recent)
-                await pipe.ltrim(key, 0, self.window_size - 1)
+                # Prepare turn data for storage
+                turn_data = {
+                    'turn_id': turn_id,
+                    'content': data['content'],
+                    'timestamp': data.get('timestamp', datetime.now(timezone.utc).isoformat()),
+                    'metadata': data.get('metadata', {})
+                }
                 
-                # Set/refresh TTL
-                await pipe.expire(key, self.ttl_seconds)
+                # Serialize to JSON
+                serialized = json.dumps(turn_data)
                 
-                # Execute pipeline
-                await pipe.execute()
-            
-            # Generate ID for this turn
-            record_id = f"{key}:{turn_id}"
-            
-            logger.debug(
-                f"Stored turn {turn_id} in session {session_id} "
-                f"(key: {key})"
-            )
-            
-            return record_id
-            
-        except redis.RedisError as e:
-            logger.error(f"Redis store failed: {e}", exc_info=True)
-            raise StorageQueryError(f"Failed to store in Redis: {e}") from e
-        except json.JSONEncodeError as e:
-            logger.error(f"JSON encoding failed: {e}", exc_info=True)
-            raise StorageDataError(f"Failed to encode data: {e}") from e
+                # Use pipeline for atomic operations
+                async with self.client.pipeline(transaction=True) as pipe:
+                    # Add to head of list (most recent first)
+                    await pipe.lpush(key, serialized)
+                    
+                    # Trim to window size (keep only N most recent)
+                    await pipe.ltrim(key, 0, self.window_size - 1)
+                    
+                    # Set/refresh TTL
+                    await pipe.expire(key, self.ttl_seconds)
+                    
+                    # Execute pipeline
+                    await pipe.execute()
+                
+                # Generate ID for this turn
+                record_id = f"{key}:{turn_id}"
+                
+                logger.debug(
+                    f"Stored turn {turn_id} in session {session_id} "
+                    f"(key: {key})"
+                )
+                
+                return record_id
+                
+            except redis.RedisError as e:
+                logger.error(f"Redis store failed: {e}", exc_info=True)
+                raise StorageQueryError(f"Failed to store in Redis: {e}") from e
+            except json.JSONEncodeError as e:
+                logger.error(f"JSON encoding failed: {e}", exc_info=True)
+                raise StorageDataError(f"Failed to encode data: {e}") from e
     
     def _make_key(self, session_id: str) -> str:
         """Generate Redis key for session"""
@@ -348,46 +351,47 @@ class RedisAdapter(StorageAdapter):
             StorageConnectionError: If not connected
             StorageQueryError: If Redis operation fails
         """
-        if not self._connected or not self.client:
-            raise StorageConnectionError("Not connected to Redis")
-        
-        try:
-            # Parse ID to extract key and turn_id
-            # Format: session:{id}:turns:{turn_id}
-            parts = id.rsplit(':', 1)
-            if len(parts) != 2:
-                raise StorageDataError(f"Invalid ID format: {id}")
+        async with OperationTimer(self.metrics, 'retrieve', metadata={'id_length': len(id)}):
+            if not self._connected or not self.client:
+                raise StorageConnectionError("Not connected to Redis")
             
-            key = parts[0]
-            turn_id = int(parts[1])
-            
-            # Get all items from list
-            items = await self.client.lrange(key, 0, -1)
-            
-            # Optional: Refresh TTL on access
-            if self.refresh_ttl_on_read and items:
-                await self.client.expire(key, self.ttl_seconds)
-                logger.debug(f"Refreshed TTL for {key} (read access)")
-            
-            # Search for matching turn_id
-            for item in items:
-                turn_data = json.loads(item)
-                if turn_data.get('turn_id') == turn_id:
-                    logger.debug(f"Retrieved turn {turn_id} from {key}")
-                    return turn_data
-            
-            logger.debug(f"Turn {turn_id} not found in {key}")
-            return None
-            
-        except redis.RedisError as e:
-            logger.error(f"Redis retrieve failed: {e}", exc_info=True)
-            raise StorageQueryError(f"Failed to retrieve from Redis: {e}") from e
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON decoding failed: {e}", exc_info=True)
-            raise StorageDataError(f"Failed to decode data: {e}") from e
-        except (ValueError, IndexError) as e:
-            logger.error(f"Invalid ID format: {e}", exc_info=True)
-            raise StorageDataError(f"Invalid ID: {id}") from e
+            try:
+                # Parse ID to extract key and turn_id
+                # Format: session:{id}:turns:{turn_id}
+                parts = id.rsplit(':', 1)
+                if len(parts) != 2:
+                    raise StorageDataError(f"Invalid ID format: {id}")
+                
+                key = parts[0]
+                turn_id = int(parts[1])
+                
+                # Get all items from list
+                items = await self.client.lrange(key, 0, -1)
+                
+                # Optional: Refresh TTL on access
+                if self.refresh_ttl_on_read and items:
+                    await self.client.expire(key, self.ttl_seconds)
+                    logger.debug(f"Refreshed TTL for {key} (read access)")
+                
+                # Search for matching turn_id
+                for item in items:
+                    turn_data = json.loads(item)
+                    if turn_data.get('turn_id') == turn_id:
+                        logger.debug(f"Retrieved turn {turn_id} from {key}")
+                        return turn_data
+                
+                logger.debug(f"Turn {turn_id} not found in {key}")
+                return None
+                
+            except redis.RedisError as e:
+                logger.error(f"Redis retrieve failed: {e}", exc_info=True)
+                raise StorageQueryError(f"Failed to retrieve from Redis: {e}") from e
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decoding failed: {e}", exc_info=True)
+                raise StorageDataError(f"Failed to decode data: {e}") from e
+            except (ValueError, IndexError) as e:
+                logger.error(f"Invalid ID format: {e}", exc_info=True)
+                raise StorageDataError(f"Invalid ID: {id}") from e
     
     async def search(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -413,56 +417,57 @@ class RedisAdapter(StorageAdapter):
             StorageDataError: If session_id missing
             StorageQueryError: If Redis operation fails
         """
-        if not self._connected or not self.client:
-            raise StorageConnectionError("Not connected to Redis")
-        
-        # Validate required query parameters
-        if 'session_id' not in query:
-            raise StorageDataError("session_id required in query")
-        
-        try:
-            session_id = query['session_id']
-            key = self._make_key(session_id)
+        async with OperationTimer(self.metrics, 'search', metadata={'has_session_id': 'session_id' in query, 'limit': query.get('limit', self.window_size)}):
+            if not self._connected or not self.client:
+                raise StorageConnectionError("Not connected to Redis")
             
-            # Get pagination parameters
-            limit = query.get('limit', self.window_size)
-            offset = query.get('offset', 0)
+            # Validate required query parameters
+            if 'session_id' not in query:
+                raise StorageDataError("session_id required in query")
             
-            # Calculate range (Redis uses 0-based indexing)
-            start = offset
-            end = offset + limit - 1
-            
-            # Get items from list
-            items = await self.client.lrange(key, start, end)
-            
-            if not items:
-                logger.debug(f"No turns found for session {session_id}")
-                return []
-            
-            # Optional: Refresh TTL on access
-            if self.refresh_ttl_on_read:
-                await self.client.expire(key, self.ttl_seconds)
-                logger.debug(f"Refreshed TTL for {key} (read access)")
-            
-            # Deserialize all items
-            results = []
-            for item in items:
-                turn_data = json.loads(item)
-                results.append(turn_data)
-            
-            logger.debug(
-                f"Retrieved {len(results)} turns for session {session_id} "
-                f"(limit: {limit}, offset: {offset})"
-            )
-            
-            return results
-            
-        except redis.RedisError as e:
-            logger.error(f"Redis search failed: {e}", exc_info=True)
-            raise StorageQueryError(f"Failed to search Redis: {e}") from e
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON decoding failed: {e}", exc_info=True)
-            raise StorageDataError(f"Failed to decode data: {e}") from e
+            try:
+                session_id = query['session_id']
+                key = self._make_key(session_id)
+                
+                # Get pagination parameters
+                limit = query.get('limit', self.window_size)
+                offset = query.get('offset', 0)
+                
+                # Calculate range (Redis uses 0-based indexing)
+                start = offset
+                end = offset + limit - 1
+                
+                # Get items from list
+                items = await self.client.lrange(key, start, end)
+                
+                if not items:
+                    logger.debug(f"No turns found for session {session_id}")
+                    return []
+                
+                # Optional: Refresh TTL on access
+                if self.refresh_ttl_on_read:
+                    await self.client.expire(key, self.ttl_seconds)
+                    logger.debug(f"Refreshed TTL for {key} (read access)")
+                
+                # Deserialize all items
+                results = []
+                for item in items:
+                    turn_data = json.loads(item)
+                    results.append(turn_data)
+                
+                logger.debug(
+                    f"Retrieved {len(results)} turns for session {session_id} "
+                    f"(limit: {limit}, offset: {offset})"
+                )
+                
+                return results
+                
+            except redis.RedisError as e:
+                logger.error(f"Redis search failed: {e}", exc_info=True)
+                raise StorageQueryError(f"Failed to search Redis: {e}") from e
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decoding failed: {e}", exc_info=True)
+                raise StorageDataError(f"Failed to decode data: {e}") from e
     
     async def delete(self, id: str) -> bool:
         """
@@ -481,28 +486,29 @@ class RedisAdapter(StorageAdapter):
             StorageConnectionError: If not connected
             StorageQueryError: If Redis operation fails
         """
-        if not self._connected or not self.client:
-            raise StorageConnectionError("Not connected to Redis")
-        
-        try:
-            # Check if deleting specific turn or entire session
-            if id.count(':') == 3:
-                # Specific turn: session:{id}:turns:{turn_id}
-                return await self._delete_turn(id)
-            else:
-                # Entire session: session:{id}:turns
-                key = id if ':' in id else self._make_key(id)
-                result = await self.client.delete(key)
-                deleted = result > 0
-                
-                if deleted:
-                    logger.debug(f"Deleted session cache: {key}")
-                
-                return deleted
-                
-        except redis.RedisError as e:
-            logger.error(f"Redis delete failed: {e}", exc_info=True)
-            raise StorageQueryError(f"Failed to delete from Redis: {e}") from e
+        async with OperationTimer(self.metrics, 'delete', metadata={'id_length': len(id)}):
+            if not self._connected or not self.client:
+                raise StorageConnectionError("Not connected to Redis")
+            
+            try:
+                # Check if deleting specific turn or entire session
+                if id.count(':') == 3:
+                    # Specific turn: session:{id}:turns:{turn_id}
+                    return await self._delete_turn(id)
+                else:
+                    # Entire session: session:{id}:turns
+                    key = id if ':' in id else self._make_key(id)
+                    result = await self.client.delete(key)
+                    deleted = result > 0
+                    
+                    if deleted:
+                        logger.debug(f"Deleted session cache: {key}")
+                    
+                    return deleted
+                    
+            except redis.RedisError as e:
+                logger.error(f"Redis delete failed: {e}", exc_info=True)
+                raise StorageQueryError(f"Failed to delete from Redis: {e}") from e
     
     async def _delete_turn(self, id: str) -> bool:
         """Delete specific turn from session list"""
