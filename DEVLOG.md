@@ -69,9 +69,9 @@ Implemented concrete storage adapters for Qdrant (vector storage), Neo4j (graph 
 
 **Git:**
 ```
-Commit: [To be added after commit]
+Commit: d709cb8
 Branch: dev
-Message: "feat: Add vector, graph, and search storage adapters for persistent knowledge layer"
+Message: "feat: Add vector, graph, and search storage adapters for persistent knowledge layer (Priority 4)"
 ```
 
 ---
