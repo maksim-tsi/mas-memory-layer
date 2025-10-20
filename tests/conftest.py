@@ -7,9 +7,15 @@ This module provides shared pytest configuration and fixtures for all tests.
 import pytest
 import sys
 import os
+from dotenv import load_dotenv
 
 # Add project root to Python path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
+
+# Load environment variables from .env file
+dotenv_path = os.path.join(project_root, '.env')
+load_dotenv(dotenv_path, override=True)
 
 
 def pytest_configure(config):
