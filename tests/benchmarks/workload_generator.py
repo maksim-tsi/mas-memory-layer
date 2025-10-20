@@ -198,9 +198,9 @@ class WorkloadGenerator:
         
         if data['type'] == 'relationship':
             # Add relationship-specific fields
-            data['from_id'] = random.choice(self.stored_ids['neo4j']) if self.stored_ids['neo4j'] else entity_id
-            data['to_id'] = random.choice(self.stored_ids['neo4j']) if self.stored_ids['neo4j'] else entity_id
-            data['rel_type'] = random.choice(['KNOWS', 'RELATED_TO', 'MENTIONS', 'FOLLOWS'])
+            data['from'] = random.choice(self.stored_ids['neo4j']) if self.stored_ids['neo4j'] else entity_id
+            data['to'] = random.choice(self.stored_ids['neo4j']) if self.stored_ids['neo4j'] else entity_id
+            data['relationship'] = random.choice(['KNOWS', 'RELATED_TO', 'MENTIONS', 'FOLLOWS'])
         
         self.stored_ids['neo4j'].append(entity_id)
         

@@ -8,10 +8,15 @@ metrics for performance analysis and publication.
 import asyncio
 import json
 import logging
+import os
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 import sys
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -67,39 +72,49 @@ class StorageBenchmark:
         """
         Get configuration for each adapter.
         
-        These configurations match the test environment setup.
+        Loads configuration from environment variables (.env file).
         """
+        # Get environment variables with fallbacks
+        redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
+        stg_ip = os.getenv('STG_IP', 'localhost')
+        qdrant_port = os.getenv('QDRANT_PORT', '6333')
+        neo4j_bolt_port = os.getenv('NEO4J_BOLT_PORT', '7687')
+        neo4j_user = os.getenv('NEO4J_USER', 'neo4j')
+        neo4j_password = os.getenv('NEO4J_PASSWORD', 'password')
+        typesense_port = os.getenv('TYPESENSE_PORT', '8108')
+        typesense_api_key = os.getenv('TYPESENSE_API_KEY', 'xyz')
+        
         return {
             'redis_l1': {
-                'url': 'redis://localhost:6379/0',
+                'url': f'{redis_url}/0',
                 'db': 0,
                 'window_size': 10,
                 'ttl_seconds': 86400,
                 'metrics': {'enabled': True}
             },
             'redis_l2': {
-                'url': 'redis://localhost:6379/1',
+                'url': f'{redis_url}/1',
                 'db': 1,
                 'window_size': 50,
                 'ttl_seconds': 604800,  # 7 days
                 'metrics': {'enabled': True}
             },
             'qdrant': {
-                'url': 'http://localhost:6333',
+                'url': f'http://{stg_ip}:{qdrant_port}',
                 'collection_name': 'benchmark_memory',
                 'vector_size': 384,
                 'metrics': {'enabled': True}
             },
             'neo4j': {
-                'uri': 'bolt://localhost:7687',
-                'user': 'neo4j',
-                'password': 'password',
+                'uri': f'bolt://{stg_ip}:{neo4j_bolt_port}',
+                'user': neo4j_user,
+                'password': neo4j_password,
                 'database': 'neo4j',
                 'metrics': {'enabled': True}
             },
             'typesense': {
-                'url': 'http://localhost:8108',
-                'api_key': 'xyz',
+                'url': f'http://{stg_ip}:{typesense_port}',
+                'api_key': typesense_api_key,
                 'collection_name': 'benchmark_documents',
                 'metrics': {'enabled': True}
             }
