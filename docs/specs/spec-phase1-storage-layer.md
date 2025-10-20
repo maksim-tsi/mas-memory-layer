@@ -4615,6 +4615,806 @@ Each test suite should cover:
 
 ---
 
+### Priority 4A: Metrics Collection & Observability
+**Estimated Time**: 6-8 hours  
+**Assignee**: TBD  
+**Status**: Planned  
+**Files**: 
+- `src/storage/metrics/__init__.py`
+- `src/storage/metrics/collector.py`
+- `src/storage/metrics/storage.py`
+- `src/storage/metrics/aggregator.py`
+- `src/storage/metrics/exporters.py`
+- Updates to `src/storage/base.py`
+- Updates to all Priority 4 adapters
+
+**Objective**: Add comprehensive metrics collection to all storage adapters for observability, performance monitoring, and operational insights.
+
+**Context**: Following the Priority 4 code review (Grade A+ - 97/100), metrics collection was identified as a key enhancement to improve production observability and enable data-driven optimization.
+
+---
+
+## Overview & Design Principles
+
+### Goals
+1. **Non-Intrusive**: Metrics shouldn't significantly impact performance
+2. **Consistent**: Same metrics structure across all adapters
+3. **Actionable**: Capture data useful for debugging and optimization
+4. **Optional**: Can be disabled for production if needed
+5. **Thread-Safe**: Support concurrent operations
+
+### Metrics Categories
+
+#### A. Operation Metrics (Per-operation tracking)
+- Operation counts by type (store, retrieve, search, delete, batch operations)
+- Success/failure rates
+- Latency statistics (min, max, avg, p50, p95, p99)
+- Throughput (operations per second)
+- Data volume (bytes stored/retrieved, item counts)
+
+#### B. Connection Metrics
+- Connection lifecycle events (connect/disconnect counts, duration)
+- Connection pool stats (if applicable)
+- Connection errors and timeouts
+- Uptime tracking
+
+#### C. Backend-Specific Metrics
+
+**QdrantAdapter**:
+- Vector operations: Dimension sizes, similarity scores distribution
+- Collection stats: Total vectors, collection size
+- Index performance: Search recall metrics
+
+**Neo4jAdapter**:
+- Graph operations: Nodes/relationships created/deleted
+- Query complexity: Cypher query execution times
+- Transaction stats: Transaction count, rollback count
+
+**TypesenseAdapter**:
+- Search operations: Search hits, query times
+- Index stats: Document count, index size
+- Filter usage tracking
+
+#### D. Error Metrics
+- Error counts by type (ConnectionError, DataError, QueryError)
+- Error rates per operation type
+- Last N errors with timestamps and context
+
+---
+
+## Architecture
+
+### Component Structure
+
+```
+src/storage/
+├── metrics/
+│   ├── __init__.py           # Export metrics components
+│   ├── collector.py          # MetricsCollector base class
+│   ├── storage.py            # In-memory metrics storage
+│   ├── aggregator.py         # Statistical aggregation
+│   └── exporters.py          # Export to Prometheus, JSON, etc.
+├── base.py                    # Add MetricsCollector integration
+├── qdrant_adapter.py         # Integrate metrics
+├── neo4j_adapter.py          # Integrate metrics
+└── typesense_adapter.py      # Integrate metrics
+```
+
+### Core Classes
+
+#### 1. MetricsCollector (Base class)
+
+```python
+"""
+Base metrics collector for storage adapters.
+"""
+from typing import Dict, Any, List, Optional, Union
+import time
+from datetime import datetime, timezone
+from collections import defaultdict, deque
+import asyncio
+
+class MetricsCollector:
+    """
+    Base metrics collector for storage adapters.
+    
+    Provides thread-safe metrics collection with configurable
+    history limits and aggregation capabilities.
+    """
+    
+    def __init__(self, config: Dict[str, Any] = None):
+        """
+        Initialize metrics collector.
+        
+        Args:
+            config: Optional configuration
+                - enabled: Enable/disable metrics (default: True)
+                - max_history: Max operations to store (default: 1000)
+                - track_errors: Track error details (default: True)
+                - track_data_volume: Track bytes in/out (default: True)
+                - percentiles: Latency percentiles (default: [50, 95, 99])
+                - aggregation_window: Window for rate calculations in seconds (default: 60)
+        """
+        config = config or {}
+        self.enabled = config.get('enabled', True)
+        self.max_history = config.get('max_history', 1000)
+        self.track_errors = config.get('track_errors', True)
+        self.track_data_volume = config.get('track_data_volume', True)
+        self.percentiles = config.get('percentiles', [50, 95, 99])
+        self.aggregation_window = config.get('aggregation_window', 60)
+        
+        # Internal storage
+        self._operations = defaultdict(list)  # Operation history
+        self._counters = defaultdict(int)     # Simple counters
+        self._errors = deque(maxlen=100)      # Last 100 errors
+        self._lock = asyncio.Lock()           # Thread safety
+        self._start_time = time.time()
+    
+    async def record_operation(
+        self,
+        operation: str,
+        duration_ms: float,
+        success: bool,
+        metadata: Dict[str, Any] = None
+    ) -> None:
+        """Record an operation with duration and outcome."""
+        
+    async def record_error(
+        self,
+        error_type: str,
+        operation: str,
+        details: str
+    ) -> None:
+        """Record an error event."""
+        
+    async def record_connection_event(
+        self,
+        event: str,
+        duration_ms: float = None
+    ) -> None:
+        """Record connection lifecycle event."""
+        
+    async def record_data_volume(
+        self,
+        operation: str,
+        bytes_count: int
+    ) -> None:
+        """Record data volume for an operation."""
+        
+    async def get_metrics(self) -> Dict[str, Any]:
+        """
+        Get all collected metrics with aggregations.
+        
+        Returns:
+            Dictionary containing:
+            - uptime_seconds: Time since collector started
+            - timestamp: ISO timestamp
+            - operations: Per-operation statistics
+            - connection: Connection metrics
+            - errors: Error statistics
+            - backend_specific: Custom metrics
+        """
+        
+    async def reset_metrics(self) -> None:
+        """Reset all collected metrics."""
+        
+    async def export_metrics(self, format: str = 'dict') -> Union[Dict, str]:
+        """
+        Export metrics in specified format.
+        
+        Args:
+            format: 'dict', 'json', 'prometheus', 'csv', 'markdown'
+            
+        Returns:
+            Metrics in requested format
+        """
+```
+
+#### 2. OperationTimer (Context manager)
+
+```python
+class OperationTimer:
+    """
+    Context manager to time and automatically record operations.
+    
+    Usage:
+        async with OperationTimer(metrics, 'store', metadata={'has_id': True}):
+            # ... perform operation ...
+            pass
+    """
+    
+    def __init__(
+        self,
+        collector: MetricsCollector,
+        operation: str,
+        metadata: Dict[str, Any] = None
+    ):
+        self.collector = collector
+        self.operation = operation
+        self.metadata = metadata or {}
+        self.start_time = None
+        self.success = True
+    
+    async def __aenter__(self):
+        self.start_time = time.perf_counter()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if not self.collector.enabled:
+            return False
+        
+        duration_ms = (time.perf_counter() - self.start_time) * 1000
+        success = (exc_type is None)
+        
+        await self.collector.record_operation(
+            self.operation,
+            duration_ms,
+            success,
+            self.metadata
+        )
+        
+        if not success and self.collector.track_errors:
+            await self.collector.record_error(
+                type(exc_val).__name__,
+                self.operation,
+                str(exc_val)
+            )
+        
+        return False  # Don't suppress exceptions
+```
+
+#### 3. MetricsStorage (Thread-safe storage)
+
+```python
+class MetricsStorage:
+    """
+    Thread-safe in-memory metrics storage with history limits.
+    """
+    
+    def __init__(self, max_history: int = 1000):
+        self.max_history = max_history
+        self._operations = defaultdict(lambda: deque(maxlen=max_history))
+        self._counters = defaultdict(int)
+        self._errors = deque(maxlen=100)
+        self._lock = asyncio.Lock()
+    
+    async def add_operation(
+        self,
+        operation: str,
+        record: Dict[str, Any]
+    ) -> None:
+        """Add operation record with automatic history limiting."""
+        
+    async def increment_counter(self, key: str, amount: int = 1) -> None:
+        """Increment a counter."""
+        
+    async def add_error(self, error_record: Dict[str, Any]) -> None:
+        """Add error record."""
+        
+    async def get_all(self) -> Dict[str, Any]:
+        """Get all stored metrics."""
+        
+    async def reset(self) -> None:
+        """Clear all metrics."""
+```
+
+#### 4. MetricsAggregator (Statistical calculations)
+
+```python
+class MetricsAggregator:
+    """
+    Calculate statistical aggregations from raw metrics.
+    """
+    
+    @staticmethod
+    def calculate_percentiles(
+        values: List[float],
+        percentiles: List[int] = [50, 95, 99]
+    ) -> Dict[str, float]:
+        """
+        Calculate percentiles from list of values.
+        
+        Returns:
+            {'p50': 10.2, 'p95': 35.8, 'p99': 89.1}
+        """
+        
+    @staticmethod
+    def calculate_rates(
+        operations: List[Dict[str, Any]],
+        window_seconds: int = 60
+    ) -> Dict[str, float]:
+        """
+        Calculate ops/sec in time window.
+        
+        Returns:
+            {'ops_per_sec': 25.0, 'bytes_per_sec': 12500}
+        """
+        
+    @staticmethod
+    def calculate_latency_stats(
+        durations: List[float],
+        percentiles: List[int] = [50, 95, 99]
+    ) -> Dict[str, Any]:
+        """
+        Calculate comprehensive latency statistics.
+        
+        Returns:
+            {
+                'min': 2.3,
+                'max': 145.2,
+                'avg': 12.5,
+                'p50': 10.2,
+                'p95': 35.8,
+                'p99': 89.1
+            }
+        """
+```
+
+---
+
+## Integration Pattern
+
+### Adapter Configuration
+
+```python
+config = {
+    'url': 'http://localhost:8108',
+    'api_key': 'xyz',
+    'collection_name': 'test',
+    
+    # Metrics configuration
+    'metrics': {
+        'enabled': True,                    # Enable/disable metrics
+        'max_history': 1000,                # Max operations to store
+        'track_errors': True,               # Track error details
+        'track_data_volume': True,          # Track bytes in/out
+        'percentiles': [50, 95, 99],        # Latency percentiles
+        'aggregation_window': 60,           # Rate calculation window (seconds)
+    }
+}
+```
+
+### Example: Store Method with Metrics
+
+```python
+async def store(self, data: Dict[str, Any]) -> str:
+    """Store with metrics collection."""
+    if not self.is_connected:
+        raise StorageConnectionError("Not connected")
+    
+    # Use operation timer context manager
+    async with OperationTimer(self.metrics, 'store', metadata={'has_id': 'id' in data}):
+        # Existing store logic
+        result_id = await self._do_store(data)
+        
+        # Record data volume if enabled
+        if self.metrics.track_data_volume:
+            await self.metrics.record_data_volume('store', len(str(data)))
+        
+        return result_id
+```
+
+### Base Class Integration
+
+Update `StorageAdapter` base class:
+
+```python
+class StorageAdapter(ABC):
+    """Abstract base class with metrics support."""
+    
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        self._connected = False
+        
+        # Initialize metrics collector
+        metrics_config = config.get('metrics', {})
+        self.metrics = MetricsCollector(metrics_config)
+    
+    async def get_metrics(self) -> Dict[str, Any]:
+        """
+        Get collected metrics from adapter.
+        
+        Returns:
+            Dictionary with comprehensive metrics including:
+            - adapter_type: Adapter class name
+            - uptime_seconds: Time since initialization
+            - operations: Per-operation statistics
+            - connection: Connection metrics
+            - errors: Error statistics
+            - backend_specific: Adapter-specific metrics
+        """
+        base_metrics = await self.metrics.get_metrics()
+        
+        # Add adapter-specific information
+        base_metrics['adapter_type'] = self.__class__.__name__.replace('Adapter', '').lower()
+        
+        # Subclasses can override to add backend-specific metrics
+        backend_metrics = await self._get_backend_metrics()
+        if backend_metrics:
+            base_metrics['backend_specific'] = backend_metrics
+        
+        return base_metrics
+    
+    async def _get_backend_metrics(self) -> Optional[Dict[str, Any]]:
+        """
+        Override in subclasses to provide backend-specific metrics.
+        
+        Example for Qdrant:
+            return {
+                'vector_count': self.collection_info.points_count,
+                'collection_name': self.collection_name
+            }
+        """
+        return None
+    
+    async def export_metrics(self, format: str = 'dict') -> Union[Dict, str]:
+        """Export metrics in specified format."""
+        return await self.metrics.export_metrics(format)
+    
+    async def reset_metrics(self) -> None:
+        """Reset all collected metrics."""
+        await self.metrics.reset_metrics()
+```
+
+---
+
+## Metrics Output Format
+
+### Example Complete Metrics Output
+
+```python
+{
+    'adapter_type': 'typesense',
+    'collection_name': 'test_collection',
+    'uptime_seconds': 3600,
+    'timestamp': '2025-10-21T12:00:00Z',
+    
+    'operations': {
+        'store': {
+            'total_count': 1500,
+            'success_count': 1498,
+            'error_count': 2,
+            'success_rate': 0.9987,
+            'latency_ms': {
+                'min': 2.3,
+                'max': 145.2,
+                'avg': 12.5,
+                'p50': 10.2,
+                'p95': 35.8,
+                'p99': 89.1
+            },
+            'throughput': {
+                'ops_per_sec': 25.0,
+                'bytes_per_sec': 12500
+            }
+        },
+        'retrieve': { ... },
+        'search': { ... },
+        'delete': { ... },
+        'batch_store': { ... }
+    },
+    
+    'connection': {
+        'connect_count': 5,
+        'disconnect_count': 4,
+        'current_state': 'connected',
+        'last_connect_duration_ms': 45.2,
+        'total_connection_time_seconds': 3540
+    },
+    
+    'errors': {
+        'by_type': {
+            'StorageConnectionError': 1,
+            'StorageQueryError': 1
+        },
+        'recent_errors': [
+            {
+                'timestamp': '2025-10-21T11:45:00Z',
+                'type': 'StorageQueryError',
+                'operation': 'search',
+                'message': 'Invalid query syntax',
+                'duration_ms': 5.2
+            }
+        ]
+    },
+    
+    'backend_specific': {
+        # Typesense specific
+        'document_count': 5000,
+        'search_hit_rate': 0.95,
+        'avg_search_results': 12.3
+    }
+}
+```
+
+### Export Formats
+
+#### 1. Prometheus Format
+
+```python
+# HELP storage_operations_total Total storage operations
+# TYPE storage_operations_total counter
+storage_operations_total{adapter="typesense",operation="store",status="success"} 1498
+storage_operations_total{adapter="typesense",operation="store",status="error"} 2
+
+# HELP storage_operation_duration_milliseconds Operation duration
+# TYPE storage_operation_duration_milliseconds histogram
+storage_operation_duration_milliseconds{adapter="typesense",operation="store",quantile="0.5"} 10.2
+storage_operation_duration_milliseconds{adapter="typesense",operation="store",quantile="0.95"} 35.8
+storage_operation_duration_milliseconds{adapter="typesense",operation="store",quantile="0.99"} 89.1
+```
+
+#### 2. JSON Format
+
+```json
+{
+  "adapter_type": "typesense",
+  "timestamp": "2025-10-21T12:00:00Z",
+  "operations": {
+    "store": {
+      "total_count": 1500,
+      "success_rate": 0.9987
+    }
+  }
+}
+```
+
+#### 3. CSV Format
+
+```csv
+timestamp,adapter,operation,total_count,success_count,avg_latency_ms
+2025-10-21T12:00:00Z,typesense,store,1500,1498,12.5
+```
+
+#### 4. Markdown Format
+
+```markdown
+# Storage Adapter Metrics
+
+**Adapter**: typesense
+**Uptime**: 3600s
+
+## Operations
+| Operation | Total | Success Rate | Avg Latency (ms) | P95 Latency (ms) |
+|-----------|-------|--------------|------------------|------------------|
+| store     | 1500  | 99.87%       | 12.5             | 35.8             |
+```
+
+---
+
+## Performance Considerations
+
+### Optimization Strategies
+
+1. **Lazy Aggregation**: Calculate percentiles/stats only when metrics are requested
+2. **Circular Buffers**: Use `collections.deque` with `maxlen` to limit memory
+3. **Sampling**: For high-throughput (>1000 ops/sec), sample 1-10% of operations
+4. **Async Recording**: Use asyncio queues to avoid blocking operations
+5. **Optional Tracking**: Allow disabling expensive metrics
+
+### Memory Limits
+
+```python
+# Default limits
+MAX_OPERATION_HISTORY = 1000  # Last 1000 operations per type
+MAX_ERROR_HISTORY = 100       # Last 100 errors
+SAMPLING_RATE = 1.0           # 1.0 = 100%, 0.01 = 1%
+```
+
+### Sampling Configuration
+
+```python
+config = {
+    'metrics': {
+        'enabled': True,
+        'sampling_rate': 0.1,  # Sample 10% of operations
+        'always_sample_errors': True  # Always track errors
+    }
+}
+```
+
+---
+
+## Testing Strategy
+
+### Unit Tests
+
+```python
+@pytest.mark.asyncio
+async def test_metrics_collection():
+    """Test basic metrics collection."""
+    collector = MetricsCollector()
+    
+    # Record operations
+    await collector.record_operation('store', 10.5, True)
+    await collector.record_operation('store', 15.2, True)
+    await collector.record_operation('store', 8.3, False)
+    
+    # Get metrics
+    metrics = await collector.get_metrics()
+    
+    assert metrics['operations']['store']['total_count'] == 3
+    assert metrics['operations']['store']['success_count'] == 2
+    assert metrics['operations']['store']['error_count'] == 1
+    assert metrics['operations']['store']['success_rate'] == 2/3
+
+@pytest.mark.asyncio
+async def test_operation_timer():
+    """Test OperationTimer context manager."""
+    collector = MetricsCollector()
+    
+    async with OperationTimer(collector, 'test_op'):
+        await asyncio.sleep(0.01)  # Simulate work
+    
+    metrics = await collector.get_metrics()
+    assert metrics['operations']['test_op']['total_count'] == 1
+    assert metrics['operations']['test_op']['latency_ms']['avg'] >= 10
+
+@pytest.mark.asyncio
+async def test_percentile_calculation():
+    """Test percentile calculations."""
+    values = [1, 5, 10, 15, 20, 25, 30, 35, 40, 100]
+    percentiles = MetricsAggregator.calculate_percentiles(values, [50, 95, 99])
+    
+    assert 'p50' in percentiles
+    assert 'p95' in percentiles
+    assert 'p99' in percentiles
+    assert percentiles['p50'] >= 15
+    assert percentiles['p95'] >= 35
+```
+
+### Integration Tests
+
+```python
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_adapter_metrics_integration(typesense_config):
+    """Test metrics collection during real operations."""
+    typesense_config['metrics'] = {'enabled': True}
+    
+    async with TypesenseAdapter(typesense_config) as adapter:
+        # Perform operations
+        doc_id = await adapter.store({'content': 'test'})
+        await adapter.retrieve(doc_id)
+        await adapter.search({'q': 'test', 'query_by': 'content'})
+        await adapter.delete(doc_id)
+        
+        # Get metrics
+        metrics = await adapter.get_metrics()
+        
+        # Verify operation counts
+        assert metrics['operations']['store']['total_count'] == 1
+        assert metrics['operations']['retrieve']['total_count'] == 1
+        assert metrics['operations']['search']['total_count'] == 1
+        assert metrics['operations']['delete']['total_count'] == 1
+        
+        # Verify latency tracking
+        for op in ['store', 'retrieve', 'search', 'delete']:
+            assert 'latency_ms' in metrics['operations'][op]
+            assert metrics['operations'][op]['latency_ms']['avg'] > 0
+        
+        # Verify success rates
+        assert metrics['operations']['store']['success_rate'] == 1.0
+```
+
+---
+
+## Implementation Steps
+
+### Phase 1: Core Infrastructure (2-3 hours)
+1. Create `src/storage/metrics/` directory
+2. Implement `MetricsCollector` base class
+3. Implement `MetricsStorage` with thread safety
+4. Implement `OperationTimer` context manager
+5. Add unit tests for metrics components
+
+### Phase 2: Adapter Integration (2-3 hours)
+6. Add metrics to `StorageAdapter` base class
+7. Integrate metrics into `QdrantAdapter`
+8. Integrate metrics into `Neo4jAdapter`
+9. Integrate metrics into `TypesenseAdapter`
+10. Update existing integration tests
+
+### Phase 3: Aggregation & Export (1-2 hours)
+11. Implement `MetricsAggregator` for statistical calculations
+12. Implement export formats (JSON, Prometheus, CSV, Markdown)
+13. Add configuration options
+14. Test export functionality
+
+### Phase 4: Documentation & Demo (1 hour)
+15. Create metrics usage documentation
+16. Create demo script
+17. Update DEVLOG
+18. Create example dashboard
+
+---
+
+## Usage Examples
+
+### Basic Usage
+
+```python
+# Enable metrics
+config = {
+    'url': 'http://localhost:8108',
+    'api_key': 'xyz',
+    'collection_name': 'test',
+    'metrics': {'enabled': True}
+}
+
+async with TypesenseAdapter(config) as adapter:
+    # Perform operations
+    await adapter.store({'content': 'test'})
+    
+    # Get metrics
+    metrics = await adapter.get_metrics()
+    print(f"Store operations: {metrics['operations']['store']['total_count']}")
+    print(f"Avg latency: {metrics['operations']['store']['latency_ms']['avg']}ms")
+```
+
+### Export to Prometheus
+
+```python
+async with TypesenseAdapter(config) as adapter:
+    # ... perform operations ...
+    
+    # Export metrics
+    prometheus_metrics = await adapter.export_metrics(format='prometheus')
+    print(prometheus_metrics)
+```
+
+### Metrics Dashboard Function
+
+```python
+async def print_metrics_dashboard(adapter):
+    """Print formatted metrics dashboard."""
+    metrics = await adapter.get_metrics()
+    
+    print("\n=== Storage Adapter Metrics ===")
+    print(f"Adapter: {metrics['adapter_type']}")
+    print(f"Uptime: {metrics['uptime_seconds']}s")
+    print(f"\nOperations:")
+    
+    for op_type, stats in metrics['operations'].items():
+        print(f"  {op_type}:")
+        print(f"    Total: {stats['total_count']}")
+        print(f"    Success Rate: {stats['success_rate']:.2%}")
+        print(f"    Avg Latency: {stats['latency_ms']['avg']:.2f}ms")
+        print(f"    P95 Latency: {stats['latency_ms']['p95']:.2f}ms")
+```
+
+---
+
+## Acceptance Criteria
+
+- [ ] MetricsCollector base class implemented with thread safety
+- [ ] OperationTimer context manager implemented
+- [ ] MetricsStorage with history limits
+- [ ] MetricsAggregator with percentile calculations
+- [ ] Export to JSON, Prometheus, CSV, Markdown formats
+- [ ] Integration with all Priority 4 adapters
+- [ ] Configuration options for enabling/disabling metrics
+- [ ] Unit tests for all metrics components (>90% coverage)
+- [ ] Integration tests verify metrics accuracy
+- [ ] Documentation and usage examples
+- [ ] Demo script showing metrics collection
+- [ ] Performance impact < 5% overhead
+- [ ] Memory usage bounded by configured limits
+
+---
+
+## Future Enhancements
+
+- Real-time streaming to external systems (StatsD, InfluxDB)
+- Alerting on error rate thresholds
+- Comparative analysis across adapters
+- Query profiling for slow operations
+- Cost tracking based on API usage
+- ML-based performance predictions
+- Grafana dashboard templates
+
+---
+
 ### Priority 5: Database Migrations
 **Estimated Time**: 2-3 hours  
 **Assignee**: TBD  

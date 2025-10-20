@@ -7,7 +7,7 @@ for consistent error handling.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from contextlib import asynccontextmanager
 
 
@@ -165,6 +165,11 @@ class StorageAdapter(ABC):
         """
         self.config = config
         self._connected = False
+        
+        # Initialize metrics collector
+        from .metrics import MetricsCollector
+        metrics_config = config.get('metrics', {})
+        self.metrics = MetricsCollector(metrics_config)
     
     @abstractmethod
     async def connect(self) -> None:
@@ -324,6 +329,110 @@ class StorageAdapter(ABC):
         """
         raise NotImplementedError
     
+    # Batch operations (optional, with default implementations)
+    
+    async def store_batch(self, items: List[Dict[str, Any]]) -> List[str]:
+        """
+        Store multiple items in a single batch operation.
+        
+        Default implementation calls store() for each item sequentially.
+        Concrete adapters should override this for better performance
+        using backend-specific batch operations.
+        
+        Args:
+            items: List of data dictionaries to store
+        
+        Returns:
+            List of unique identifiers for stored items (same order as input)
+        
+        Raises:
+            StorageConnectionError: If not connected to backend
+            StorageDataError: If any item validation fails
+            StorageQueryError: If batch operation fails
+            StorageTimeoutError: If operation times out
+        
+        Example:
+            ```python
+            items = [
+                {'content': 'Item 1', 'metadata': {}},
+                {'content': 'Item 2', 'metadata': {}},
+                {'content': 'Item 3', 'metadata': {}}
+            ]
+            ids = await adapter.store_batch(items)
+            # ids = ['id1', 'id2', 'id3']
+            ```
+        """
+        ids = []
+        for item in items:
+            id = await self.store(item)
+            ids.append(id)
+        return ids
+    
+    async def retrieve_batch(self, ids: List[str]) -> List[Optional[Dict[str, Any]]]:
+        """
+        Retrieve multiple items by their identifiers.
+        
+        Default implementation calls retrieve() for each ID sequentially.
+        Concrete adapters should override this for better performance
+        using backend-specific batch operations.
+        
+        Args:
+            ids: List of unique identifiers
+        
+        Returns:
+            List of data dictionaries (or None for not found items)
+            Results in same order as input IDs
+        
+        Raises:
+            StorageConnectionError: If not connected to backend
+            StorageQueryError: If batch operation fails
+            StorageTimeoutError: If operation times out
+        
+        Example:
+            ```python
+            ids = ['id1', 'id2', 'id3']
+            items = await adapter.retrieve_batch(ids)
+            # items = [{'content': 'Item 1'}, None, {'content': 'Item 3'}]
+            ```
+        """
+        results = []
+        for id in ids:
+            result = await self.retrieve(id)
+            results.append(result)
+        return results
+    
+    async def delete_batch(self, ids: List[str]) -> Dict[str, bool]:
+        """
+        Delete multiple items by their identifiers.
+        
+        Default implementation calls delete() for each ID sequentially.
+        Concrete adapters should override this for better performance
+        using backend-specific batch operations.
+        
+        Args:
+            ids: List of unique identifiers to delete
+        
+        Returns:
+            Dictionary mapping IDs to deletion status (True=deleted, False=not found)
+        
+        Raises:
+            StorageConnectionError: If not connected to backend
+            StorageQueryError: If batch operation fails
+            StorageTimeoutError: If operation times out
+        
+        Example:
+            ```python
+            ids = ['id1', 'id2', 'id3']
+            results = await adapter.delete_batch(ids)
+            # results = {'id1': True, 'id2': False, 'id3': True}
+            ```
+        """
+        results = {}
+        for id in ids:
+            success = await self.delete(id)
+            results[id] = success
+        return results
+    
     @property
     def is_connected(self) -> bool:
         """
@@ -333,6 +442,115 @@ class StorageAdapter(ABC):
             True if connected, False otherwise.
         """
         return self._connected
+    
+    # Health check and monitoring
+    
+    async def health_check(self) -> Dict[str, Any]:
+        """
+        Check health and performance of the storage backend.
+        
+        Default implementation provides basic connectivity check.
+        Concrete adapters should override to provide more detailed metrics.
+        
+        Returns:
+            Dictionary with health status information:
+            - status: 'healthy', 'degraded', or 'unhealthy'
+            - connected: Boolean connection status
+            - latency_ms: Response time in milliseconds (if available)
+            - details: Backend-specific additional information
+            - timestamp: ISO timestamp of health check
+        
+        Example:
+            ```python
+            health = await adapter.health_check()
+            if health['status'] == 'healthy':
+                print(f"Backend is healthy (latency: {health['latency_ms']}ms)")
+            else:
+                print(f"Backend issues: {health['details']}")
+            ```
+        """
+        import time
+        from datetime import datetime, timezone
+        
+        start_time = time.perf_counter()
+        
+        try:
+            # Basic connectivity check
+            if not self._connected:
+                return {
+                    'status': 'unhealthy',
+                    'connected': False,
+                    'details': 'Not connected to backend',
+                    'timestamp': datetime.now(timezone.utc).isoformat()
+                }
+            
+            # Try a simple operation to verify backend is responsive
+            # Concrete implementations should override with backend-specific checks
+            latency_ms = (time.perf_counter() - start_time) * 1000
+            
+            return {
+                'status': 'healthy',
+                'connected': True,
+                'latency_ms': round(latency_ms, 2),
+                'details': 'Basic connectivity check passed',
+                'timestamp': datetime.now(timezone.utc).isoformat()
+            }
+            
+        except Exception as e:
+            latency_ms = (time.perf_counter() - start_time) * 1000
+            return {
+                'status': 'unhealthy',
+                'connected': self._connected,
+                'latency_ms': round(latency_ms, 2),
+                'details': f'Health check failed: {str(e)}',
+                'error': str(e),
+                'timestamp': datetime.now(timezone.utc).isoformat()
+            }
+    
+    async def get_metrics(self) -> Dict[str, Any]:
+        """
+        Get collected metrics from adapter.
+        
+        Returns:
+            Dictionary with comprehensive metrics including:
+            - adapter_type: Adapter class name
+            - uptime_seconds: Time since initialization
+            - operations: Per-operation statistics
+            - connection: Connection metrics
+            - errors: Error statistics
+            - backend_specific: Adapter-specific metrics
+        """
+        base_metrics = await self.metrics.get_metrics()
+        
+        # Add adapter-specific information
+        base_metrics['adapter_type'] = self.__class__.__name__.replace('Adapter', '').lower()
+        
+        # Subclasses can override to add backend-specific metrics
+        backend_metrics = await self._get_backend_metrics()
+        if backend_metrics:
+            base_metrics['backend_specific'] = backend_metrics
+        
+        return base_metrics
+    
+    async def _get_backend_metrics(self) -> Optional[Dict[str, Any]]:
+        """
+        Override in subclasses to provide backend-specific metrics.
+        
+        Example for Qdrant:
+            return {
+                'vector_count': self.collection_info.points_count,
+                'collection_name': self.collection_name
+            }
+        """
+        return None
+    
+    async def export_metrics(self, format: str = 'dict') -> Union[Dict, str]:
+        """Export metrics in specified format."""
+        return await self.metrics.export_metrics(format)
+    
+    async def reset_metrics(self) -> None:
+        """Reset all collected metrics."""
+        await self.metrics.reset_metrics()
     
     async def __aenter__(self):
         """

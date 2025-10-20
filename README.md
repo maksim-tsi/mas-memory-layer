@@ -111,29 +111,146 @@ The repository is organized into a modular and decoupled structure:
 
 ```
 .
-├── memory_system.py          # The core UnifiedMemorySystem facade
-├── knowledge_store_manager.py # The facade for the persistent knowledge layer
+├── src/
+│   ├── storage/              # Storage layer with adapter pattern
+│   │   ├── base.py          # Base adapter interface
+│   │   ├── redis_adapter.py     # Redis (L1/L2 working memory)
+│   │   ├── qdrant_adapter.py    # Qdrant (vector embeddings)
+│   │   ├── neo4j_adapter.py     # Neo4j (graph relationships)
+│   │   ├── typesense_adapter.py # Typesense (full-text search)
+│   │   ├── postgres_adapter.py  # PostgreSQL (structured data)
+│   │   └── metrics/         # Metrics collection & observability
+│   │       ├── collector.py     # Main metrics collector
+│   │       ├── timer.py         # Operation timing
+│   │       ├── storage.py       # Metrics storage
+│   │       ├── aggregator.py    # Statistics aggregation
+│   │       └── exporters.py     # Export to JSON/CSV/Prometheus
+│   ├── memory/               # Memory layer components (planned)
+│   ├── agents/               # Agent implementations (planned)
+│   └── evaluation/           # Benchmark evaluation code (planned)
 |
-├── clients/
-│   ├── __init__.py
-│   ├── vector_store_client.py   # Qdrant client
-│   ├── graph_store_client.py    # Neo4j client
-│   └── search_store_client.py   # Meilisearch client
+├── tests/
+│   ├── storage/              # Storage layer tests
+│   │   ├── test_base.py         # Base adapter tests
+│   │   ├── test_metrics.py      # Metrics unit tests
+│   │   ├── test_*_metrics.py    # Adapter integration tests
+│   │   └── test_*.py            # Individual adapter tests
+│   └── benchmarks/           # Performance benchmarks
+│       └── bench_redis_adapter.py
 |
 ├── docs/
 │   ├── ADR/
-│   │   └── discussion-evaluation.md  # Benchmark strategy and rationale
-│   ├── uc-*.md                        # Use case specifications
-│   ├── sd-*.md                        # Sequence diagrams
-│   └── dd-*.md                        # Data dictionaries
+│   │   ├── discussion-evaluation.md    # Benchmark strategy
+│   │   └── 001-benchmarking-strategy.md
+│   ├── IAC/
+│   │   ├── database-setup.md           # Infrastructure setup
+│   │   └── connectivity-cheatsheet.md
+│   ├── reports/
+│   │   ├── code-review-priority-*.md   # Code reviews
+│   │   ├── metrics-*.md                # Metrics documentation
+│   │   └── implementation-*.md         # Progress reports
+│   ├── specs/
+│   │   └── spec-phase1-storage-layer.md
+│   ├── uc-*.md                         # Use case specifications
+│   ├── sd-*.md                         # Sequence diagrams
+│   ├── dd-*.md                         # Data dictionaries
+│   └── metrics_usage.md                # Metrics usage guide
 |
 ├── examples/
-│   └── logistics_simulation.py # A demo script showing the system in action
+│   ├── logistics_simulation.py    # Demo script
+│   └── metrics_demo.py            # Metrics demonstration
 |
-└── README.md
+├── scripts/
+│   ├── setup_database.sh          # Database initialization
+│   ├── run_tests.sh               # Test runner
+│   ├── run_smoke_tests.sh         # Connectivity tests
+│   ├── demo_health_check.py       # Health check demo
+│   └── verify_metrics_implementation.py
+|
+├── migrations/
+│   ├── 001_active_context.sql     # Database migrations
+│   └── README.md
+|
+├── DEVLOG.md                 # Development log & progress tracking
+└── README.md                 # This file
 ```
 
-## 6. Getting Started
+## 6. Current Implementation Status
+
+### Phase 1: Storage Layer ✅ Complete
+
+The foundational storage layer is fully implemented and production-ready:
+
+**Storage Adapters (All 4 Complete):**
+- ✅ **Redis Adapter** - High-speed working memory (L1/L2)
+- ✅ **Qdrant Adapter** - Vector embeddings & semantic search (L3)
+- ✅ **Neo4j Adapter** - Graph relationships & entity storage (L4)
+- ✅ **Typesense Adapter** - Full-text search & knowledge retrieval (L5)
+
+**Features:**
+- ✅ Unified adapter interface with consistent API
+- ✅ Async/await support throughout
+- ✅ Batch operations for high-performance scenarios
+- ✅ Health check endpoints for monitoring
+- ✅ **Comprehensive metrics & observability** (Grade: A+ 100/100)
+  - Operation timing and latency tracking (avg, min, max, percentiles)
+  - Success/failure rates with error tracking
+  - Throughput metrics (ops/sec, bytes/sec)
+  - Backend-specific metrics for each adapter
+  - Export to JSON, CSV, Prometheus, Markdown formats
+- ✅ Extensive test coverage (20+ tests passing)
+- ✅ Production-ready error handling
+- ✅ Complete documentation
+
+**Metrics & Observability:**
+
+All storage adapters are fully instrumented with comprehensive metrics collection:
+
+```python
+# Enable metrics on any adapter
+config = {
+    'uri': 'bolt://localhost:7687',
+    'metrics': {
+        'enabled': True,
+        'max_history': 1000,
+        'percentiles': [50, 95, 99]
+    }
+}
+
+adapter = Neo4jAdapter(config)
+
+# Metrics collected automatically
+await adapter.store(data)
+await adapter.search(query)
+
+# Get detailed metrics
+metrics = await adapter.get_metrics()
+print(f"Average latency: {metrics['operations']['store']['avg_latency_ms']}ms")
+print(f"Success rate: {metrics['operations']['store']['success_rate']*100}%")
+print(f"P95 latency: {metrics['operations']['store']['p95_latency_ms']}ms")
+
+# Export for monitoring systems
+prometheus_metrics = await adapter.export_metrics('prometheus')
+```
+
+See [`docs/metrics_usage.md`](docs/metrics_usage.md) for complete metrics documentation.
+
+### Phase 2: Memory Layer 🚧 Planned
+
+Next phase will implement the intelligent memory management layer:
+- Personal agent scratchpads
+- Shared workspace for collaboration
+- Information lifecycle management (CIAR/EPDL)
+- Knowledge distillation and consolidation
+
+### Phase 3: Evaluation Framework 🚧 Planned
+
+Implementation of GoodAI LTM Benchmark for validation:
+- Full hybrid system evaluation
+- Baseline comparisons (RAG, full-context)
+- Performance metrics and analysis
+
+## 7. Getting Started
 
 ### Prerequisites
 
@@ -182,50 +299,132 @@ pip install -r requirements.txt
 pip install -r requirements-test.txt
 ```
 
-### 4. Verify Infrastructure Connectivity
+### 4. Run Tests
+
+Verify the implementation with the comprehensive test suite:
+
+```bash
+# Run all storage layer tests
+./scripts/run_tests.sh
+
+# Run specific test categories
+pytest tests/storage/test_base.py -v           # Base adapter tests
+pytest tests/storage/test_metrics.py -v        # Metrics tests
+pytest tests/storage/test_redis_metrics.py -v  # Redis integration tests
+
+# Run with coverage
+pytest tests/storage/ --cov=src/storage --cov-report=html
+```
+
+### 5. Verify Infrastructure & Health
 
 ```bash
 # Run smoke tests to verify all services are accessible
 ./scripts/run_smoke_tests.sh --summary
+
+# Check health of all adapters
+python scripts/demo_health_check.py
 ```
 
-### 5. Run the Demonstration
-
-The `examples/logistics_simulation.py` script provides a concrete demonstration of the memory system in action, simulating the collaborative resolution of a supply chain disruption.
+### 6. Explore Metrics & Monitoring
 
 ```bash
-python examples/logistics_simulation.py
+# See metrics in action
+python examples/metrics_demo.py
+
+# Verify metrics implementation
+python scripts/verify_metrics_implementation.py
 ```
 
-## 7. How to Use
+### 7. Run the Demonstration (Coming Soon)
 
-The core of the system is the `UnifiedMemorySystem` class. An agent interacts with it through a simple and clean API.
+The `examples/logistics_simulation.py` script will provide a concrete demonstration of the memory system in action, simulating the collaborative resolution of a supply chain disruption.
+
+```bash
+# Coming in Phase 2
+# python examples/logistics_simulation.py
+```
+
+## 8. How to Use the Storage Layer
+
+The storage layer provides a clean, unified interface for all data persistence needs:
 
 ```python
-# 1. Initialize all clients and the unified system
-# (See examples/logistics_simulation.py for full setup)
-memory = UnifiedMemorySystem(redis_client, knowledge_manager)
+from src.storage.redis_adapter import RedisAdapter
+from src.storage.qdrant_adapter import QdrantAdapter
+from src.storage.neo4j_adapter import Neo4jAdapter
+from src.storage.typesense_adapter import TypesenseAdapter
 
-# 2. An agent uses its personal (short-term) memory
-agent_id = "port_agent_007"
-state = memory.get_personal_state(agent_id)
-state.scratchpad["congestion_level"] = 0.91
-memory.update_personal_state(state)
+# Initialize adapters with metrics enabled
+redis_config = {
+    'host': 'localhost',
+    'port': 6379,
+    'metrics': {'enabled': True}
+}
+redis = RedisAdapter(redis_config)
+await redis.connect()
 
-# 3. An agent queries the persistent (long-term) knowledge layer
-past_patterns = memory.query_knowledge(
-    store_type="vector",
-    query_text="Find similar congestion events from last quarter"
-)
+# Store data
+doc_id = await redis.store({'key': 'session:123', 'data': {'state': 'active'}})
 
-# 4. An agent queries the graph knowledge base
-vessel_info = memory.query_knowledge(
-    store_type="graph",
-    query_text="MATCH (v:Vessel {id: 'V-123'}) RETURN v.name, v.capacity"
-)
+# Retrieve data
+data = await redis.retrieve(doc_id)
+
+# Search/query
+results = await redis.search({'pattern': 'session:*'})
+
+# Batch operations for performance
+ids = await redis.store_batch([doc1, doc2, doc3])
+items = await redis.retrieve_batch(ids)
+
+# Health monitoring
+health = await redis.health_check()
+print(f"Status: {health['status']}, Latency: {health['latency_ms']}ms")
+
+# Get comprehensive metrics
+metrics = await redis.get_metrics()
+print(f"Operations: {metrics['operations']}")
+print(f"Backend stats: {metrics.get('backend_specific', {})}")
+
+# Export for monitoring systems
+await redis.export_metrics('prometheus')
+await redis.export_metrics('json')
 ```
 
-## 8. Development Guidelines
+**All adapters share the same interface:**
+- `connect()` / `disconnect()` - Connection management
+- `store(data)` - Store a single item
+- `retrieve(id)` - Retrieve by ID
+- `search(query)` - Query/search operations
+- `delete(id)` - Delete an item
+- `store_batch(items)` - Batch store
+- `retrieve_batch(ids)` - Batch retrieve
+- `delete_batch(ids)` - Batch delete
+- `health_check()` - Health status
+- `get_metrics()` - Retrieve metrics
+- `export_metrics(format)` - Export metrics
+
+## 9. How to Use (Future: Unified Memory System)
+
+Once Phase 2 is complete, the unified memory system will provide a higher-level abstraction:
+
+```python
+# Future API (Phase 2)
+# memory = UnifiedMemorySystem(redis_client, knowledge_manager)
+
+# Agent uses personal (short-term) memory
+# state = memory.get_personal_state(agent_id)
+# state.scratchpad["congestion_level"] = 0.91
+# memory.update_personal_state(state)
+
+# Agent queries persistent (long-term) knowledge
+# past_patterns = memory.query_knowledge(
+#     store_type="vector",
+#     query_text="Find similar congestion events"
+# )
+```
+
+## 10. Development Guidelines
 
 ### Contributing to this Project
 
