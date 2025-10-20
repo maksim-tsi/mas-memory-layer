@@ -7,8 +7,18 @@ for all backend storage services (PostgreSQL, Redis, Qdrant, Neo4j, Typesense).
 
 __version__ = "0.1.0"
 
-# Base interface will be imported here after Priority 1
-# from .base import StorageAdapter
+# Base interface
+from .base import (
+    StorageAdapter,
+    StorageError,
+    StorageConnectionError,
+    StorageQueryError,
+    StorageDataError,
+    StorageTimeoutError,
+    StorageNotFoundError,
+    validate_required_fields,
+    validate_field_types,
+)
 
 # Concrete adapters will be imported after their implementation
 # from .postgres_adapter import PostgresAdapter
@@ -18,7 +28,15 @@ __version__ = "0.1.0"
 # from .typesense_adapter import TypesenseAdapter
 
 __all__ = [
-    # "StorageAdapter",
+    "StorageAdapter",
+    "StorageError",
+    "StorageConnectionError",
+    "StorageQueryError",
+    "StorageDataError",
+    "StorageTimeoutError",
+    "StorageNotFoundError",
+    "validate_required_fields",
+    "validate_field_types",
     # "PostgresAdapter",
     # "RedisAdapter",
     # "QdrantAdapter",
