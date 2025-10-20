@@ -1,0 +1,19 @@
+# Small Workload Configuration
+# Quick test for development and validation
+
+name: small
+size: 1000
+seed: 42
+
+# Operation distribution across storage layers
+distribution:
+  redis_l1: 0.40      # 40% - L1 hot cache
+  redis_l2: 0.30      # 30% - L2 warm cache
+  qdrant: 0.15        # 15% - L3 semantic search
+  neo4j: 0.10         # 10% - L3 graph traversal
+  typesense: 0.05     # 5%  - L3 full-text search
+
+# Expected runtime: ~1-2 minutes
+description: |
+  Small workload for quick testing and validation.
+  Suitable for development and CI/CD pipelines.

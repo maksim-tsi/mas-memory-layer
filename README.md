@@ -71,17 +71,51 @@ graph TD
 
 ## 4. Evaluation & Benchmarking
 
-To rigorously validate the performance of our hybrid memory architecture, we are conducting a comprehensive benchmark evaluation using the **GoodAI LTM (Long-Term Memory) Benchmark**. This benchmark is specifically designed to test the temporal dynamics and information lifecycle management of memory systems across long-running conversations.
+To rigorously validate the performance of our hybrid memory architecture, we employ a multi-faceted benchmarking strategy at both the storage and system levels.
 
-### Benchmark Approach
+### 4.1 Storage Layer Performance Benchmarks ✅ Implemented
 
-Our evaluation strategy compares three distinct system configurations:
+We have implemented a comprehensive micro-benchmark suite that measures the performance characteristics of all storage adapters in isolation. This validates our architectural hypothesis that specialized storage backends provide superior performance for their designated use cases.
+
+**Benchmark Approach:**
+- **Synthetic Workload Generation**: Realistic operation patterns matching production memory access (40% L1 cache, 30% L2 cache, 30% L3 specialized storage)
+- **Direct Metrics Collection**: Leverages existing metrics infrastructure with no additional instrumentation overhead
+- **Publication-Ready Output**: Generates markdown tables for research papers and reports
+
+**Measured Metrics:**
+- Latency distributions (average, P50, P95, P99)
+- Throughput (operations per second)
+- Reliability (success rates, error rates)
+- Backend-specific performance characteristics
+
+**Quick Start:**
+```bash
+# Run default benchmark (10,000 operations)
+source .venv/bin/activate
+python scripts/run_storage_benchmark.py
+
+# Run quick test (1,000 operations)
+python scripts/run_storage_benchmark.py run --size 1000
+
+# Analyze results and generate tables
+python scripts/run_storage_benchmark.py analyze
+```
+
+See [`benchmarks/README.md`](benchmarks/README.md) for complete documentation and [`docs/ADR/002-storage-performance-benchmarking.md`](docs/ADR/002-storage-performance-benchmarking.md) for architectural rationale.
+
+### 4.2 System-Level Benchmarks 🚧 Planned
+
+For end-to-end system evaluation, we will use the **GoodAI LTM (Long-Term Memory) Benchmark**, which tests temporal dynamics and information lifecycle management across long-running conversations.
+
+**Evaluation Strategy:**
+
+Three distinct system configurations will be compared:
 
 1. **Full Hybrid System:** Our complete architecture utilizing both Operating Memory (L1/L2) and Persistent Knowledge Layer (L3) with intelligent consolidation.
 2. **Standard RAG Baseline:** A conventional single-layer RAG agent using only vector search without tiered memory management.
 3. **Full-Context Baseline:** A naive approach that passes the entire conversation history to the LLM on every turn, establishing an upper bound for accuracy but demonstrating severe efficiency limitations.
 
-The benchmark tests measure two critical dimensions:
+**Measured Dimensions:**
 - **Functional Correctness:** Accuracy in retrieving and synthesizing information from long conversation histories
 - **Operational Efficiency:** Latency, token cost, and cache hit rates across different memory span sizes (32k and 120k tokens)
 
@@ -136,12 +170,30 @@ The repository is organized into a modular and decoupled structure:
 │   │   ├── test_*_metrics.py    # Adapter integration tests
 │   │   └── test_*.py            # Individual adapter tests
 │   └── benchmarks/           # Performance benchmarks
-│       └── bench_redis_adapter.py
+│       ├── bench_redis_adapter.py
+│       ├── bench_storage_adapters.py  # Multi-adapter benchmark runner
+│       ├── workload_generator.py      # Synthetic workload generator
+│       └── results_analyzer.py        # Results analysis & tables
+|
+├── benchmarks/
+│   ├── configs/
+│   │   ├── workload_small.yaml         # 1K ops benchmark config
+│   │   ├── workload_medium.yaml        # 10K ops (default)
+│   │   └── workload_large.yaml         # 100K ops stress test
+│   ├── results/
+│   │   ├── raw/                        # JSON metrics output
+│   │   └── processed/                  # Summary statistics
+│   ├── reports/
+│   │   ├── tables/                     # Publication-ready tables
+│   │   └── figures/                    # Optional visualizations
+│   ├── README.md                       # Benchmark documentation
+│   └── QUICK_REFERENCE.md              # Quick command reference
 |
 ├── docs/
 │   ├── ADR/
-│   │   ├── discussion-evaluation.md    # Benchmark strategy
-│   │   └── 001-benchmarking-strategy.md
+│   │   ├── discussion-evaluation.md    # System benchmark strategy
+│   │   ├── 001-benchmarking-strategy.md
+│   │   └── 002-storage-performance-benchmarking.md  # Storage micro-benchmarks
 │   ├── IAC/
 │   │   ├── database-setup.md           # Infrastructure setup
 │   │   └── connectivity-cheatsheet.md
@@ -165,14 +217,16 @@ The repository is organized into a modular and decoupled structure:
 │   ├── run_tests.sh               # Test runner
 │   ├── run_smoke_tests.sh         # Connectivity tests
 │   ├── demo_health_check.py       # Health check demo
+│   ├── run_storage_benchmark.py   # Storage performance benchmarks
 │   └── verify_metrics_implementation.py
 |
 ├── migrations/
 │   ├── 001_active_context.sql     # Database migrations
 │   └── README.md
 |
-├── DEVLOG.md                 # Development log & progress tracking
-└── README.md                 # This file
+├── BENCHMARK_IMPLEMENTATION.md   # Storage benchmark suite summary
+├── DEVLOG.md                     # Development log & progress tracking
+└── README.md                     # This file
 ```
 
 ## 6. Current Implementation Status
@@ -336,7 +390,35 @@ python examples/metrics_demo.py
 python scripts/verify_metrics_implementation.py
 ```
 
-### 7. Run the Demonstration (Coming Soon)
+### 7. Run Storage Performance Benchmarks
+
+Validate storage layer performance with comprehensive micro-benchmarks:
+
+```bash
+# Run default benchmark (10K operations, ~5-10 minutes)
+python scripts/run_storage_benchmark.py
+
+# Quick test (1K operations, ~1-2 minutes)
+python scripts/run_storage_benchmark.py run --size 1000
+
+# Stress test (100K operations, ~30-60 minutes)
+python scripts/run_storage_benchmark.py run --size 100000
+
+# Benchmark specific adapters
+python scripts/run_storage_benchmark.py run --adapters redis_l1 redis_l2
+
+# Analyze results and generate publication tables
+python scripts/run_storage_benchmark.py analyze
+```
+
+Results are saved to:
+- **Raw metrics**: `benchmarks/results/raw/benchmark_TIMESTAMP.json`
+- **Tables**: `benchmarks/reports/tables/latency_throughput_TIMESTAMP.md`
+- **Summary**: `benchmarks/results/processed/summary_TIMESTAMP.json`
+
+See [`benchmarks/README.md`](benchmarks/README.md) and [`benchmarks/QUICK_REFERENCE.md`](benchmarks/QUICK_REFERENCE.md) for complete documentation.
+
+### 8. Run the Demonstration (Coming Soon)
 
 The `examples/logistics_simulation.py` script will provide a concrete demonstration of the memory system in action, simulating the collaborative resolution of a supply chain disruption.
 

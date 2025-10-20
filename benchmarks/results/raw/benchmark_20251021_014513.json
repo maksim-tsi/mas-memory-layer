@@ -1,0 +1,687 @@
+{
+  "benchmark_config": {
+    "workload_size": 1000,
+    "workload_seed": 42,
+    "timestamp": "2025-10-21T01:45:12.295675",
+    "adapters": [
+      "redis_l1",
+      "redis_l2",
+      "qdrant",
+      "neo4j",
+      "typesense"
+    ]
+  },
+  "adapters": {
+    "redis_l1": {
+      "total_operations": 407,
+      "success_count": 407,
+      "error_count": 0,
+      "success_rate": 1.0,
+      "metrics": {
+        "uptime_seconds": 0.4,
+        "timestamp": "2025-10-20T22:45:12.394284+00:00",
+        "operations": {
+          "search": {
+            "total_count": 150,
+            "success_count": 150,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.11,
+              "max": 0.53,
+              "avg": 0.22,
+              "p50": 0.21,
+              "p95": 0.29,
+              "p99": 0.33
+            },
+            "throughput": {
+              "ops_per_sec": 2.5
+            }
+          },
+          "store": {
+            "total_count": 105,
+            "success_count": 105,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.22,
+              "max": 0.76,
+              "avg": 0.3,
+              "p50": 0.29,
+              "p95": 0.4,
+              "p99": 0.49
+            },
+            "throughput": {
+              "ops_per_sec": 1.75
+            }
+          },
+          "retrieve": {
+            "total_count": 112,
+            "success_count": 112,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.11,
+              "max": 0.93,
+              "avg": 0.17,
+              "p50": 0.16,
+              "p95": 0.21,
+              "p99": 0.23
+            },
+            "throughput": {
+              "ops_per_sec": 1.87
+            }
+          },
+          "delete": {
+            "total_count": 40,
+            "success_count": 40,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.11,
+              "max": 0.2,
+              "avg": 0.16,
+              "p50": 0.15,
+              "p95": 0.19,
+              "p99": 0.2
+            },
+            "throughput": {
+              "ops_per_sec": 0.67
+            }
+          }
+        },
+        "connection": {},
+        "errors": {
+          "by_type": {},
+          "recent_errors": []
+        }
+      },
+      "status": "completed"
+    },
+    "redis_l2": {
+      "total_operations": 298,
+      "success_count": 298,
+      "error_count": 0,
+      "success_rate": 1.0,
+      "metrics": {
+        "uptime_seconds": 0.47,
+        "timestamp": "2025-10-20T22:45:12.462111+00:00",
+        "operations": {
+          "store": {
+            "total_count": 78,
+            "success_count": 78,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.22,
+              "max": 0.38,
+              "avg": 0.28,
+              "p50": 0.27,
+              "p95": 0.33,
+              "p99": 0.36
+            },
+            "throughput": {
+              "ops_per_sec": 1.3
+            }
+          },
+          "search": {
+            "total_count": 99,
+            "success_count": 99,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.11,
+              "max": 0.36,
+              "avg": 0.21,
+              "p50": 0.21,
+              "p95": 0.28,
+              "p99": 0.3
+            },
+            "throughput": {
+              "ops_per_sec": 1.65
+            }
+          },
+          "delete": {
+            "total_count": 38,
+            "success_count": 38,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.11,
+              "max": 0.22,
+              "avg": 0.15,
+              "p50": 0.15,
+              "p95": 0.19,
+              "p99": 0.21
+            },
+            "throughput": {
+              "ops_per_sec": 0.63
+            }
+          },
+          "retrieve": {
+            "total_count": 83,
+            "success_count": 83,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.11,
+              "max": 0.7,
+              "avg": 0.16,
+              "p50": 0.15,
+              "p95": 0.2,
+              "p99": 0.33
+            },
+            "throughput": {
+              "ops_per_sec": 1.38
+            }
+          }
+        },
+        "connection": {},
+        "errors": {
+          "by_type": {},
+          "recent_errors": []
+        }
+      },
+      "status": "completed"
+    },
+    "qdrant": {
+      "total_operations": 169,
+      "success_count": 102,
+      "error_count": 67,
+      "success_rate": 0.6035502958579881,
+      "metrics": {
+        "uptime_seconds": 0.82,
+        "timestamp": "2025-10-20T22:45:12.809496+00:00",
+        "operations": {
+          "connect": {
+            "total_count": 1,
+            "success_count": 1,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 158.58,
+              "max": 158.58,
+              "avg": 158.58,
+              "p50": 158.58,
+              "p95": 158.58,
+              "p99": 158.58
+            },
+            "throughput": {
+              "ops_per_sec": 0.02
+            }
+          },
+          "store": {
+            "total_count": 44,
+            "success_count": 0,
+            "error_count": 44,
+            "success_rate": 0.0,
+            "latency_ms": {
+              "min": 0.0,
+              "max": 0.02,
+              "avg": 0.0,
+              "p50": 0.0,
+              "p95": 0.01,
+              "p99": 0.02
+            },
+            "throughput": {
+              "ops_per_sec": 0.73
+            }
+          },
+          "search": {
+            "total_count": 60,
+            "success_count": 37,
+            "error_count": 23,
+            "success_rate": 0.6166666666666667,
+            "latency_ms": {
+              "min": 0.25,
+              "max": 7.99,
+              "avg": 2.36,
+              "p50": 3.11,
+              "p95": 4.06,
+              "p99": 5.7
+            },
+            "throughput": {
+              "ops_per_sec": 1.0
+            }
+          },
+          "retrieve": {
+            "total_count": 49,
+            "success_count": 49,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 2.11,
+              "max": 4.11,
+              "avg": 2.81,
+              "p50": 2.81,
+              "p95": 3.56,
+              "p99": 4.0
+            },
+            "throughput": {
+              "ops_per_sec": 0.82
+            }
+          },
+          "delete": {
+            "total_count": 16,
+            "success_count": 16,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 2.71,
+              "max": 5.0,
+              "avg": 3.9,
+              "p50": 3.81,
+              "p95": 4.85,
+              "p99": 4.97
+            },
+            "throughput": {
+              "ops_per_sec": 0.27
+            }
+          }
+        },
+        "connection": {},
+        "errors": {
+          "by_type": {
+            "StorageDataError": 44,
+            "StorageQueryError": 23
+          },
+          "recent_errors": [
+            {
+              "timestamp": "2025-10-20T22:45:12.763653+00:00",
+              "type": "StorageQueryError",
+              "operation": "search",
+              "message": "Failed to search Qdrant: 'NoneType' object has no attribute 'items'"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:12.771305+00:00",
+              "type": "StorageDataError",
+              "operation": "store",
+              "message": "Missing required fields: content"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:12.775661+00:00",
+              "type": "StorageQueryError",
+              "operation": "search",
+              "message": "Failed to search Qdrant: 'NoneType' object has no attribute 'items'"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:12.775706+00:00",
+              "type": "StorageDataError",
+              "operation": "store",
+              "message": "Missing required fields: content"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:12.786047+00:00",
+              "type": "StorageQueryError",
+              "operation": "search",
+              "message": "Failed to search Qdrant: 'NoneType' object has no attribute 'items'"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:12.794607+00:00",
+              "type": "StorageQueryError",
+              "operation": "search",
+              "message": "Failed to search Qdrant: 'NoneType' object has no attribute 'items'"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:12.794653+00:00",
+              "type": "StorageDataError",
+              "operation": "store",
+              "message": "Missing required fields: content"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:12.795080+00:00",
+              "type": "StorageQueryError",
+              "operation": "search",
+              "message": "Failed to search Qdrant: 'NoneType' object has no attribute 'items'"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:12.806232+00:00",
+              "type": "StorageDataError",
+              "operation": "store",
+              "message": "Missing required fields: content"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:12.809112+00:00",
+              "type": "StorageDataError",
+              "operation": "store",
+              "message": "Missing required fields: content"
+            }
+          ]
+        }
+      },
+      "status": "completed"
+    },
+    "neo4j": {
+      "total_operations": 75,
+      "success_count": 64,
+      "error_count": 11,
+      "success_rate": 0.8533333333333334,
+      "metrics": {
+        "uptime_seconds": 1.43,
+        "timestamp": "2025-10-20T22:45:13.583653+00:00",
+        "operations": {
+          "connect": {
+            "total_count": 1,
+            "success_count": 1,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 25.85,
+              "max": 25.85,
+              "avg": 25.85,
+              "p50": 25.85,
+              "p95": 25.85,
+              "p99": 25.85
+            },
+            "throughput": {
+              "ops_per_sec": 0.02
+            }
+          },
+          "search": {
+            "total_count": 27,
+            "success_count": 27,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 3.13,
+              "max": 88.56,
+              "avg": 12.76,
+              "p50": 4.6,
+              "p95": 45.4,
+              "p99": 77.76
+            },
+            "throughput": {
+              "ops_per_sec": 0.45
+            }
+          },
+          "store": {
+            "total_count": 17,
+            "success_count": 6,
+            "error_count": 11,
+            "success_rate": 0.35294117647058826,
+            "latency_ms": {
+              "min": 1.71,
+              "max": 64.55,
+              "avg": 15.43,
+              "p50": 1.81,
+              "p95": 60.2,
+              "p99": 63.68
+            },
+            "throughput": {
+              "ops_per_sec": 0.28
+            }
+          },
+          "retrieve": {
+            "total_count": 23,
+            "success_count": 23,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 3.35,
+              "max": 34.1,
+              "avg": 5.51,
+              "p50": 4.03,
+              "p95": 7.56,
+              "p99": 28.32
+            },
+            "throughput": {
+              "ops_per_sec": 0.38
+            }
+          },
+          "delete": {
+            "total_count": 8,
+            "success_count": 8,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 3.34,
+              "max": 4.74,
+              "avg": 4.15,
+              "p50": 4.28,
+              "p95": 4.63,
+              "p99": 4.71
+            },
+            "throughput": {
+              "ops_per_sec": 0.13
+            }
+          }
+        },
+        "connection": {},
+        "errors": {
+          "by_type": {
+            "StorageQueryError": 11
+          },
+          "recent_errors": [
+            {
+              "timestamp": "2025-10-20T22:45:13.054534+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Missing required fields: from, to, relationship"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.074401+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Missing required fields: from, to, relationship"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.094635+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Missing required fields: from, to, relationship"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.105793+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Missing required fields: from, to, relationship"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.259065+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Missing required fields: from, to, relationship"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.298456+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Missing required fields: from, to, relationship"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.366055+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Missing required fields: from, to, relationship"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.375686+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Missing required fields: from, to, relationship"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.393659+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Missing required fields: from, to, relationship"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.463027+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Missing required fields: from, to, relationship"
+            }
+          ]
+        }
+      },
+      "status": "completed"
+    },
+    "typesense": {
+      "total_operations": 51,
+      "success_count": 21,
+      "error_count": 30,
+      "success_rate": 0.4117647058823529,
+      "metrics": {
+        "uptime_seconds": 1.54,
+        "timestamp": "2025-10-20T22:45:13.720245+00:00",
+        "operations": {
+          "connect": {
+            "total_count": 1,
+            "success_count": 1,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 52.97,
+              "max": 52.97,
+              "avg": 52.97,
+              "p50": 52.97,
+              "p95": 52.97,
+              "p99": 52.97
+            },
+            "throughput": {
+              "ops_per_sec": 0.02
+            }
+          },
+          "store": {
+            "total_count": 11,
+            "success_count": 0,
+            "error_count": 11,
+            "success_rate": 0.0,
+            "latency_ms": {
+              "min": 2.91,
+              "max": 5.65,
+              "avg": 4.16,
+              "p50": 3.99,
+              "p95": 5.49,
+              "p99": 5.62
+            },
+            "throughput": {
+              "ops_per_sec": 0.18
+            }
+          },
+          "retrieve": {
+            "total_count": 19,
+            "success_count": 19,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 1.29,
+              "max": 4.43,
+              "avg": 1.96,
+              "p50": 1.91,
+              "p95": 2.51,
+              "p99": 4.05
+            },
+            "throughput": {
+              "ops_per_sec": 0.32
+            }
+          },
+          "delete": {
+            "total_count": 2,
+            "success_count": 2,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 2.55,
+              "max": 3.4,
+              "avg": 2.98,
+              "p50": 2.98,
+              "p95": 3.36,
+              "p99": 3.39
+            },
+            "throughput": {
+              "ops_per_sec": 0.03
+            }
+          },
+          "search": {
+            "total_count": 19,
+            "success_count": 0,
+            "error_count": 19,
+            "success_rate": 0.0,
+            "latency_ms": {
+              "min": 1.82,
+              "max": 2.88,
+              "avg": 2.37,
+              "p50": 2.36,
+              "p95": 2.86,
+              "p99": 2.88
+            },
+            "throughput": {
+              "ops_per_sec": 0.32
+            }
+          }
+        },
+        "connection": {},
+        "errors": {
+          "by_type": {
+            "StorageQueryError": 30
+          },
+          "recent_errors": [
+            {
+              "timestamp": "2025-10-20T22:45:13.678173+00:00",
+              "type": "StorageQueryError",
+              "operation": "search",
+              "message": "Search failed: Client error '404 Not Found' for url 'http://192.168.107.187:8108/collections/benchmark_documents/documents/search?q=oeaaudtno+qbqurqicni+pyvxnhlviegz+exqhiivkkxtp+jzhf&query_by=content%2Ctitle&per_page=10&filter_by='\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.680808+00:00",
+              "type": "StorageQueryError",
+              "operation": "search",
+              "message": "Search failed: Client error '404 Not Found' for url 'http://192.168.107.187:8108/collections/benchmark_documents/documents/search?q=mmdzbomwqn+hjmiiqtsqe&query_by=content%2Ctitle&per_page=10&filter_by=session_id%3A%3Dsession-9'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.684764+00:00",
+              "type": "StorageQueryError",
+              "operation": "search",
+              "message": "Search failed: Client error '404 Not Found' for url 'http://192.168.107.187:8108/collections/benchmark_documents/documents/search?q=zuetlm&query_by=content%2Ctitle&per_page=10&filter_by=session_id%3A%3Dsession-0'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.692187+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Client error '404 Not Found' for url 'http://192.168.107.187:8108/collections/benchmark_documents/documents'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.701800+00:00",
+              "type": "StorageQueryError",
+              "operation": "search",
+              "message": "Search failed: Client error '404 Not Found' for url 'http://192.168.107.187:8108/collections/benchmark_documents/documents/search?q=ndsekjtja+tazsq+apfdxtdyzx+pnif&query_by=content%2Ctitle&per_page=10&filter_by=session_id%3A%3Dsession-5'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.704697+00:00",
+              "type": "StorageQueryError",
+              "operation": "search",
+              "message": "Search failed: Client error '404 Not Found' for url 'http://192.168.107.187:8108/collections/benchmark_documents/documents/search?q=fveml&query_by=content%2Ctitle&per_page=10&filter_by=session_id%3A%3Dsession-1'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.707623+00:00",
+              "type": "StorageQueryError",
+              "operation": "search",
+              "message": "Search failed: Client error '404 Not Found' for url 'http://192.168.107.187:8108/collections/benchmark_documents/documents/search?q=cxrjj&query_by=content%2Ctitle&per_page=10&filter_by='\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.712276+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Client error '404 Not Found' for url 'http://192.168.107.187:8108/collections/benchmark_documents/documents'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.714675+00:00",
+              "type": "StorageQueryError",
+              "operation": "search",
+              "message": "Search failed: Client error '404 Not Found' for url 'http://192.168.107.187:8108/collections/benchmark_documents/documents/search?q=jhvts+ijcyji&query_by=content%2Ctitle&per_page=10&filter_by='\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404"
+            },
+            {
+              "timestamp": "2025-10-20T22:45:13.720047+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Client error '404 Not Found' for url 'http://192.168.107.187:8108/collections/benchmark_documents/documents'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404"
+            }
+          ]
+        }
+      },
+      "status": "completed"
+    }
+  }
+}

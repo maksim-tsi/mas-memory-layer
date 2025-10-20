@@ -300,7 +300,7 @@ class QdrantAdapter(StorageAdapter):
                 
                 # Build filter if provided
                 search_filter = None
-                if 'filter' in query:
+                if 'filter' in query and query['filter'] is not None:
                     must_conditions = []
                     for field, value in query['filter'].items():
                         must_conditions.append(

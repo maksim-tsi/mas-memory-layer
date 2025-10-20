@@ -1,0 +1,111 @@
+{
+  "benchmark_info": {
+    "workload_size": 1000,
+    "workload_seed": 42,
+    "timestamp": "2025-10-21T01:45:12.295675",
+    "adapters": [
+      "redis_l1",
+      "redis_l2",
+      "qdrant",
+      "neo4j",
+      "typesense"
+    ]
+  },
+  "adapters": {
+    "redis_l1": {
+      "status": "completed",
+      "operations": {
+        "total": 407,
+        "success": 407,
+        "errors": 0,
+        "success_rate": 1.0
+      },
+      "performance": {
+        "avg_latency_ms": 0.0,
+        "p50_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "p99_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "throughput_ops_sec": 0.0
+      },
+      "backend_metrics": {}
+    },
+    "redis_l2": {
+      "status": "completed",
+      "operations": {
+        "total": 298,
+        "success": 298,
+        "errors": 0,
+        "success_rate": 1.0
+      },
+      "performance": {
+        "avg_latency_ms": 0.0,
+        "p50_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "p99_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "throughput_ops_sec": 0.0
+      },
+      "backend_metrics": {}
+    },
+    "qdrant": {
+      "status": "completed",
+      "operations": {
+        "total": 169,
+        "success": 102,
+        "errors": 67,
+        "success_rate": 0.6035502958579881
+      },
+      "performance": {
+        "avg_latency_ms": 0.0,
+        "p50_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "p99_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "throughput_ops_sec": 0.0
+      },
+      "backend_metrics": {}
+    },
+    "neo4j": {
+      "status": "completed",
+      "operations": {
+        "total": 75,
+        "success": 64,
+        "errors": 11,
+        "success_rate": 0.8533333333333334
+      },
+      "performance": {
+        "avg_latency_ms": 0.0,
+        "p50_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "p99_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "throughput_ops_sec": 0.0
+      },
+      "backend_metrics": {}
+    },
+    "typesense": {
+      "status": "completed",
+      "operations": {
+        "total": 51,
+        "success": 21,
+        "errors": 30,
+        "success_rate": 0.4117647058823529
+      },
+      "performance": {
+        "avg_latency_ms": 0.0,
+        "p50_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "p99_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "throughput_ops_sec": 0.0
+      },
+      "backend_metrics": {}
+    }
+  }
+}

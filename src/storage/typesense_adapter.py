@@ -87,6 +87,25 @@ class TypesenseAdapter(StorageAdapter):
         
         logger.info(f"TypesenseAdapter initialized (collection: {self.collection_name})")
     
+    def _get_default_schema(self) -> Dict[str, Any]:
+        """
+        Get default schema for auto-creating collection.
+        
+        Provides a flexible schema that works for benchmark and general use cases.
+        """
+        return {
+            'name': self.collection_name,
+            'fields': [
+                {'name': 'id', 'type': 'string'},
+                {'name': 'content', 'type': 'string'},
+                {'name': 'session_id', 'type': 'string', 'facet': True, 'optional': True},
+                {'name': 'title', 'type': 'string', 'optional': True},
+                {'name': 'timestamp', 'type': 'int64', 'optional': True},
+                {'name': 'fact_type', 'type': 'string', 'facet': True, 'optional': True},
+                {'name': 'created_at', 'type': 'int64', 'optional': True}
+            ]
+        }
+    
     async def connect(self) -> None:
         """Connect to Typesense and ensure collection exists"""
         async with OperationTimer(self.metrics, 'connect'):
@@ -104,11 +123,12 @@ class TypesenseAdapter(StorageAdapter):
                     f"{self.url}/collections/{self.collection_name}"
                 )
                 
-                if response.status_code == 404 and self.schema:
-                    # Create collection
+                if response.status_code == 404:
+                    # Create collection with provided schema or default
+                    schema_to_use = self.schema or self._get_default_schema()
                     response = await self.client.post(
                         f"{self.url}/collections",
-                        json=self.schema
+                        json=schema_to_use
                     )
                     response.raise_for_status()
                     logger.info(f"Created collection: {self.collection_name}")

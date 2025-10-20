@@ -1,0 +1,624 @@
+{
+  "benchmark_config": {
+    "workload_size": 1000,
+    "workload_seed": 42,
+    "timestamp": "2025-10-21T02:02:45.313135",
+    "adapters": [
+      "redis_l1",
+      "redis_l2",
+      "qdrant",
+      "neo4j",
+      "typesense"
+    ]
+  },
+  "adapters": {
+    "redis_l1": {
+      "total_operations": 394,
+      "success_count": 394,
+      "error_count": 0,
+      "success_rate": 1.0,
+      "metrics": {
+        "uptime_seconds": 0.3,
+        "timestamp": "2025-10-20T23:02:45.416457+00:00",
+        "operations": {
+          "search": {
+            "total_count": 140,
+            "success_count": 140,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.21,
+              "max": 0.52,
+              "avg": 0.28,
+              "p50": 0.27,
+              "p95": 0.36,
+              "p99": 0.43
+            },
+            "throughput": {
+              "ops_per_sec": 2.33
+            }
+          },
+          "store": {
+            "total_count": 98,
+            "success_count": 98,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.22,
+              "max": 0.65,
+              "avg": 0.29,
+              "p50": 0.29,
+              "p95": 0.34,
+              "p99": 0.46
+            },
+            "throughput": {
+              "ops_per_sec": 1.63
+            }
+          },
+          "retrieve": {
+            "total_count": 114,
+            "success_count": 114,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.12,
+              "max": 0.3,
+              "avg": 0.17,
+              "p50": 0.17,
+              "p95": 0.21,
+              "p99": 0.25
+            },
+            "throughput": {
+              "ops_per_sec": 1.9
+            }
+          },
+          "delete": {
+            "total_count": 42,
+            "success_count": 42,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.12,
+              "max": 0.22,
+              "avg": 0.16,
+              "p50": 0.16,
+              "p95": 0.21,
+              "p99": 0.21
+            },
+            "throughput": {
+              "ops_per_sec": 0.7
+            }
+          }
+        },
+        "connection": {},
+        "errors": {
+          "by_type": {},
+          "recent_errors": []
+        }
+      },
+      "status": "completed"
+    },
+    "redis_l2": {
+      "total_operations": 299,
+      "success_count": 299,
+      "error_count": 0,
+      "success_rate": 1.0,
+      "metrics": {
+        "uptime_seconds": 0.38,
+        "timestamp": "2025-10-20T23:02:45.497325+00:00",
+        "operations": {
+          "store": {
+            "total_count": 79,
+            "success_count": 79,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.22,
+              "max": 0.6,
+              "avg": 0.3,
+              "p50": 0.29,
+              "p95": 0.38,
+              "p99": 0.5
+            },
+            "throughput": {
+              "ops_per_sec": 1.32
+            }
+          },
+          "search": {
+            "total_count": 107,
+            "success_count": 107,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.17,
+              "max": 0.52,
+              "avg": 0.3,
+              "p50": 0.28,
+              "p95": 0.46,
+              "p99": 0.51
+            },
+            "throughput": {
+              "ops_per_sec": 1.78
+            }
+          },
+          "delete": {
+            "total_count": 34,
+            "success_count": 34,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.11,
+              "max": 0.19,
+              "avg": 0.16,
+              "p50": 0.16,
+              "p95": 0.18,
+              "p99": 0.19
+            },
+            "throughput": {
+              "ops_per_sec": 0.57
+            }
+          },
+          "retrieve": {
+            "total_count": 79,
+            "success_count": 79,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 0.11,
+              "max": 0.3,
+              "avg": 0.16,
+              "p50": 0.16,
+              "p95": 0.21,
+              "p99": 0.23
+            },
+            "throughput": {
+              "ops_per_sec": 1.32
+            }
+          }
+        },
+        "connection": {},
+        "errors": {
+          "by_type": {},
+          "recent_errors": []
+        }
+      },
+      "status": "completed"
+    },
+    "qdrant": {
+      "total_operations": 150,
+      "success_count": 86,
+      "error_count": 64,
+      "success_rate": 0.5733333333333334,
+      "metrics": {
+        "uptime_seconds": 0.65,
+        "timestamp": "2025-10-20T23:02:45.770040+00:00",
+        "operations": {
+          "connect": {
+            "total_count": 1,
+            "success_count": 1,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 82.94,
+              "max": 82.94,
+              "avg": 82.94,
+              "p50": 82.94,
+              "p95": 82.94,
+              "p99": 82.94
+            },
+            "throughput": {
+              "ops_per_sec": 0.02
+            }
+          },
+          "store": {
+            "total_count": 35,
+            "success_count": 0,
+            "error_count": 35,
+            "success_rate": 0.0,
+            "latency_ms": {
+              "min": 0.0,
+              "max": 0.02,
+              "avg": 0.0,
+              "p50": 0.0,
+              "p95": 0.01,
+              "p99": 0.02
+            },
+            "throughput": {
+              "ops_per_sec": 0.58
+            }
+          },
+          "search": {
+            "total_count": 55,
+            "success_count": 26,
+            "error_count": 29,
+            "success_rate": 0.4727272727272727,
+            "latency_ms": {
+              "min": 0.27,
+              "max": 5.7,
+              "avg": 1.73,
+              "p50": 0.43,
+              "p95": 3.74,
+              "p99": 4.78
+            },
+            "throughput": {
+              "ops_per_sec": 0.92
+            }
+          },
+          "retrieve": {
+            "total_count": 53,
+            "success_count": 53,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 2.2,
+              "max": 4.12,
+              "avg": 2.65,
+              "p50": 2.47,
+              "p95": 3.4,
+              "p99": 3.84
+            },
+            "throughput": {
+              "ops_per_sec": 0.88
+            }
+          },
+          "delete": {
+            "total_count": 7,
+            "success_count": 7,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 2.91,
+              "max": 11.68,
+              "avg": 4.62,
+              "p50": 3.47,
+              "p95": 9.44,
+              "p99": 11.23
+            },
+            "throughput": {
+              "ops_per_sec": 0.12
+            }
+          }
+        },
+        "connection": {},
+        "errors": {
+          "by_type": {
+            "StorageDataError": 35,
+            "StorageQueryError": 29
+          },
+          "recent_errors": [
+            {
+              "timestamp": "2025-10-20T23:02:45.752363+00:00",
+              "type": "StorageQueryError",
+              "operation": "search",
+              "message": "Failed to search Qdrant: 'NoneType' object has no attribute 'items'"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:45.757177+00:00",
+              "type": "StorageDataError",
+              "operation": "store",
+              "message": "Missing required fields: content"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:45.757197+00:00",
+              "type": "StorageDataError",
+              "operation": "store",
+              "message": "Missing required fields: content"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:45.759830+00:00",
+              "type": "StorageQueryError",
+              "operation": "search",
+              "message": "Failed to search Qdrant: 'NoneType' object has no attribute 'items'"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:45.759869+00:00",
+              "type": "StorageDataError",
+              "operation": "store",
+              "message": "Missing required fields: content"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:45.764688+00:00",
+              "type": "StorageDataError",
+              "operation": "store",
+              "message": "Missing required fields: content"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:45.765042+00:00",
+              "type": "StorageQueryError",
+              "operation": "search",
+              "message": "Failed to search Qdrant: 'NoneType' object has no attribute 'items'"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:45.767440+00:00",
+              "type": "StorageDataError",
+              "operation": "store",
+              "message": "Missing required fields: content"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:45.767460+00:00",
+              "type": "StorageDataError",
+              "operation": "store",
+              "message": "Missing required fields: content"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:45.769729+00:00",
+              "type": "StorageDataError",
+              "operation": "store",
+              "message": "Missing required fields: content"
+            }
+          ]
+        }
+      },
+      "status": "completed"
+    },
+    "neo4j": {
+      "total_operations": 103,
+      "success_count": 88,
+      "error_count": 15,
+      "success_rate": 0.8543689320388349,
+      "metrics": {
+        "uptime_seconds": 1.04,
+        "timestamp": "2025-10-20T23:02:46.243979+00:00",
+        "operations": {
+          "connect": {
+            "total_count": 1,
+            "success_count": 1,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 17.19,
+              "max": 17.19,
+              "avg": 17.19,
+              "p50": 17.19,
+              "p95": 17.19,
+              "p99": 17.19
+            },
+            "throughput": {
+              "ops_per_sec": 0.02
+            }
+          },
+          "search": {
+            "total_count": 40,
+            "success_count": 40,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 3.18,
+              "max": 7.81,
+              "avg": 4.44,
+              "p50": 3.99,
+              "p95": 6.38,
+              "p99": 7.4
+            },
+            "throughput": {
+              "ops_per_sec": 0.67
+            }
+          },
+          "retrieve": {
+            "total_count": 26,
+            "success_count": 26,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 2.15,
+              "max": 4.92,
+              "avg": 2.92,
+              "p50": 2.81,
+              "p95": 3.72,
+              "p99": 4.64
+            },
+            "throughput": {
+              "ops_per_sec": 0.43
+            }
+          },
+          "delete": {
+            "total_count": 13,
+            "success_count": 13,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 2.46,
+              "max": 10.18,
+              "avg": 3.58,
+              "p50": 3.04,
+              "p95": 6.32,
+              "p99": 9.4
+            },
+            "throughput": {
+              "ops_per_sec": 0.22
+            }
+          },
+          "store": {
+            "total_count": 24,
+            "success_count": 9,
+            "error_count": 15,
+            "success_rate": 0.375,
+            "latency_ms": {
+              "min": 3.04,
+              "max": 34.96,
+              "avg": 7.01,
+              "p50": 4.17,
+              "p95": 26.46,
+              "p99": 33.72
+            },
+            "throughput": {
+              "ops_per_sec": 0.4
+            }
+          }
+        },
+        "connection": {},
+        "errors": {
+          "by_type": {
+            "StorageQueryError": 15
+          },
+          "recent_errors": [
+            {
+              "timestamp": "2025-10-20T23:02:46.207177+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Failed to store relationship"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:46.210562+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Failed to store relationship"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:46.213651+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Failed to store relationship"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:46.217160+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Failed to store relationship"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:46.220430+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Failed to store relationship"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:46.224235+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Failed to store relationship"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:46.227644+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Failed to store relationship"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:46.231259+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Failed to store relationship"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:46.234781+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Failed to store relationship"
+            },
+            {
+              "timestamp": "2025-10-20T23:02:46.243607+00:00",
+              "type": "StorageQueryError",
+              "operation": "store",
+              "message": "Store failed: Failed to store relationship"
+            }
+          ]
+        }
+      },
+      "status": "completed"
+    },
+    "typesense": {
+      "total_operations": 54,
+      "success_count": 54,
+      "error_count": 0,
+      "success_rate": 1.0,
+      "metrics": {
+        "uptime_seconds": 1.36,
+        "timestamp": "2025-10-20T23:02:46.580217+00:00",
+        "operations": {
+          "connect": {
+            "total_count": 1,
+            "success_count": 1,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 31.89,
+              "max": 31.89,
+              "avg": 31.89,
+              "p50": 31.89,
+              "p95": 31.89,
+              "p99": 31.89
+            },
+            "throughput": {
+              "ops_per_sec": 0.02
+            }
+          },
+          "store": {
+            "total_count": 15,
+            "success_count": 15,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 5.12,
+              "max": 10.0,
+              "avg": 7.58,
+              "p50": 7.25,
+              "p95": 9.8,
+              "p99": 9.96
+            },
+            "throughput": {
+              "ops_per_sec": 0.25
+            }
+          },
+          "retrieve": {
+            "total_count": 23,
+            "success_count": 23,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 2.87,
+              "max": 6.3,
+              "avg": 4.37,
+              "p50": 4.33,
+              "p95": 5.63,
+              "p99": 6.16
+            },
+            "throughput": {
+              "ops_per_sec": 0.38
+            }
+          },
+          "delete": {
+            "total_count": 3,
+            "success_count": 3,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 3.3,
+              "max": 7.19,
+              "avg": 5.36,
+              "p50": 5.57,
+              "p95": 7.03,
+              "p99": 7.16
+            },
+            "throughput": {
+              "ops_per_sec": 0.05
+            }
+          },
+          "search": {
+            "total_count": 13,
+            "success_count": 13,
+            "error_count": 0,
+            "success_rate": 1.0,
+            "latency_ms": {
+              "min": 2.96,
+              "max": 16.86,
+              "avg": 7.89,
+              "p50": 6.21,
+              "p95": 16.05,
+              "p99": 16.7
+            },
+            "throughput": {
+              "ops_per_sec": 0.22
+            }
+          }
+        },
+        "connection": {},
+        "errors": {
+          "by_type": {},
+          "recent_errors": []
+        }
+      },
+      "status": "completed"
+    }
+  }
+}
