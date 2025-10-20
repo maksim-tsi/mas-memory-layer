@@ -324,6 +324,110 @@ class StorageAdapter(ABC):
         """
         raise NotImplementedError
     
+    # Batch operations (optional, with default implementations)
+    
+    async def store_batch(self, items: List[Dict[str, Any]]) -> List[str]:
+        """
+        Store multiple items in a single batch operation.
+        
+        Default implementation calls store() for each item sequentially.
+        Concrete adapters should override this for better performance
+        using backend-specific batch operations.
+        
+        Args:
+            items: List of data dictionaries to store
+        
+        Returns:
+            List of unique identifiers for stored items (same order as input)
+        
+        Raises:
+            StorageConnectionError: If not connected to backend
+            StorageDataError: If any item validation fails
+            StorageQueryError: If batch operation fails
+            StorageTimeoutError: If operation times out
+        
+        Example:
+            ```python
+            items = [
+                {'content': 'Item 1', 'metadata': {}},
+                {'content': 'Item 2', 'metadata': {}},
+                {'content': 'Item 3', 'metadata': {}}
+            ]
+            ids = await adapter.store_batch(items)
+            # ids = ['id1', 'id2', 'id3']
+            ```
+        """
+        ids = []
+        for item in items:
+            id = await self.store(item)
+            ids.append(id)
+        return ids
+    
+    async def retrieve_batch(self, ids: List[str]) -> List[Optional[Dict[str, Any]]]:
+        """
+        Retrieve multiple items by their identifiers.
+        
+        Default implementation calls retrieve() for each ID sequentially.
+        Concrete adapters should override this for better performance
+        using backend-specific batch operations.
+        
+        Args:
+            ids: List of unique identifiers
+        
+        Returns:
+            List of data dictionaries (or None for not found items)
+            Results in same order as input IDs
+        
+        Raises:
+            StorageConnectionError: If not connected to backend
+            StorageQueryError: If batch operation fails
+            StorageTimeoutError: If operation times out
+        
+        Example:
+            ```python
+            ids = ['id1', 'id2', 'id3']
+            items = await adapter.retrieve_batch(ids)
+            # items = [{'content': 'Item 1'}, None, {'content': 'Item 3'}]
+            ```
+        """
+        results = []
+        for id in ids:
+            result = await self.retrieve(id)
+            results.append(result)
+        return results
+    
+    async def delete_batch(self, ids: List[str]) -> Dict[str, bool]:
+        """
+        Delete multiple items by their identifiers.
+        
+        Default implementation calls delete() for each ID sequentially.
+        Concrete adapters should override this for better performance
+        using backend-specific batch operations.
+        
+        Args:
+            ids: List of unique identifiers to delete
+        
+        Returns:
+            Dictionary mapping IDs to deletion status (True=deleted, False=not found)
+        
+        Raises:
+            StorageConnectionError: If not connected to backend
+            StorageQueryError: If batch operation fails
+            StorageTimeoutError: If operation times out
+        
+        Example:
+            ```python
+            ids = ['id1', 'id2', 'id3']
+            results = await adapter.delete_batch(ids)
+            # results = {'id1': True, 'id2': False, 'id3': True}
+            ```
+        """
+        results = {}
+        for id in ids:
+            success = await self.delete(id)
+            results[id] = success
+        return results
+    
     @property
     def is_connected(self) -> bool:
         """

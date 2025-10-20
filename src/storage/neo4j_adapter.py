@@ -281,3 +281,188 @@ class Neo4jAdapter(StorageAdapter):
         except Exception as e:
             logger.error(f"Neo4j delete failed: {e}", exc_info=True)
             return False
+            return False
+    
+    # Batch operations (optimized for Neo4j)
+    
+    async def store_batch(self, items: List[Dict[str, Any]]) -> List[str]:
+        """
+        Store multiple entities or relationships in a single transaction.
+        
+        More efficient than calling store() multiple times as it uses
+        a single Neo4j transaction for all operations.
+        
+        Args:
+            items: List of entity or relationship data dictionaries
+        
+        Returns:
+            List of IDs in same order as input
+        
+        Raises:
+            StorageConnectionError: If not connected
+            StorageDataError: If any item missing required fields
+            StorageQueryError: If batch operation fails
+        """
+        if not self._connected or not self.driver:
+            raise StorageConnectionError("Not connected to Neo4j")
+        
+        if not items:
+            return []
+        
+        # Validate all items
+        for i, item in enumerate(items):
+            try:
+                validate_required_fields(item, ['type'])
+            except StorageDataError as e:
+                raise StorageDataError(f"Item {i}: {e}") from e
+        
+        try:
+            ids = []
+            
+            # Process all items in a single transaction
+            async with self.driver.session(database=self.database) as session:
+                async def _batch_store(tx):
+                    batch_ids = []
+                    for item in items:
+                        if item['type'] == 'entity':
+                            validate_required_fields(item, ['label', 'properties'])
+                            label = item['label']
+                            props = item['properties'].copy()
+                            node_id = props.get('name', str(uuid.uuid4()))
+                            props['id'] = node_id
+                            
+                            cypher = """
+                                MERGE (n:%s {id: $id})
+                                SET n += $props
+                                RETURN n.id AS id
+                            """ % label
+                            
+                            result = await tx.run(cypher, id=node_id, props=props)
+                            record = await result.single()
+                            batch_ids.append(record['id'] if record else node_id)
+                            
+                        elif item['type'] == 'relationship':
+                            validate_required_fields(item, ['from', 'to', 'relationship'])
+                            from_id = item['from']
+                            to_id = item['to']
+                            rel_type = item['relationship']
+                            props = item.get('properties', {})
+                            
+                            cypher = """
+                                MATCH (from {id: $from_id})
+                                MATCH (to {id: $to_id})
+                                MERGE (from)-[r:%s]->(to)
+                                SET r += $props
+                                RETURN id(r) AS id
+                            """ % rel_type
+                            
+                            result = await tx.run(cypher, from_id=from_id, to_id=to_id, props=props)
+                            record = await result.single()
+                            batch_ids.append(str(record['id']) if record else '')
+                        else:
+                            raise StorageDataError(f"Unknown type: {item['type']}")
+                    
+                    return batch_ids
+                
+                ids = await session.execute_write(_batch_store)
+            
+            logger.debug(f"Stored {len(ids)} items in batch transaction")
+            return ids
+            
+        except Exception as e:
+            logger.error(f"Neo4j batch store failed: {e}", exc_info=True)
+            raise StorageQueryError(f"Batch store failed: {e}") from e
+    
+    async def retrieve_batch(self, ids: List[str]) -> List[Optional[Dict[str, Any]]]:
+        """
+        Retrieve multiple entities by their IDs in a single query.
+        
+        More efficient than calling retrieve() multiple times.
+        
+        Args:
+            ids: List of entity identifiers
+        
+        Returns:
+            List of data dictionaries (None for not found items)
+        
+        Raises:
+            StorageConnectionError: If not connected
+            StorageQueryError: If batch operation fails
+        """
+        if not self._connected or not self.driver:
+            raise StorageConnectionError("Not connected to Neo4j")
+        
+        if not ids:
+            return []
+        
+        try:
+            # Query all nodes at once
+            cypher = "UNWIND $ids AS id MATCH (n {id: id}) RETURN id, n"
+            
+            async with self.driver.session(database=self.database) as session:
+                result = await session.run(cypher, ids=ids)
+                records = await result.data()
+            
+            # Create mapping of ID to node
+            nodes_map = {record['id']: dict(record['n']) for record in records}
+            
+            # Return results in same order as input IDs
+            results = [nodes_map.get(id) for id in ids]
+            
+            logger.debug(f"Retrieved {len([r for r in results if r])} of {len(ids)} entities in batch")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Neo4j batch retrieve failed: {e}", exc_info=True)
+            raise StorageQueryError(f"Batch retrieve failed: {e}") from e
+    
+    async def delete_batch(self, ids: List[str]) -> Dict[str, bool]:
+        """
+        Delete multiple entities by their IDs in a single transaction.
+        
+        More efficient than calling delete() multiple times.
+        
+        Args:
+            ids: List of entity identifiers to delete
+        
+        Returns:
+            Dictionary mapping IDs to deletion status
+        
+        Raises:
+            StorageConnectionError: If not connected
+            StorageQueryError: If batch operation fails
+        """
+        if not self._connected or not self.driver:
+            raise StorageConnectionError("Not connected to Neo4j")
+        
+        if not ids:
+            return {}
+        
+        try:
+            # Delete all nodes in a single query
+            cypher = """
+                UNWIND $ids AS id
+                MATCH (n {id: id})
+                DETACH DELETE n
+                RETURN id, count(n) > 0 AS deleted
+            """
+            
+            async with self.driver.session(database=self.database) as session:
+                result = await session.run(cypher, ids=ids)
+                records = await result.data()
+            
+            # Build results map
+            results = {record['id']: record['deleted'] for record in records}
+            
+            # Add False for IDs not found
+            for id in ids:
+                if id not in results:
+                    results[id] = False
+            
+            deleted_count = sum(1 for v in results.values() if v)
+            logger.debug(f"Deleted {deleted_count} of {len(ids)} entities in batch")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Neo4j batch delete failed: {e}", exc_info=True)
+            raise StorageQueryError(f"Batch delete failed: {e}") from e

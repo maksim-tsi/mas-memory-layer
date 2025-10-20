@@ -375,3 +375,181 @@ class QdrantAdapter(StorageAdapter):
         except Exception as e:
             logger.error(f"Qdrant delete failed: {e}", exc_info=True)
             raise StorageQueryError(f"Failed to delete from Qdrant: {e}") from e
+    
+    # Batch operations (optimized for Qdrant)
+    
+    async def store_batch(self, items: List[Dict[str, Any]]) -> List[str]:
+        """
+        Store multiple vectors in a single batch operation.
+        
+        More efficient than calling store() multiple times as it uses
+        Qdrant's batch upsert capability.
+        
+        Args:
+            items: List of data dictionaries, each with 'vector' and 'content'
+        
+        Returns:
+            List of point IDs in same order as input
+        
+        Raises:
+            StorageConnectionError: If not connected
+            StorageDataError: If any item missing required fields
+            StorageQueryError: If batch operation fails
+        """
+        if not self._connected or not self.client:
+            raise StorageConnectionError("Not connected to Qdrant")
+        
+        if not items:
+            return []
+        
+        # Validate all items have required fields
+        for i, item in enumerate(items):
+            try:
+                validate_required_fields(item, ['vector', 'content'])
+            except StorageDataError as e:
+                raise StorageDataError(f"Item {i}: {e}") from e
+        
+        try:
+            # Prepare all points
+            points = []
+            ids = []
+            
+            for item in items:
+                point_id = item.get('id', str(uuid.uuid4()))
+                ids.append(str(point_id))
+                
+                payload = {
+                    'content': item['content'],
+                    'metadata': item.get('metadata', {}),
+                    'created_at': item.get('created_at')
+                }
+                
+                # Add any additional top-level fields to payload
+                for key, value in item.items():
+                    if key not in ['vector', 'content', 'id', 'metadata', 'created_at']:
+                        payload[key] = value
+                
+                point = PointStruct(
+                    id=point_id,
+                    vector=item['vector'],
+                    payload=payload
+                )
+                points.append(point)
+            
+            # Batch upsert all points at once
+            await self.client.upsert(
+                collection_name=self.collection_name,
+                points=points
+            )
+            
+            logger.debug(f"Stored {len(points)} vectors in batch")
+            return ids
+            
+        except Exception as e:
+            logger.error(f"Qdrant batch store failed: {e}", exc_info=True)
+            raise StorageQueryError(f"Failed to batch store in Qdrant: {e}") from e
+    
+    async def retrieve_batch(self, ids: List[str]) -> List[Optional[Dict[str, Any]]]:
+        """
+        Retrieve multiple vectors by their IDs in a single operation.
+        
+        More efficient than calling retrieve() multiple times.
+        
+        Args:
+            ids: List of point identifiers
+        
+        Returns:
+            List of data dictionaries (None for not found items)
+        
+        Raises:
+            StorageConnectionError: If not connected
+            StorageQueryError: If batch operation fails
+        """
+        if not self._connected or not self.client:
+            raise StorageConnectionError("Not connected to Qdrant")
+        
+        if not ids:
+            return []
+        
+        try:
+            # Retrieve all points at once
+            points = await self.client.retrieve(
+                collection_name=self.collection_name,
+                ids=ids
+            )
+            
+            # Create a mapping of ID to point for quick lookup
+            points_map = {str(point.id): point for point in points}
+            
+            # Return results in same order as input IDs
+            results = []
+            for id in ids:
+                if id in points_map:
+                    point = points_map[id]
+                    result = {
+                        'id': str(point.id),
+                        'vector': point.vector,
+                        'content': point.payload.get('content'),
+                        'metadata': point.payload.get('metadata', {}),
+                    }
+                    
+                    # Add any additional payload fields
+                    for key, value in point.payload.items():
+                        if key not in ['content', 'metadata']:
+                            result[key] = value
+                    
+                    results.append(result)
+                else:
+                    results.append(None)
+            
+            logger.debug(f"Retrieved {len([r for r in results if r])} of {len(ids)} vectors in batch")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Qdrant batch retrieve failed: {e}", exc_info=True)
+            raise StorageQueryError(f"Failed to batch retrieve from Qdrant: {e}") from e
+    
+    async def delete_batch(self, ids: List[str]) -> Dict[str, bool]:
+        """
+        Delete multiple vectors by their IDs in a single operation.
+        
+        More efficient than calling delete() multiple times.
+        
+        Args:
+            ids: List of point identifiers to delete
+        
+        Returns:
+            Dictionary mapping IDs to deletion status
+        
+        Raises:
+            StorageConnectionError: If not connected
+            StorageQueryError: If batch operation fails
+        """
+        if not self._connected or not self.client:
+            raise StorageConnectionError("Not connected to Qdrant")
+        
+        if not ids:
+            return {}
+        
+        try:
+            # Delete all points at once
+            result = await self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=ids
+            )
+            
+            # Qdrant doesn't tell us which specific IDs were deleted
+            # Assume all were successful if operation completed
+            success = result.status == "completed"
+            results = {id: success for id in ids}
+            
+            if success:
+                logger.debug(f"Deleted {len(ids)} vectors in batch")
+            else:
+                logger.debug(f"Batch delete incomplete for {len(ids)} vectors")
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Qdrant batch delete failed: {e}", exc_info=True)
+            raise StorageQueryError(f"Failed to batch delete from Qdrant: {e}") from e

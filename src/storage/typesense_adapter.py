@@ -232,3 +232,145 @@ class TypesenseAdapter(StorageAdapter):
         except Exception as e:
             logger.error(f"Typesense delete failed: {e}", exc_info=True)
             return False
+            return False
+    
+    # Batch operations (optimized for Typesense)
+    
+    async def store_batch(self, items: List[Dict[str, Any]]) -> List[str]:
+        """
+        Index multiple documents in a single batch operation.
+        
+        More efficient than calling store() multiple times as it uses
+        Typesense's batch import capability.
+        
+        Args:
+            items: List of document data dictionaries
+        
+        Returns:
+            List of document IDs in same order as input
+        
+        Raises:
+            StorageConnectionError: If not connected
+            StorageQueryError: If batch operation fails
+        """
+        if not self._connected or not self.client:
+            raise StorageConnectionError("Not connected to Typesense")
+        
+        if not items:
+            return []
+        
+        try:
+            # Ensure all items have IDs
+            ids = []
+            documents = []
+            for item in items:
+                if 'id' not in item:
+                    item = item.copy()
+                    item['id'] = str(uuid.uuid4())
+                ids.append(item['id'])
+                documents.append(item)
+            
+            # Batch import using newline-delimited JSON
+            import_data = '\n'.join(
+                httpx._utils.to_str(httpx._content.json_dumps(doc))
+                for doc in documents
+            )
+            
+            response = await self.client.post(
+                f"{self.url}/collections/{self.collection_name}/documents/import",
+                content=import_data,
+                headers={
+                    **self.client.headers,
+                    'Content-Type': 'text/plain'
+                }
+            )
+            response.raise_for_status()
+            
+            logger.debug(f"Indexed {len(documents)} documents in batch")
+            return ids
+            
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Typesense batch store failed: {e}", exc_info=True)
+            raise StorageQueryError(f"Batch store failed: {e}") from e
+        except Exception as e:
+            logger.error(f"Typesense batch store failed: {e}", exc_info=True)
+            raise StorageQueryError(f"Batch store failed: {e}") from e
+    
+    async def retrieve_batch(self, ids: List[str]) -> List[Optional[Dict[str, Any]]]:
+        """
+        Retrieve multiple documents by their IDs.
+        
+        Note: Typesense doesn't have a native batch retrieve endpoint,
+        so this uses the default implementation (sequential retrieves).
+        
+        Args:
+            ids: List of document identifiers
+        
+        Returns:
+            List of data dictionaries (None for not found items)
+        
+        Raises:
+            StorageConnectionError: If not connected
+            StorageQueryError: If batch operation fails
+        """
+        # Use default implementation from base class
+        # (Typesense doesn't have batch retrieve API)
+        return await super().retrieve_batch(ids)
+    
+    async def delete_batch(self, ids: List[str]) -> Dict[str, bool]:
+        """
+        Delete multiple documents by their IDs.
+        
+        More efficient than calling delete() multiple times as it uses
+        filter-based batch deletion.
+        
+        Args:
+            ids: List of document identifiers to delete
+        
+        Returns:
+            Dictionary mapping IDs to deletion status
+        
+        Raises:
+            StorageConnectionError: If not connected
+            StorageQueryError: If batch operation fails
+        """
+        if not self._connected or not self.client:
+            raise StorageConnectionError("Not connected to Typesense")
+        
+        if not ids:
+            return {}
+        
+        try:
+            # Typesense supports filter-based deletion
+            # Build filter for all IDs: id:=[id1,id2,id3]
+            filter_str = f"id:=[{','.join(ids)}]"
+            
+            response = await self.client.delete(
+                f"{self.url}/collections/{self.collection_name}/documents",
+                params={'filter_by': filter_str}
+            )
+            
+            if response.status_code == 200:
+                # All deletions successful
+                results = {id: True for id in ids}
+                logger.debug(f"Deleted {len(ids)} documents in batch")
+            else:
+                # Fallback to individual deletions if batch fails
+                results = {}
+                for id in ids:
+                    try:
+                        del_response = await self.client.delete(
+                            f"{self.url}/collections/{self.collection_name}/documents/{id}"
+                        )
+                        results[id] = del_response.status_code == 200
+                    except Exception:
+                        results[id] = False
+                
+                deleted_count = sum(1 for v in results.values() if v)
+                logger.debug(f"Deleted {deleted_count} of {len(ids)} documents")
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Typesense batch delete failed: {e}", exc_info=True)
+            raise StorageQueryError(f"Batch delete failed: {e}") from e
