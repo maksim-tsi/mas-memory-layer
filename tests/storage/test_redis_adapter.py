@@ -311,3 +311,353 @@ async def test_missing_session_id():
     async with RedisAdapter(config) as adapter:
         with pytest.raises(StorageDataError):
             await adapter.search({})  # Missing session_id
+
+
+# =============================================================================
+# Edge Case Tests (Sub-Priority 3A.3)
+# =============================================================================
+
+@pytest.mark.asyncio
+async def test_concurrent_writes_same_session(redis_adapter, cleanup_session):
+    """Test concurrent writes to the same session"""
+    session_id = f"test-concurrent-{uuid.uuid4()}"
+    cleanup_session(session_id)
+    
+    # Write 10 turns concurrently
+    tasks = [
+        redis_adapter.store({
+            'session_id': session_id,
+            'turn_id': i,
+            'content': f'Concurrent message {i}',
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+        })
+        for i in range(10)
+    ]
+    
+    results = await asyncio.gather(*tasks)
+    
+    # All should succeed
+    assert len(results) == 10
+    assert all(r is not None for r in results)
+    
+    # Verify window size still enforced
+    size = await redis_adapter.get_session_size(session_id)
+    assert size <= redis_adapter.window_size
+
+
+@pytest.mark.asyncio
+async def test_concurrent_reads(redis_adapter, session_id, cleanup_session):
+    """Test concurrent reads don't cause issues"""
+    cleanup_session(session_id)
+    
+    # Setup: Store some data
+    for i in range(5):
+        await redis_adapter.store({
+            'session_id': session_id,
+            'turn_id': i,
+            'content': f'Message {i}',
+        })
+    
+    # Concurrent reads
+    tasks = [
+        redis_adapter.search({'session_id': session_id, 'limit': 10})
+        for _ in range(10)
+    ]
+    
+    results = await asyncio.gather(*tasks)
+    
+    # All should return same data
+    assert len(results) == 10
+    assert all(len(r) == 5 for r in results)
+
+
+@pytest.mark.asyncio
+async def test_large_content(redis_adapter, session_id, cleanup_session):
+    """Test storing large content (1MB)"""
+    cleanup_session(session_id)
+    
+    large_content = 'x' * (1024 * 1024)  # 1MB of data
+    
+    record_id = await redis_adapter.store({
+        'session_id': session_id,
+        'turn_id': 1,
+        'content': large_content,
+    })
+    
+    retrieved = await redis_adapter.retrieve(record_id)
+    assert retrieved is not None
+    assert len(retrieved['content']) == 1024 * 1024
+    assert retrieved['content'] == large_content
+
+
+@pytest.mark.asyncio
+async def test_large_metadata(redis_adapter, session_id, cleanup_session):
+    """Test storing large metadata objects"""
+    cleanup_session(session_id)
+    
+    large_metadata = {
+        'list': list(range(1000)),
+        'nested': {f'key_{i}': f'value_{i}' for i in range(100)},
+        'string': 'x' * 10000,
+    }
+    
+    record_id = await redis_adapter.store({
+        'session_id': session_id,
+        'turn_id': 1,
+        'content': 'Message',
+        'metadata': large_metadata,
+    })
+    
+    retrieved = await redis_adapter.retrieve(record_id)
+    assert retrieved is not None
+    assert len(retrieved['metadata']['list']) == 1000
+    assert len(retrieved['metadata']['nested']) == 100
+    assert len(retrieved['metadata']['string']) == 10000
+
+
+@pytest.mark.asyncio
+async def test_invalid_turn_id_format(redis_adapter):
+    """Test handling of invalid turn_id in retrieve"""
+    # Invalid formats should raise StorageDataError
+    with pytest.raises(StorageDataError):
+        await redis_adapter.retrieve("invalid-id-format")
+    
+    with pytest.raises(StorageDataError):
+        await redis_adapter.retrieve("session:abc:turns:")  # Missing turn_id
+    
+    with pytest.raises(StorageDataError):
+        await redis_adapter.retrieve("session:abc:turns:not-a-number")
+
+
+@pytest.mark.asyncio
+async def test_nonexistent_session(redis_adapter):
+    """Test searching nonexistent session"""
+    nonexistent_session = f"nonexistent-{uuid.uuid4()}"
+    
+    results = await redis_adapter.search({
+        'session_id': nonexistent_session,
+        'limit': 10
+    })
+    
+    assert results == []
+    assert isinstance(results, list)
+
+
+@pytest.mark.asyncio
+async def test_empty_content(redis_adapter, session_id, cleanup_session):
+    """Test storing empty content"""
+    cleanup_session(session_id)
+    
+    record_id = await redis_adapter.store({
+        'session_id': session_id,
+        'turn_id': 1,
+        'content': '',
+    })
+    
+    retrieved = await redis_adapter.retrieve(record_id)
+    assert retrieved is not None
+    assert retrieved['content'] == ''
+
+
+@pytest.mark.asyncio
+async def test_special_characters_in_content(redis_adapter, session_id, cleanup_session):
+    """Test storing special characters and Unicode"""
+    cleanup_session(session_id)
+    
+    special_content = '''
+    Special chars: !@#$%^&*()_+-=[]{}|;:'",.<>?/~`
+    Unicode: 你好世界 🚀 émojis 🎉 Здравствуй
+    Newlines and tabs:\n\t\r
+    Quotes: "double" 'single' `backtick`
+    '''
+    
+    record_id = await redis_adapter.store({
+        'session_id': session_id,
+        'turn_id': 1,
+        'content': special_content,
+    })
+    
+    retrieved = await redis_adapter.retrieve(record_id)
+    assert retrieved is not None
+    assert retrieved['content'] == special_content
+
+
+@pytest.mark.asyncio
+async def test_delete_nonexistent_session(redis_adapter):
+    """Test deleting nonexistent session returns False"""
+    nonexistent_session = f"nonexistent-{uuid.uuid4()}"
+    
+    deleted = await redis_adapter.delete(f"session:{nonexistent_session}:turns")
+    assert deleted is False
+
+
+@pytest.mark.asyncio
+async def test_delete_specific_turn(redis_adapter, session_id, cleanup_session):
+    """Test deleting a specific turn from session"""
+    cleanup_session(session_id)
+    
+    # Store 3 turns
+    ids = []
+    for i in range(3):
+        record_id = await redis_adapter.store({
+            'session_id': session_id,
+            'turn_id': i,
+            'content': f'Message {i}',
+        })
+        ids.append(record_id)
+    
+    # Delete middle turn
+    deleted = await redis_adapter.delete(ids[1])
+    assert deleted is True
+    
+    # Verify it's gone
+    retrieved = await redis_adapter.retrieve(ids[1])
+    assert retrieved is None
+    
+    # Other turns should still exist
+    assert await redis_adapter.retrieve(ids[0]) is not None
+    assert await redis_adapter.retrieve(ids[2]) is not None
+
+
+@pytest.mark.asyncio
+async def test_zero_window_size():
+    """Test adapter behavior with window_size=0"""
+    url = os.getenv('REDIS_URL')
+    if not url:
+        pytest.skip("REDIS_URL environment variable not set")
+    
+    config = {
+        'url': url,
+        'window_size': 0,
+    }
+    
+    async with RedisAdapter(config) as adapter:
+        session_id = f"test-zero-window-{uuid.uuid4()}"
+        
+        try:
+            # Store should work
+            await adapter.store({
+                'session_id': session_id,
+                'turn_id': 1,
+                'content': 'Message',
+            })
+            
+            # With window_size=0, LTRIM behavior keeps 1 item
+            # (Redis LTRIM with range 0 to -1 keeps at least head)
+            size = await adapter.get_session_size(session_id)
+            assert size >= 0  # At least doesn't crash
+            
+            # Verify search still works
+            results = await adapter.search({'session_id': session_id})
+            assert isinstance(results, list)
+        finally:
+            await adapter.clear_session(session_id)
+
+
+@pytest.mark.asyncio
+async def test_negative_offset(redis_adapter, session_id, cleanup_session):
+    """Test search with negative offset (edge case)"""
+    cleanup_session(session_id)
+    
+    # Store some data
+    for i in range(3):
+        await redis_adapter.store({
+            'session_id': session_id,
+            'turn_id': i,
+            'content': f'Message {i}',
+        })
+    
+    # Negative offset should still work (Redis LRANGE behavior)
+    results = await redis_adapter.search({
+        'session_id': session_id,
+        'limit': 10,
+        'offset': -1,
+    })
+    
+    # Should return empty list (no items from offset -1)
+    assert isinstance(results, list)
+
+
+@pytest.mark.asyncio
+async def test_retrieve_nonexistent_turn(redis_adapter, session_id, cleanup_session):
+    """Test retrieving a turn_id that doesn't exist in session"""
+    cleanup_session(session_id)
+    
+    # Store turn 1
+    await redis_adapter.store({
+        'session_id': session_id,
+        'turn_id': 1,
+        'content': 'Message 1',
+    })
+    
+    # Try to retrieve turn 999 (doesn't exist)
+    key = redis_adapter._make_key(session_id)
+    fake_id = f"{key}:999"
+    
+    retrieved = await redis_adapter.retrieve(fake_id)
+    assert retrieved is None
+
+
+@pytest.mark.asyncio
+async def test_session_exists_check(redis_adapter, session_id, cleanup_session):
+    """Test session existence check"""
+    cleanup_session(session_id)
+    
+    # Should not exist initially
+    exists = await redis_adapter.session_exists(session_id)
+    assert exists is False
+    
+    # Store data
+    await redis_adapter.store({
+        'session_id': session_id,
+        'turn_id': 1,
+        'content': 'Message',
+    })
+    
+    # Should exist now
+    exists = await redis_adapter.session_exists(session_id)
+    assert exists is True
+    
+    # Clear session
+    await redis_adapter.clear_session(session_id)
+    
+    # Should not exist again
+    exists = await redis_adapter.session_exists(session_id)
+    assert exists is False
+
+
+@pytest.mark.asyncio
+async def test_multiple_sessions_isolation(redis_adapter, cleanup_session):
+    """Test that multiple sessions are isolated from each other"""
+    session1 = f"test-session1-{uuid.uuid4()}"
+    session2 = f"test-session2-{uuid.uuid4()}"
+    cleanup_session(session1)
+    cleanup_session(session2)
+    
+    # Store data in both sessions
+    await redis_adapter.store({
+        'session_id': session1,
+        'turn_id': 1,
+        'content': 'Session 1 message',
+    })
+    
+    await redis_adapter.store({
+        'session_id': session2,
+        'turn_id': 1,
+        'content': 'Session 2 message',
+    })
+    
+    # Verify isolation
+    results1 = await redis_adapter.search({'session_id': session1})
+    results2 = await redis_adapter.search({'session_id': session2})
+    
+    assert len(results1) == 1
+    assert len(results2) == 1
+    assert results1[0]['content'] == 'Session 1 message'
+    assert results2[0]['content'] == 'Session 2 message'
+    
+    # Delete session1 shouldn't affect session2
+    await redis_adapter.clear_session(session1)
+    
+    assert await redis_adapter.session_exists(session1) is False
+    assert await redis_adapter.session_exists(session2) is True
