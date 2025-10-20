@@ -49,27 +49,36 @@ class MetricsAggregator:
         window_seconds: int = 60
     ) -> Dict[str, float]:
         """
-        Calculate ops/sec in time window.
+        Calculate ops/sec and bytes/sec in time window.
         
         Returns:
             {'ops_per_sec': 25.0, 'bytes_per_sec': 12500}
         """
         if not operations:
-            return {'ops_per_sec': 0.0}
+            return {'ops_per_sec': 0.0, 'bytes_per_sec': 0.0}
         
-        # Count operations in the window
+        # Count operations and bytes in the window
         from datetime import datetime, timezone, timedelta
         now = datetime.now(timezone.utc)
         window_start = now - timedelta(seconds=window_seconds)
         
         count = 0
+        total_bytes = 0
         for op in operations:
             op_time = datetime.fromisoformat(op['timestamp'].replace('Z', '+00:00'))
             if op_time >= window_start:
                 count += 1
+                # Sum bytes from metadata if available
+                if 'metadata' in op and 'bytes' in op['metadata']:
+                    total_bytes += op['metadata']['bytes']
         
         ops_per_sec = count / window_seconds if window_seconds > 0 else 0
-        return {'ops_per_sec': round(ops_per_sec, 2)}
+        bytes_per_sec = total_bytes / window_seconds if window_seconds > 0 else 0
+        
+        return {
+            'ops_per_sec': round(ops_per_sec, 2),
+            'bytes_per_sec': round(bytes_per_sec, 2)
+        }
     
     @staticmethod
     def calculate_latency_stats(

@@ -61,7 +61,6 @@ class MetricsCollector:
             return
         
         # Apply sampling
-        import random
         if random.random() > self.sampling_rate and not (not success and self.always_sample_errors):
             return
         

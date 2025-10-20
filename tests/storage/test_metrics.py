@@ -94,7 +94,6 @@ class TestMetricsStorage:
         assert len(data['errors']) == 0
 
 
-@pytest.mark.asyncio
 class TestMetricsAggregator:
     """Test MetricsAggregator class."""
     
@@ -130,6 +129,37 @@ class TestMetricsAggregator:
         assert stats['min'] == 0.0
         assert stats['max'] == 0.0
         assert stats['avg'] == 0.0
+    
+    def test_calculate_rates_with_bytes(self):
+        """Test rate calculations including bytes."""
+        from datetime import datetime, timezone, timedelta
+        
+        now = datetime.now(timezone.utc)
+        operations = [
+            {
+                'timestamp': (now - timedelta(seconds=30)).isoformat(),
+                'metadata': {'bytes': 1000}
+            },
+            {
+                'timestamp': (now - timedelta(seconds=20)).isoformat(),
+                'metadata': {'bytes': 2000}
+            },
+            {
+                'timestamp': (now - timedelta(seconds=10)).isoformat(),
+                'metadata': {'bytes': 1500}
+            }
+        ]
+        
+        rates = MetricsAggregator.calculate_rates(operations, window_seconds=60)
+        
+        assert 'ops_per_sec' in rates
+        assert 'bytes_per_sec' in rates
+        assert rates['ops_per_sec'] > 0
+        assert rates['bytes_per_sec'] > 0
+        # 3 operations in 60 seconds = 0.05 ops/sec
+        assert rates['ops_per_sec'] == 0.05
+        # 4500 bytes in 60 seconds = 75 bytes/sec
+        assert rates['bytes_per_sec'] == 75.0
 
 
 @pytest.mark.asyncio

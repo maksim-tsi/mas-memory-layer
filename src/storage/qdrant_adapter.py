@@ -24,6 +24,7 @@ from .base import (
     StorageDataError,
     validate_required_fields,
 )
+from .metrics import OperationTimer
 
 logger = logging.getLogger(__name__)
 
@@ -90,43 +91,44 @@ class QdrantAdapter(StorageAdapter):
         
         Creates collection if it doesn't exist with configured vector parameters.
         """
-        if self._connected and self.client:
-            logger.warning("Already connected to Qdrant")
-            return
-        
-        try:
-            # Create async client
-            self.client = AsyncQdrantClient(
-                url=self.url,
-                api_key=self.api_key
-            )
+        async with OperationTimer(self.metrics, 'connect'):
+            if self._connected and self.client:
+                logger.warning("Already connected to Qdrant")
+                return
             
-            # Check if collection exists
             try:
-                await self.client.get_collection(self.collection_name)
-            except Exception:
-                # Collection doesn't exist, create it
-                distance_map = {
-                    'Cosine': Distance.COSINE,
-                    'Euclid': Distance.EUCLID,
-                    'Dot': Distance.DOT
-                }
-                
-                await self.client.create_collection(
-                    collection_name=self.collection_name,
-                    vectors_config=VectorParams(
-                        size=self.vector_size,
-                        distance=distance_map.get(self.distance, Distance.COSINE)
-                    )
+                # Create async client
+                self.client = AsyncQdrantClient(
+                    url=self.url,
+                    api_key=self.api_key
                 )
-                logger.info(f"Created Qdrant collection: {self.collection_name}")
-            
-            self._connected = True
-            logger.info(f"Connected to Qdrant at {self.url}")
-            
-        except Exception as e:
-            logger.error(f"Qdrant connection failed: {e}", exc_info=True)
-            raise StorageConnectionError(f"Failed to connect to Qdrant: {e}") from e
+                
+                # Check if collection exists
+                try:
+                    await self.client.get_collection(self.collection_name)
+                except Exception:
+                    # Collection doesn't exist, create it
+                    distance_map = {
+                        'Cosine': Distance.COSINE,
+                        'Euclid': Distance.EUCLID,
+                        'Dot': Distance.DOT
+                    }
+                    
+                    await self.client.create_collection(
+                        collection_name=self.collection_name,
+                        vectors_config=VectorParams(
+                            size=self.vector_size,
+                            distance=distance_map.get(self.distance, Distance.COSINE)
+                        )
+                    )
+                    logger.info(f"Created Qdrant collection: {self.collection_name}")
+                
+                self._connected = True
+                logger.info(f"Connected to Qdrant at {self.url}")
+                
+            except Exception as e:
+                logger.error(f"Qdrant connection failed: {e}", exc_info=True)
+                raise StorageConnectionError(f"Failed to connect to Qdrant: {e}") from e
     
     async def disconnect(self) -> None:
         """
@@ -134,18 +136,19 @@ class QdrantAdapter(StorageAdapter):
         
         Safe to call multiple times (idempotent).
         """
-        if not self.client:
-            logger.warning("No active Qdrant connection")
-            return
-        
-        try:
-            await self.client.close()
-            self.client = None
-            self._connected = False
-            logger.info("Disconnected from Qdrant")
-        except Exception as e:
-            logger.error(f"Error during Qdrant disconnect: {e}", exc_info=True)
-            # Don't raise - disconnect should always succeed
+        async with OperationTimer(self.metrics, 'disconnect'):
+            if not self.client:
+                logger.warning("No active Qdrant connection")
+                return
+            
+            try:
+                await self.client.close()
+                self.client = None
+                self._connected = False
+                logger.info("Disconnected from Qdrant")
+            except Exception as e:
+                logger.error(f"Error during Qdrant disconnect: {e}", exc_info=True)
+                # Don't raise - disconnect should always succeed
     
     async def store(self, data: Dict[str, Any]) -> str:
         """
@@ -170,46 +173,47 @@ class QdrantAdapter(StorageAdapter):
             StorageDataError: If required fields missing or invalid
             StorageQueryError: If storage operation fails
         """
-        if not self._connected or not self.client:
-            raise StorageConnectionError("Not connected to Qdrant")
-        
-        # Validate required fields
-        validate_required_fields(data, ['vector', 'content'])
-        
-        try:
-            # Prepare point data
-            point_id = data.get('id', str(uuid.uuid4()))
-            vector = data['vector']
-            payload = {
-                'content': data['content'],
-                'metadata': data.get('metadata', {}),
-                'created_at': data.get('created_at')
-            }
+        async with OperationTimer(self.metrics, 'store'):
+            if not self._connected or not self.client:
+                raise StorageConnectionError("Not connected to Qdrant")
             
-            # Add any additional top-level fields to payload
-            for key, value in data.items():
-                if key not in ['vector', 'content', 'id', 'metadata', 'created_at']:
-                    payload[key] = value
+            # Validate required fields
+            validate_required_fields(data, ['vector', 'content'])
             
-            # Create point
-            point = PointStruct(
-                id=point_id,
-                vector=vector,
-                payload=payload
-            )
-            
-            # Store point
-            await self.client.upsert(
-                collection_name=self.collection_name,
-                points=[point]
-            )
-            
-            logger.debug(f"Stored vector with ID: {point_id}")
-            return str(point_id)
-            
-        except Exception as e:
-            logger.error(f"Qdrant store failed: {e}", exc_info=True)
-            raise StorageQueryError(f"Failed to store in Qdrant: {e}") from e
+            try:
+                # Prepare point data
+                point_id = data.get('id', str(uuid.uuid4()))
+                vector = data['vector']
+                payload = {
+                    'content': data['content'],
+                    'metadata': data.get('metadata', {}),
+                    'created_at': data.get('created_at')
+                }
+                
+                # Add any additional top-level fields to payload
+                for key, value in data.items():
+                    if key not in ['vector', 'content', 'id', 'metadata', 'created_at']:
+                        payload[key] = value
+                
+                # Create point
+                point = PointStruct(
+                    id=point_id,
+                    vector=vector,
+                    payload=payload
+                )
+                
+                # Store point
+                await self.client.upsert(
+                    collection_name=self.collection_name,
+                    points=[point]
+                )
+                
+                logger.debug(f"Stored vector with ID: {point_id}")
+                return str(point_id)
+                
+            except Exception as e:
+                logger.error(f"Qdrant store failed: {e}", exc_info=True)
+                raise StorageQueryError(f"Failed to store in Qdrant: {e}") from e
     
     async def retrieve(self, id: str) -> Optional[Dict[str, Any]]:
         """
@@ -225,39 +229,40 @@ class QdrantAdapter(StorageAdapter):
             StorageConnectionError: If not connected
             StorageQueryError: If retrieval operation fails
         """
-        if not self._connected or not self.client:
-            raise StorageConnectionError("Not connected to Qdrant")
-        
-        try:
-            # Retrieve point
-            points = await self.client.retrieve(
-                collection_name=self.collection_name,
-                ids=[id]
-            )
+        async with OperationTimer(self.metrics, 'retrieve'):
+            if not self._connected or not self.client:
+                raise StorageConnectionError("Not connected to Qdrant")
             
-            if not points:
-                logger.debug(f"Point {id} not found")
-                return None
-            
-            point = points[0]
-            result = {
-                'id': str(point.id),
-                'vector': point.vector,
-                'content': point.payload.get('content'),
-                'metadata': point.payload.get('metadata', {}),
-            }
-            
-            # Add any additional payload fields
-            for key, value in point.payload.items():
-                if key not in ['content', 'metadata']:
-                    result[key] = value
-            
-            logger.debug(f"Retrieved point {id}")
-            return result
-            
-        except Exception as e:
-            logger.error(f"Qdrant retrieve failed: {e}", exc_info=True)
-            raise StorageQueryError(f"Failed to retrieve from Qdrant: {e}") from e
+            try:
+                # Retrieve point
+                points = await self.client.retrieve(
+                    collection_name=self.collection_name,
+                    ids=[id]
+                )
+                
+                if not points:
+                    logger.debug(f"Point {id} not found")
+                    return None
+                
+                point = points[0]
+                result = {
+                    'id': str(point.id),
+                    'vector': point.vector,
+                    'content': point.payload.get('content'),
+                    'metadata': point.payload.get('metadata', {}),
+                }
+                
+                # Add any additional payload fields
+                for key, value in point.payload.items():
+                    if key not in ['content', 'metadata']:
+                        result[key] = value
+                
+                logger.debug(f"Retrieved point {id}")
+                return result
+                
+            except Exception as e:
+                logger.error(f"Qdrant retrieve failed: {e}", exc_info=True)
+                raise StorageQueryError(f"Failed to retrieve from Qdrant: {e}") from e
     
     async def search(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -280,65 +285,66 @@ class QdrantAdapter(StorageAdapter):
             StorageDataError: If vector missing
             StorageQueryError: If search operation fails
         """
-        if not self._connected or not self.client:
-            raise StorageConnectionError("Not connected to Qdrant")
-        
-        # Validate required fields
-        validate_required_fields(query, ['vector'])
-        
-        try:
-            # Get query parameters
-            vector = query['vector']
-            limit = query.get('limit', 10)
-            score_threshold = query.get('score_threshold', 0.0)
+        async with OperationTimer(self.metrics, 'search'):
+            if not self._connected or not self.client:
+                raise StorageConnectionError("Not connected to Qdrant")
             
-            # Build filter if provided
-            search_filter = None
-            if 'filter' in query:
-                must_conditions = []
-                for field, value in query['filter'].items():
-                    must_conditions.append(
-                        FieldCondition(
-                            key=field,
-                            match=MatchValue(value=value)
+            # Validate required fields
+            validate_required_fields(query, ['vector'])
+            
+            try:
+                # Get query parameters
+                vector = query['vector']
+                limit = query.get('limit', 10)
+                score_threshold = query.get('score_threshold', 0.0)
+                
+                # Build filter if provided
+                search_filter = None
+                if 'filter' in query:
+                    must_conditions = []
+                    for field, value in query['filter'].items():
+                        must_conditions.append(
+                            FieldCondition(
+                                key=field,
+                                match=MatchValue(value=value)
+                            )
                         )
-                    )
-                if must_conditions:
-                    search_filter = Filter(must=must_conditions)
-            
-            # Perform search
-            results = await self.client.search(
-                collection_name=self.collection_name,
-                query_vector=vector,
-                limit=limit,
-                score_threshold=score_threshold,
-                query_filter=search_filter
-            )
-            
-            # Format results
-            formatted_results = []
-            for hit in results:
-                result = {
-                    'id': str(hit.id),
-                    'vector': hit.vector,
-                    'content': hit.payload.get('content'),
-                    'metadata': hit.payload.get('metadata', {}),
-                    'score': hit.score
-                }
+                    if must_conditions:
+                        search_filter = Filter(must=must_conditions)
                 
-                # Add any additional payload fields
-                for key, value in hit.payload.items():
-                    if key not in ['content', 'metadata']:
-                        result[key] = value
+                # Perform search
+                results = await self.client.search(
+                    collection_name=self.collection_name,
+                    query_vector=vector,
+                    limit=limit,
+                    score_threshold=score_threshold,
+                    query_filter=search_filter
+                )
                 
-                formatted_results.append(result)
-            
-            logger.debug(f"Search returned {len(formatted_results)} results")
-            return formatted_results
-            
-        except Exception as e:
-            logger.error(f"Qdrant search failed: {e}", exc_info=True)
-            raise StorageQueryError(f"Failed to search Qdrant: {e}") from e
+                # Format results
+                formatted_results = []
+                for hit in results:
+                    result = {
+                        'id': str(hit.id),
+                        'vector': hit.vector,
+                        'content': hit.payload.get('content'),
+                        'metadata': hit.payload.get('metadata', {}),
+                        'score': hit.score
+                    }
+                    
+                    # Add any additional payload fields
+                    for key, value in hit.payload.items():
+                        if key not in ['content', 'metadata']:
+                            result[key] = value
+                    
+                    formatted_results.append(result)
+                
+                logger.debug(f"Search returned {len(formatted_results)} results")
+                return formatted_results
+                
+            except Exception as e:
+                logger.error(f"Qdrant search failed: {e}", exc_info=True)
+                raise StorageQueryError(f"Failed to search Qdrant: {e}") from e
     
     async def delete(self, id: str) -> bool:
         """
@@ -354,27 +360,28 @@ class QdrantAdapter(StorageAdapter):
             StorageConnectionError: If not connected
             StorageQueryError: If delete operation fails
         """
-        if not self._connected or not self.client:
-            raise StorageConnectionError("Not connected to Qdrant")
-        
-        try:
-            # Delete point
-            result = await self.client.delete(
-                collection_name=self.collection_name,
-                points_selector=[id]
-            )
+        async with OperationTimer(self.metrics, 'delete'):
+            if not self._connected or not self.client:
+                raise StorageConnectionError("Not connected to Qdrant")
             
-            deleted = result.status == "completed"
-            if deleted:
-                logger.debug(f"Deleted point {id}")
-            else:
-                logger.debug(f"Point {id} not found for deletion")
-            
-            return deleted
-            
-        except Exception as e:
-            logger.error(f"Qdrant delete failed: {e}", exc_info=True)
-            raise StorageQueryError(f"Failed to delete from Qdrant: {e}") from e
+            try:
+                # Delete point
+                result = await self.client.delete(
+                    collection_name=self.collection_name,
+                    points_selector=[id]
+                )
+                
+                deleted = result.status == "completed"
+                if deleted:
+                    logger.debug(f"Deleted point {id}")
+                else:
+                    logger.debug(f"Point {id} not found for deletion")
+                
+                return deleted
+                
+            except Exception as e:
+                logger.error(f"Qdrant delete failed: {e}", exc_info=True)
+                raise StorageQueryError(f"Failed to delete from Qdrant: {e}") from e
     
     # Batch operations (optimized for Qdrant)
     
@@ -623,3 +630,30 @@ class QdrantAdapter(StorageAdapter):
                 'error': str(e),
                 'timestamp': datetime.now(timezone.utc).isoformat()
             }
+    
+    async def _get_backend_metrics(self) -> Optional[Dict[str, Any]]:
+        """Get Qdrant-specific metrics."""
+        if not self._connected or not self.client:
+            return None
+        
+        try:
+            collection_info = await self.client.get_collection(
+                collection_name=self.collection_name
+            )
+            
+            # Handle both dict and object types for vectors config
+            vectors_config = collection_info.config.params.vectors
+            if isinstance(vectors_config, dict):
+                vector_size = next(iter(vectors_config.values())).size if vectors_config else 0
+            else:
+                vector_size = vectors_config.size if hasattr(vectors_config, 'size') else 0
+            
+            return {
+                'vector_count': collection_info.points_count,
+                'vector_dim': vector_size,
+                'collection_name': self.collection_name,
+                'distance_metric': self.distance
+            }
+        except Exception as e:
+            logger.error(f"Failed to get backend metrics: {e}")
+            return {'error': str(e)}
