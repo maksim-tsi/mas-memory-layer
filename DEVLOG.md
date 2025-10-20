@@ -95,6 +95,93 @@ Status: Clean working tree
 
 ---
 
+### 2025-10-20 - Infrastructure Smoke Tests & Python Environment Setup
+
+**Status:** ✅ Complete
+
+**Summary:**
+Created comprehensive connectivity tests for all infrastructure services and established Python virtual environment (venv) as the standard for the project.
+
+**Changes:**
+- Created smoke tests for PostgreSQL, Redis, Qdrant, Neo4j, and Typesense
+- Built `run_smoke_tests.sh` script with options: `--verbose`, `--service`, `--summary`
+- Designed tests to be universal (runnable from any machine with network access)
+- Established **venv** as the recommended Python environment manager
+- Created comprehensive Python environment setup documentation
+- Added `requirements-test.txt` for test dependencies
+- Added `asyncpg` to main requirements for async PostgreSQL operations
+- Integrated smoke tests into README workflow
+
+**Files Created:**
+- `tests/test_connectivity.py` - Comprehensive connectivity tests for all services
+- `tests/conftest.py` - pytest configuration and fixtures
+- `tests/README.md` - Testing documentation and troubleshooting guide
+- `scripts/run_smoke_tests.sh` - Test runner script with filtering options
+- `requirements-test.txt` - Test dependencies (pytest, pytest-asyncio, requests)
+- `docs/python-environment-setup.md` - Complete venv setup guide
+
+**Files Modified:**
+- `requirements.txt` - Added asyncpg==0.29.0
+- `README.md` - Added environment setup and smoke test sections
+
+**Testing Features:**
+- ✓ PostgreSQL: Connection, database verification, version check
+- ✓ Redis: PING, SET/GET operations, TTL
+- ✓ Qdrant: Health check, collections list
+- ✓ Neo4j: Bolt connection, authentication, Cypher queries
+- ✓ Typesense: HTTP API, health endpoint, authentication
+- ✓ Summary report showing status of all services
+
+**Environment Decision:**
+- **Chose venv over conda** for this project
+- Rationale: Pure Python project, production-ready, CI/CD friendly, lightweight
+- Documented when conda would be appropriate (scientific computing, GPU libs, etc.)
+
+**Usage:**
+```bash
+# Run all tests
+./scripts/run_smoke_tests.sh
+
+# Quick summary
+./scripts/run_smoke_tests.sh --summary
+
+# Test specific service
+./scripts/run_smoke_tests.sh --service postgres
+
+# Verbose output
+./scripts/run_smoke_tests.sh --verbose
+```
+
+**Next Steps:**
+- Create venv: `python3 -m venv .venv`
+- Install dependencies: `pip install -r requirements-test.txt`
+- Run smoke tests to verify infrastructure
+- Begin Phase 1 implementation (storage adapters)
+
+**Git:**
+```
+Commit: 49d1741
+Branch: dev
+Message: "test: Add infrastructure smoke tests and Python environment setup"
+```
+
+---
+
+### 2025-10-20 - Development Log & Contribution Guidelines
+
+**Status:** ✅ Complete
+
+**Summary:**
+Created DEVLOG.md for tracking development progress and established contribution guidelines in README.
+
+**Git:**
+```
+Commit: f3e0998
+Branch: dev
+```
+
+---
+
 ## Development Guidelines
 
 ### Commit Message Convention
