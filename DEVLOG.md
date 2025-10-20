@@ -16,6 +16,60 @@ Each entry should include:
 
 ## Log Entries
 
+### 2025-10-20 - Phase 1 Priority 2: PostgreSQL Storage Adapter Implementation
+
+**Status:** ✅ Complete
+
+**Summary:**
+Implemented concrete PostgreSQL adapter for active context (L1) and working memory (L2) storage tiers using psycopg with async connection pooling.
+
+**Changes:**
+- Created PostgreSQL database migration script for active_context and working_memory tables
+- Implemented PostgresAdapter class with full support for both table types
+- Added connection pooling using psycopg_pool for high-concurrency operations
+- Implemented TTL-aware queries with automatic expiration filtering
+- Added comprehensive error handling with custom storage exceptions
+- Used psycopg's SQL composition for safe parameterized queries
+- Implemented all required base interface methods (connect, disconnect, store, retrieve, search, delete)
+- Added utility methods (delete_expired, count) for maintenance operations
+- Created complete test suite with real database interactions
+
+**Files Created:**
+- `migrations/001_active_context.sql` - Database schema for L1/L2 memory tables
+- `src/storage/postgres_adapter.py` - Concrete PostgreSQL adapter implementation
+- `tests/storage/test_postgres_adapter.py` - Unit tests for PostgreSQL adapter
+
+**Files Modified:**
+- `src/storage/__init__.py` - Added import and export for PostgresAdapter
+
+**Testing:**
+- All tests passing with real PostgreSQL database
+- Verified connection lifecycle management
+- Confirmed CRUD operations on both active_context and working_memory tables
+- Validated search functionality with various filters and pagination
+- Tested TTL expiration filtering behavior
+- Confirmed context manager protocol works correctly
+- Verified working memory table operations with fact types and confidence scores
+
+**Database Schema:**
+- `active_context` table: session_id, turn_id, content, metadata, created_at, ttl_expires_at
+- `working_memory` table: session_id, fact_type, content, confidence, source_turn_ids, created_at, updated_at, ttl_expires_at
+- Appropriate indexes for performance optimization
+
+**Next Steps:**
+- Implement concrete Redis adapter (Priority 3)
+- Implement concrete Qdrant, Neo4j, and Typesense adapters (Priority 4)
+- Begin Phase 2: Memory tier orchestration
+
+**Git:**
+```
+Commit: ac016e1
+Branch: dev
+Message: "feat: Add PostgreSQL storage adapter for active context and working memory"
+```
+
+---
+
 ### 2025-10-20 - Phase 1 Priority 1: Base Storage Interface Implementation
 
 **Status:** ✅ Complete
