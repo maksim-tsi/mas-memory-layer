@@ -74,8 +74,17 @@ class RedisAdapter(StorageAdapter):
             'password': None,     # Optional password
             'socket_timeout': 5,  # Connection timeout
             'window_size': 10,    # Max turns to keep
-            'ttl_seconds': 86400  # 24 hours
+            'ttl_seconds': 86400, # 24 hours
+            'refresh_ttl_on_read': False  # Extend TTL on read operations
         }
+    
+    TTL Behavior:
+        - refresh_ttl_on_read=False (default): TTL expires 24h after last write
+          Best for: Write-heavy workloads, sessions that should expire naturally
+        
+        - refresh_ttl_on_read=True: TTL extends on every read (retrieve/search)
+          Best for: Read-heavy workloads, keeping active sessions "hot"
+          Effect: Frequently accessed sessions stay cached indefinitely
     
     Data Structure:
         Key: session:{session_id}:turns
@@ -131,6 +140,7 @@ class RedisAdapter(StorageAdapter):
                 - socket_timeout: Connection timeout (default: 5)
                 - window_size: Max turns per session (default: 10)
                 - ttl_seconds: Key expiration (default: 86400 = 24h)
+                - refresh_ttl_on_read: Refresh TTL on read operations (default: False)
         """
         super().__init__(config)
         
@@ -145,12 +155,13 @@ class RedisAdapter(StorageAdapter):
         # Cache behavior config
         self.window_size = config.get('window_size', 10)
         self.ttl_seconds = config.get('ttl_seconds', 86400)  # 24 hours
+        self.refresh_ttl_on_read = config.get('refresh_ttl_on_read', False)
         
         self.client: Optional[Redis] = None
         
         logger.info(
             f"RedisAdapter initialized (window: {self.window_size}, "
-            f"TTL: {self.ttl_seconds}s)"
+            f"TTL: {self.ttl_seconds}s, refresh_on_read: {self.refresh_ttl_on_read})"
         )
     
     async def connect(self) -> None:
@@ -323,6 +334,8 @@ class RedisAdapter(StorageAdapter):
         """
         Retrieve specific turn from session list.
         
+        If refresh_ttl_on_read is enabled, extends session TTL on access.
+        
         ID format: "session:{session_id}:turns:{turn_id}"
         
         Args:
@@ -351,6 +364,11 @@ class RedisAdapter(StorageAdapter):
             # Get all items from list
             items = await self.client.lrange(key, 0, -1)
             
+            # Optional: Refresh TTL on access
+            if self.refresh_ttl_on_read and items:
+                await self.client.expire(key, self.ttl_seconds)
+                logger.debug(f"Refreshed TTL for {key} (read access)")
+            
             # Search for matching turn_id
             for item in items:
                 turn_data = json.loads(item)
@@ -374,6 +392,8 @@ class RedisAdapter(StorageAdapter):
     async def search(self, query: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         Get recent turns for a session.
+        
+        If refresh_ttl_on_read is enabled, extends session TTL on access.
         
         Query parameters:
             - session_id: Session identifier (required)
@@ -418,6 +438,11 @@ class RedisAdapter(StorageAdapter):
             if not items:
                 logger.debug(f"No turns found for session {session_id}")
                 return []
+            
+            # Optional: Refresh TTL on access
+            if self.refresh_ttl_on_read:
+                await self.client.expire(key, self.ttl_seconds)
+                logger.debug(f"Refreshed TTL for {key} (read access)")
             
             # Deserialize all items
             results = []
