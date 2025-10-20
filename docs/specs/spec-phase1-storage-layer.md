@@ -3380,12 +3380,12 @@ TTL Behavior:
 
 ##### Deliverables
 
-- [ ] Add `refresh_ttl_on_read` configuration parameter
-- [ ] Update `retrieve()` to conditionally refresh TTL
-- [ ] Update `search()` to conditionally refresh TTL
-- [ ] Update class docstring with behavior explanation
-- [ ] Add tests for TTL refresh on read
-- [ ] Update code review report
+- [x] Add `refresh_ttl_on_read` configuration parameter
+- [x] Update `retrieve()` to conditionally refresh TTL
+- [x] Update `search()` to conditionally refresh TTL
+- [x] Update class docstring with behavior explanation
+- [x] Add tests for TTL refresh on read
+- [x] Update code review report (see `docs/reports/implementation-report-3a2-ttl-on-read.md`)
 
 ##### Acceptance Criteria
 

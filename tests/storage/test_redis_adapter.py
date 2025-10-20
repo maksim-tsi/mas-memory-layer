@@ -1,3 +1,4 @@
+import asyncio
 import pytest
 import pytest_asyncio
 import os
@@ -168,6 +169,115 @@ async def test_ttl_refresh(redis_adapter, session_id, cleanup_session):
     # Refresh TTL
     refreshed = await redis_adapter.refresh_ttl(session_id)
     assert refreshed is True
+
+@pytest.mark.asyncio
+async def test_ttl_refresh_on_search_enabled(session_id):
+    """TTL should extend on search when refresh_ttl_on_read is enabled"""
+    url = os.getenv('REDIS_URL')
+    if not url:
+        pytest.skip("REDIS_URL environment variable not set")
+
+    config = {
+        'url': url,
+        'window_size': 5,
+        'ttl_seconds': 30,
+        'refresh_ttl_on_read': True,
+    }
+
+    async with RedisAdapter(config) as adapter:
+        session = session_id
+        await adapter.clear_session(session)
+
+        try:
+            await adapter.store({
+                'session_id': session,
+                'turn_id': 1,
+                'content': 'Message',
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+            })
+
+            key = adapter._make_key(session)
+            assert adapter.client is not None
+
+            await adapter.client.expire(key, 2)
+            ttl_before = await adapter.client.pttl(key)
+            assert 0 < ttl_before <= 2000
+
+            await adapter.search({'session_id': session, 'limit': 1})
+
+            ttl_after = await adapter.client.pttl(key)
+            assert ttl_after > ttl_before
+            assert ttl_after > 5000  # ttl_seconds (30s) reapplied on read
+        finally:
+            await adapter.clear_session(session)
+
+@pytest.mark.asyncio
+async def test_ttl_not_refreshed_when_disabled(redis_adapter, session_id, cleanup_session):
+    """TTL should not extend when refresh_ttl_on_read is disabled"""
+    cleanup_session(session_id)
+
+    record_id = await redis_adapter.store({
+        'session_id': session_id,
+        'turn_id': 1,
+        'content': 'Message',
+    })
+
+    key = redis_adapter._make_key(session_id)
+    assert redis_adapter.client is not None
+
+    await redis_adapter.client.expire(key, 5)
+    await asyncio.sleep(0.05)
+    ttl_before = await redis_adapter.client.pttl(key)
+    assert 0 < ttl_before <= 5000
+
+    await redis_adapter.retrieve(record_id)
+
+    ttl_after = await redis_adapter.client.pttl(key)
+    assert 0 < ttl_after < 5000
+    assert ttl_after <= ttl_before
+
+@pytest.mark.asyncio
+async def test_ttl_refresh_on_retrieve_enabled(session_id):
+    """TTL should extend on retrieve when refresh_ttl_on_read is enabled"""
+    url = os.getenv('REDIS_URL')
+    if not url:
+        pytest.skip("REDIS_URL environment variable not set")
+
+    config = {
+        'url': url,
+        'window_size': 5,
+        'ttl_seconds': 30,
+        'refresh_ttl_on_read': True,
+    }
+
+    async with RedisAdapter(config) as adapter:
+        session = session_id
+        await adapter.clear_session(session)
+
+        try:
+            record_id = await adapter.store({
+                'session_id': session,
+                'turn_id': 1,
+                'content': 'Message',
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+            })
+
+            key = adapter._make_key(session)
+            assert adapter.client is not None
+
+            # Set short TTL
+            await adapter.client.expire(key, 2)
+            ttl_before = await adapter.client.pttl(key)
+            assert 0 < ttl_before <= 2000
+
+            # Retrieve should refresh TTL
+            await adapter.retrieve(record_id)
+
+            ttl_after = await adapter.client.pttl(key)
+            assert ttl_after > ttl_before
+            assert ttl_after > 5000  # ttl_seconds (30s) reapplied on read
+        finally:
+            await adapter.clear_session(session)
 
 @pytest.mark.asyncio
 async def test_context_manager():
