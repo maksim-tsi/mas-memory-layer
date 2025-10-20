@@ -1,0 +1,147 @@
+# Development Log - mas-memory-layer
+
+This document tracks implementation progress, decisions, and changes made during development of the multi-layered memory system.
+
+---
+
+## Format
+
+Each entry should include:
+- **Date**: YYYY-MM-DD
+- **Summary**: Brief description of what was implemented/changed
+- **Details**: Specific files, components, or features affected
+- **Status**: ✅ Complete | 🚧 In Progress | ⚠️ Blocked
+
+---
+
+## Log Entries
+
+### 2025-10-20 - Database Setup & Infrastructure Documentation
+
+**Status:** ✅ Complete
+
+**Summary:**
+Created dedicated PostgreSQL database setup for complete project isolation and documented infrastructure configuration with real endpoints.
+
+**Changes:**
+- Created `mas_memory` PostgreSQL database (separate from other projects)
+- Added comprehensive database setup documentation (`docs/IAC/database-setup.md`)
+- Created automated setup script (`scripts/setup_database.sh`)
+- Updated `.env` to use `mas_memory` database in connection URL
+- Updated `.env.example` with real infrastructure IPs (192.168.107.172, 192.168.107.187)
+- Enhanced `.gitignore` to protect `.env` file from being committed
+- Updated connectivity cheatsheet with actual service endpoints
+- Added database setup references to README and implementation plan
+
+**Files Created:**
+- `docs/IAC/database-setup.md` - Comprehensive database documentation
+- `scripts/setup_database.sh` - Automated database creation script
+- `DEVLOG.md` - This development log
+
+**Files Modified:**
+- `.env` - Updated POSTGRES_URL to use `mas_memory` database
+- `.env.example` - Added real IPs and mas_memory database
+- `.gitignore` - Added `.env` protection
+- `README.md` - Added database setup section
+- `docs/IAC/connectivity-cheatsheet.md` - Real endpoints documented
+- `docs/plan/implementation-plan-20102025.md` - Added database setup step
+
+**Infrastructure:**
+- Orchestrator Node: `skz-dev-lv` (192.168.107.172) - PostgreSQL, Redis, n8n, Phoenix
+- Data Node: `skz-stg-lv` (192.168.107.187) - Qdrant, Neo4j, Typesense
+- Database: `mas_memory` (dedicated, isolated)
+
+**Security:**
+- Credentials protected via `.gitignore`
+- Only safe infrastructure details (IPs, ports) in public repo
+- `.env.example` provides template without real credentials
+
+**Next Steps:**
+- Run `./scripts/setup_database.sh` to create database
+- Begin Phase 1: Implement storage adapters (`src/storage/`)
+- Create database migrations (`migrations/001_active_context.sql`)
+
+**Git:**
+```
+Commit: dd7e7c3
+Branch: dev
+Message: "docs: Add dedicated PostgreSQL database setup (mas_memory)"
+```
+
+---
+
+### 2025-10-20 - Development Branch Setup
+
+**Status:** ✅ Complete
+
+**Summary:**
+Created local `dev` branch and synced with GitHub remote for active development.
+
+**Changes:**
+- Created local `dev` branch from `main`
+- Pushed to GitHub and set up tracking with `origin/dev`
+- Verified branch structure and working tree
+
+**Git:**
+```
+Branch: dev (tracking origin/dev)
+Status: Clean working tree
+```
+
+**Notes:**
+- All new development should happen on `dev` branch
+- Main branch remains stable
+- Regular commits should be pushed to `origin/dev`
+
+---
+
+## Development Guidelines
+
+### Commit Message Convention
+Use conventional commit format:
+- `feat:` - New feature implementation
+- `fix:` - Bug fixes
+- `docs:` - Documentation changes
+- `test:` - Test additions or modifications
+- `refactor:` - Code refactoring
+- `chore:` - Maintenance tasks
+
+### Update Requirements
+**Before committing significant work:**
+1. Update this DEVLOG.md with entry for the work completed
+2. Include status, summary, files changed, and next steps
+3. Reference git commit hash after pushing
+
+### Entry Template
+```markdown
+### YYYY-MM-DD - Brief Title
+
+**Status:** [✅ Complete | 🚧 In Progress | ⚠️ Blocked]
+
+**Summary:**
+[1-2 sentence description]
+
+**Changes:**
+- [List of changes]
+
+**Files Created/Modified:**
+- [File paths]
+
+**Next Steps:**
+- [What comes next]
+
+**Git:**
+```
+Commit: [hash]
+Branch: [branch name]
+```
+```
+
+---
+
+## Reference Links
+
+- **Implementation Plan**: `docs/plan/implementation-plan-20102025.md`
+- **Database Setup**: `docs/IAC/database-setup.md`
+- **Connectivity**: `docs/IAC/connectivity-cheatsheet.md`
+- **ADR-001**: `docs/ADR/001-benchmarking-strategy.md`
