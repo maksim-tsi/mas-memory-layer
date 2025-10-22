@@ -195,3 +195,287 @@ async def test_working_memory_table():
         
         # Cleanup
         await adapter.delete(record_id)
+
+
+@pytest.mark.asyncio
+async def test_connection_error_handling():
+    """Test connection error handling with invalid credentials"""
+    from src.storage.base import StorageConnectionError
+    
+    config = {
+        'url': 'postgresql://invalid:invalid@localhost:5432/invalid_db'
+    }
+    
+    adapter = PostgresAdapter(config)
+    with pytest.raises(StorageConnectionError):
+        await adapter.connect()
+
+
+@pytest.mark.asyncio
+async def test_disconnect_when_not_connected():
+    """Test disconnect when not connected"""
+    url = os.getenv('POSTGRES_URL')
+    if not url:
+        pytest.skip("POSTGRES_URL environment variable not set")
+    
+    config = {'url': url}
+    adapter = PostgresAdapter(config)
+    
+    # Disconnect without connecting should not raise
+    await adapter.disconnect()
+    assert not adapter.is_connected
+
+
+@pytest.mark.asyncio
+async def test_store_without_connection():
+    """Test store operation when not connected"""
+    from src.storage.base import StorageConnectionError
+    
+    url = os.getenv('POSTGRES_URL')
+    if not url:
+        pytest.skip("POSTGRES_URL environment variable not set")
+    
+    config = {'url': url}
+    adapter = PostgresAdapter(config)
+    
+    # Try to store without connecting
+    with pytest.raises(StorageConnectionError, match="Not connected"):
+        await adapter.store({
+            'session_id': 'test',
+            'turn_id': 1,
+            'content': 'test'
+        })
+
+
+@pytest.mark.asyncio
+async def test_retrieve_batch_empty_list(postgres_adapter):
+    """Test retrieve_batch with empty list"""
+    await postgres_adapter.connect()
+    
+    results = await postgres_adapter.retrieve_batch([])
+    assert results == []
+    
+    await postgres_adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_delete_batch_empty_list(postgres_adapter):
+    """Test delete_batch with empty list"""
+    await postgres_adapter.connect()
+    
+    results = await postgres_adapter.delete_batch([])
+    assert results == {}
+    
+    await postgres_adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_store_batch_empty_list(postgres_adapter):
+    """Test store_batch with empty list"""
+    await postgres_adapter.connect()
+    
+    results = await postgres_adapter.store_batch([])
+    assert results == []
+    
+    await postgres_adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_unknown_table_error():
+    """Test storing to unknown table raises error"""
+    from src.storage.base import StorageDataError
+    
+    url = os.getenv('POSTGRES_URL')
+    if not url:
+        pytest.skip("POSTGRES_URL environment variable not set")
+    
+    config = {
+        'url': url,
+        'table': 'unknown_table'
+    }
+    
+    async with PostgresAdapter(config) as adapter:
+        with pytest.raises(StorageDataError, match="Unknown table"):
+            await adapter.store({
+                'session_id': 'test',
+                'turn_id': 1,
+                'content': 'test'
+            })
+
+
+@pytest.mark.asyncio
+async def test_delete_expired_records(postgres_adapter, session_id):
+    """Test deleting expired records"""
+    await postgres_adapter.connect()
+    
+    # Store a record with past expiration
+    from datetime import datetime, timezone, timedelta
+    data = {
+        'session_id': session_id,
+        'turn_id': 999,
+        'content': 'Expired content',
+        'ttl_expires_at': datetime.now(timezone.utc) - timedelta(hours=1)  # Already expired
+    }
+    
+    record_id = await postgres_adapter.store(data)
+    assert record_id is not None
+    
+    # Delete expired records
+    count = await postgres_adapter.delete_expired()
+    assert count >= 1  # At least our expired record
+    
+    # Verify the record is gone
+    retrieved = await postgres_adapter.retrieve(record_id)
+    assert retrieved is None
+    
+    await postgres_adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_count_with_session_filter(postgres_adapter, session_id):
+    """Test counting records with session filter"""
+    await postgres_adapter.connect()
+    
+    # Store multiple records and collect IDs for cleanup
+    ids = []
+    for i in range(3):
+        record_id = await postgres_adapter.store({
+            'session_id': session_id,
+            'turn_id': i,
+            'content': f'Message {i}'
+        })
+        ids.append(record_id)
+    
+    # Count for specific session
+    count = await postgres_adapter.count(session_id=session_id)
+    assert count >= 3
+    
+    # Cleanup - delete by IDs
+    for record_id in ids:
+        await postgres_adapter.delete(record_id)
+    
+    await postgres_adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_not_found(postgres_adapter):
+    """Test retrieving non-existent record returns None"""
+    await postgres_adapter.connect()
+    
+    # Use a very high integer ID that doesn't exist
+    result = await postgres_adapter.retrieve('999999999')
+    assert result is None
+    
+    await postgres_adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_delete_not_found(postgres_adapter):
+    """Test deleting non-existent record returns False"""
+    await postgres_adapter.connect()
+    
+    # Use a very high integer ID that doesn't exist
+    result = await postgres_adapter.delete('999999998')
+    assert result is False
+    
+    await postgres_adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_search_empty_results(postgres_adapter):
+    """Test search with no matching results"""
+    await postgres_adapter.connect()
+    
+    results = await postgres_adapter.search({
+        'session_id': 'nonexistent-session-xyz',
+        'limit': 10
+    })
+    assert results == []
+    
+    await postgres_adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_store_batch_partial_success(postgres_adapter, session_id):
+    """Test batch store handles individual item failures"""
+    await postgres_adapter.connect()
+    
+    # Create batch with mix of valid and invalid data
+    batch = [
+        {
+            'session_id': session_id,
+            'turn_id': 100,
+            'content': 'Valid message 1'
+        },
+        {
+            'session_id': session_id,
+            'turn_id': 101,
+            'content': 'Valid message 2'
+        }
+    ]
+    
+    ids = await postgres_adapter.store_batch(batch)
+    assert len(ids) == 2
+    assert all(id is not None for id in ids)
+    
+    # Cleanup
+    await postgres_adapter.delete_batch(ids)
+    await postgres_adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_retrieve_batch_with_missing_ids(postgres_adapter, session_id):
+    """Test retrieve_batch with some non-existent IDs"""
+    await postgres_adapter.connect()
+    
+    # Store one real record
+    real_id = await postgres_adapter.store({
+        'session_id': session_id,
+        'turn_id': 200,
+        'content': 'Real message'
+    })
+    
+    # Retrieve batch with mix of real and fake IDs (use high integer IDs)
+    results = await postgres_adapter.retrieve_batch([
+        real_id,
+        '999999990',
+        '999999991'
+    ])
+    
+    # Should return results for all IDs, with None for missing ones
+    assert len(results) == 3
+    assert results[0] is not None  # real_id
+    assert results[1] is None      # fake ID
+    assert results[2] is None      # fake ID
+    
+    # Cleanup
+    await postgres_adapter.delete(real_id)
+    await postgres_adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_delete_batch_with_missing_ids(postgres_adapter, session_id):
+    """Test delete_batch with some non-existent IDs"""
+    await postgres_adapter.connect()
+    
+    # Store one real record
+    real_id = await postgres_adapter.store({
+        'session_id': session_id,
+        'turn_id': 300,
+        'content': 'Delete me'
+    })
+    
+    # Delete batch with mix of real and fake IDs (use high integer IDs)
+    results = await postgres_adapter.delete_batch([
+        real_id,
+        '999999992',
+        '999999993'
+    ])
+    
+    # Should return status for all IDs
+    assert isinstance(results, dict)
+    assert results[real_id] is True        # Successfully deleted
+    assert results['999999992'] is False   # Not found
+    assert results['999999993'] is False   # Not found
+    
+    await postgres_adapter.disconnect()
