@@ -682,3 +682,325 @@ class TestQdrantAdapterFilterEdgeCases:
             result_id = await adapter.store(data)
             assert result_id is not None
             await adapter.disconnect()
+
+
+# Add new test class for complex filters
+@pytest.mark.asyncio
+class TestQdrantAdvancedFilters:
+    """Test complex filter combinations for Qdrant adapter."""
+    
+    @pytest.fixture
+    def mock_qdrant_client(self):
+        """Mock Qdrant client for unit tests."""
+        mock = AsyncMock()
+        mock.get_collection = AsyncMock()
+        mock.close = AsyncMock()
+        mock.search = AsyncMock(return_value=[])
+        return mock
+    
+    async def test_multiple_must_conditions(self, mock_qdrant_client):
+        """Test vector search with multiple MUST conditions."""
+        with patch('src.storage.qdrant_adapter.AsyncQdrantClient', return_value=mock_qdrant_client):
+            config = {
+                'url': 'http://localhost:6333',
+                'collection_name': 'test_collection'
+            }
+            adapter = QdrantAdapter(config)
+            await adapter.connect()
+            
+            query = {
+                'vector': [0.1] * 384,
+                'limit': 10,
+                'filter': {
+                    'category': 'tech',
+                    'year': 2020
+                }
+            }
+            
+            results = await adapter.search(query)
+            assert isinstance(results, list)
+            
+            # Verify that the filter was correctly constructed
+            call_args = mock_qdrant_client.search.call_args
+            query_filter = call_args[1]['query_filter']
+            assert query_filter is not None
+            assert len(query_filter.must) == 2
+            await adapter.disconnect()
+    
+    async def test_should_conditions(self, mock_qdrant_client):
+        """Test OR-like SHOULD conditions."""
+        with patch('src.storage.qdrant_adapter.AsyncQdrantClient', return_value=mock_qdrant_client):
+            config = {
+                'url': 'http://localhost:6333',
+                'collection_name': 'test_collection'
+            }
+            adapter = QdrantAdapter(config)
+            await adapter.connect()
+            
+            query = {
+                'vector': [0.1] * 384,
+                'limit': 10,
+                'filter': {
+                    'should': [
+                        {'key': 'tag', 'match': {'value': 'ai'}},
+                        {'key': 'tag', 'match': {'value': 'ml'}}
+                    ]
+                }
+            }
+            
+            results = await adapter.search(query)
+            assert isinstance(results, list)
+            
+            # Verify that the filter was correctly constructed
+            call_args = mock_qdrant_client.search.call_args
+            query_filter = call_args[1]['query_filter']
+            assert query_filter is not None
+            assert len(query_filter.should) == 2
+            await adapter.disconnect()
+    
+    async def test_must_not_conditions(self, mock_qdrant_client):
+        """Test exclusion with MUST_NOT."""
+        with patch('src.storage.qdrant_adapter.AsyncQdrantClient', return_value=mock_qdrant_client):
+            config = {
+                'url': 'http://localhost:6333',
+                'collection_name': 'test_collection'
+            }
+            adapter = QdrantAdapter(config)
+            await adapter.connect()
+            
+            query = {
+                'vector': [0.1] * 384,
+                'limit': 10,
+                'filter': {
+                    'must_not': [
+                        {'key': 'status', 'match': {'value': 'deleted'}}
+                    ]
+                }
+            }
+            
+            results = await adapter.search(query)
+            assert isinstance(results, list)
+            
+            # Verify that the filter was correctly constructed
+            call_args = mock_qdrant_client.search.call_args
+            query_filter = call_args[1]['query_filter']
+            assert query_filter is not None
+            assert len(query_filter.must_not) == 1
+            await adapter.disconnect()
+    
+    async def test_complex_filter_with_must_and_should(self, mock_qdrant_client):
+        """Test complex filter with both must and should conditions."""
+        with patch('src.storage.qdrant_adapter.AsyncQdrantClient', return_value=mock_qdrant_client):
+            config = {
+                'url': 'http://localhost:6333',
+                'collection_name': 'test_collection'
+            }
+            adapter = QdrantAdapter(config)
+            await adapter.connect()
+            
+            query = {
+                'vector': [0.1] * 384,
+                'limit': 10,
+                'filter': {
+                    'must': [
+                        {'key': 'category', 'match': {'value': 'tech'}}
+                    ],
+                    'should': [
+                        {'key': 'tag', 'match': {'value': 'ai'}},
+                        {'key': 'tag', 'match': {'value': 'ml'}}
+                    ]
+                }
+            }
+            
+            results = await adapter.search(query)
+            assert isinstance(results, list)
+            
+            # Verify that the filter was correctly constructed
+            call_args = mock_qdrant_client.search.call_args
+            query_filter = call_args[1]['query_filter']
+            assert query_filter is not None
+            assert len(query_filter.must) == 1
+            assert len(query_filter.should) == 2
+            await adapter.disconnect()
+    
+    async def test_backward_compatibility_simple_filters(self, mock_qdrant_client):
+        """Test that simple filters still work (backward compatibility)."""
+        with patch('src.storage.qdrant_adapter.AsyncQdrantClient', return_value=mock_qdrant_client):
+            config = {
+                'url': 'http://localhost:6333',
+                'collection_name': 'test_collection'
+            }
+            adapter = QdrantAdapter(config)
+            await adapter.connect()
+            
+            query = {
+                'vector': [0.1] * 384,
+                'limit': 10,
+                'filter': {
+                    'session_id': 'test-session',
+                    'type': 'preference'
+                }
+            }
+            
+            results = await adapter.search(query)
+            assert isinstance(results, list)
+            
+            # Verify that the filter was correctly constructed
+            call_args = mock_qdrant_client.search.call_args
+            query_filter = call_args[1]['query_filter']
+            assert query_filter is not None
+            assert len(query_filter.must) == 2
+            await adapter.disconnect()
+
+    """Test collection management operations for Qdrant adapter."""
+    
+    @pytest.fixture
+    def mock_qdrant_client(self):
+        """Mock Qdrant client for unit tests."""
+        mock = AsyncMock()
+        mock.get_collection = AsyncMock()
+        mock.create_collection = AsyncMock()
+        mock.update_collection = AsyncMock()
+        mock.get_collections = AsyncMock()
+        mock.close = AsyncMock()
+        return mock
+    
+    @pytest.mark.asyncio
+                'optimizers_config': {
+                    'indexing_threshold': 10000
+                }
+            }
+            
+            result = await adapter.create_collection('test_coll', collection_config)
+            assert result is True
+            
+            # Verify create_collection was called
+            mock_qdrant_client.create_collection.assert_called_once()
+            await adapter.disconnect()
+    
+    async def test_create_collection_already_exists(self, mock_qdrant_client):
+        """Test creating collection that already exists."""
+        # Simulate collection already exists
+        mock_qdrant_client.get_collection = AsyncMock()
+        
+        with patch('src.storage.qdrant_adapter.AsyncQdrantClient', return_value=mock_qdrant_client):
+            config = {
+                'url': 'http://localhost:6333',
+                'collection_name': 'test_collection'
+            }
+            adapter = QdrantAdapter(config)
+            await adapter.connect()
+            
+            result = await adapter.create_collection('test_coll', {})
+            assert result is False
+            
+            # Verify create_collection was not called
+            mock_qdrant_client.create_collection.assert_not_called()
+            await adapter.disconnect()
+    
+    async def test_update_collection_config(self, mock_qdrant_client):
+        """Test updating collection configuration."""
+        # Simulate collection exists
+        mock_qdrant_client.get_collection = AsyncMock()
+        
+        with patch('src.storage.qdrant_adapter.AsyncQdrantClient', return_value=mock_qdrant_client):
+            config = {
+                'url': 'http://localhost:6333',
+                'collection_name': 'test_collection'
+            }
+            adapter = QdrantAdapter(config)
+            await adapter.connect()
+            
+            new_config = {'optimizers_config': {'indexing_threshold': 20000}}
+            result = await adapter.update_collection('test_coll', new_config)
+            assert result is True
+            
+            # Verify update_collection was called
+            mock_qdrant_client.update_collection.assert_called_once()
+            await adapter.disconnect()
+    
+    async def test_update_collection_not_exists(self, mock_qdrant_client):
+        """Test updating collection that doesn't exist."""
+        # Simulate collection doesn't exist
+        mock_qdrant_client.get_collection.side_effect = Exception("Not found")
+        
+        with patch('src.storage.qdrant_adapter.AsyncQdrantClient', return_value=mock_qdrant_client):
+            config = {
+                'url': 'http://localhost:6333',
+                'collection_name': 'test_collection'
+            }
+            adapter = QdrantAdapter(config)
+            await adapter.connect()
+            
+            new_config = {'optimizers_config': {'indexing_threshold': 20000}}
+            result = await adapter.update_collection('test_coll', new_config)
+            assert result is False
+            
+            # Verify update_collection was not called
+            mock_qdrant_client.update_collection.assert_not_called()
+            await adapter.disconnect()
+    
+    async def test_get_collection_info_detailed(self, mock_qdrant_client):
+        """Test retrieving detailed collection information."""
+        # Mock collection info response
+        mock_collection_info = Mock()
+        mock_collection_info.status = Mock(value='green')
+        mock_collection_info.vectors_count = 1000
+        mock_collection_info.indexed_vectors_count = 1000
+        mock_collection_info.points_count = 1000
+        
+        mock_config = Mock()
+        mock_params = Mock()
+        mock_vectors = Mock()
+        mock_vectors.size = 384
+        mock_params.vectors = mock_vectors
+        mock_params.shard_number = 1
+        mock_params.replication_factor = 1
+        mock_config.params = mock_params
+        mock_collection_info.config = mock_config
+        
+        mock_qdrant_client.get_collection.return_value = mock_collection_info
+        
+        with patch('src.storage.qdrant_adapter.AsyncQdrantClient', return_value=mock_qdrant_client):
+            config = {
+                'url': 'http://localhost:6333',
+                'collection_name': 'test_collection'
+            }
+            adapter = QdrantAdapter(config)
+            await adapter.connect()
+            
+            info = await adapter.get_collection_info('test_coll')
+            assert 'name' in info
+            assert 'status' in info
+            assert 'vectors_count' in info
+            assert 'points_count' in info
+            assert info['vectors_count'] == 1000
+            assert info['vector_size'] == 384
+            await adapter.disconnect()
+    
+    async def test_list_all_collections(self, mock_qdrant_client):
+        """Test listing all available collections."""
+        # Mock collections response
+        mock_collection1 = Mock()
+        mock_collection1.name = 'collection1'
+        mock_collection2 = Mock()
+        mock_collection2.name = 'collection2'
+        
+        mock_collections_response = Mock()
+        mock_collections_response.collections = [mock_collection1, mock_collection2]
+        mock_qdrant_client.get_collections.return_value = mock_collections_response
+        
+        with patch('src.storage.qdrant_adapter.AsyncQdrantClient', return_value=mock_qdrant_client):
+            config = {
+                'url': 'http://localhost:6333',
+                'collection_name': 'test_collection'
+            }
+            adapter = QdrantAdapter(config)
+            await adapter.connect()
+            
+            collections = await adapter.list_collections()
+            assert isinstance(collections, list)
+            assert len(collections) == 2
+            assert 'collection1' in collections
+            assert 'collection2' in collections
+            await adapter.disconnect()

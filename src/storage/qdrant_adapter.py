@@ -248,14 +248,15 @@ class QdrantAdapter(StorageAdapter):
                 result = {
                     'id': str(point.id),
                     'vector': point.vector,
-                    'content': point.payload.get('content'),
-                    'metadata': point.payload.get('metadata', {}),
+                    'content': point.payload.get('content') if point.payload else None,
+                    'metadata': point.payload.get('metadata', {}) if point.payload else {},
                 }
                 
                 # Add any additional payload fields
-                for key, value in point.payload.items():
-                    if key not in ['content', 'metadata']:
-                        result[key] = value
+                if point.payload:
+                    for key, value in point.payload.items():
+                        if key not in ['content', 'metadata']:
+                            result[key] = value
                 
                 logger.debug(f"Retrieved point {id}")
                 return result
@@ -301,16 +302,7 @@ class QdrantAdapter(StorageAdapter):
                 # Build filter if provided
                 search_filter = None
                 if 'filter' in query and query['filter'] is not None:
-                    must_conditions = []
-                    for field, value in query['filter'].items():
-                        must_conditions.append(
-                            FieldCondition(
-                                key=field,
-                                match=MatchValue(value=value)
-                            )
-                        )
-                    if must_conditions:
-                        search_filter = Filter(must=must_conditions)
+                    search_filter = self._build_qdrant_filter(query['filter'])
                 
                 # Perform search
                 results = await self.client.search(
@@ -327,15 +319,16 @@ class QdrantAdapter(StorageAdapter):
                     result = {
                         'id': str(hit.id),
                         'vector': hit.vector,
-                        'content': hit.payload.get('content'),
-                        'metadata': hit.payload.get('metadata', {}),
+                        'content': hit.payload.get('content') if hit.payload else None,
+                        'metadata': hit.payload.get('metadata', {}) if hit.payload else {},
                         'score': hit.score
                     }
                     
                     # Add any additional payload fields
-                    for key, value in hit.payload.items():
-                        if key not in ['content', 'metadata']:
-                            result[key] = value
+                    if hit.payload:
+                        for key, value in hit.payload.items():
+                            if key not in ['content', 'metadata']:
+                                result[key] = value
                     
                     formatted_results.append(result)
                 
@@ -345,6 +338,120 @@ class QdrantAdapter(StorageAdapter):
             except Exception as e:
                 logger.error(f"Qdrant search failed: {e}", exc_info=True)
                 raise StorageQueryError(f"Failed to search Qdrant: {e}") from e
+    
+    def _build_qdrant_filter(self, filter_dict: Dict[str, Any]) -> Optional[Filter]:
+        """
+        Build a Qdrant Filter from a dictionary specification.
+        
+        Supports:
+        - Simple key-value matching: {'field': 'value'}
+        - Complex filters with must/should/must_not clauses
+        - Nested filters
+        
+        Args:
+            filter_dict: Dictionary describing the filter conditions
+            
+        Returns:
+            Qdrant Filter object or None if no conditions
+        """
+        if not filter_dict:
+            return None
+            
+        # Handle complex filter structure first
+        if isinstance(filter_dict, dict) and any(key in filter_dict for key in ['must', 'should', 'must_not']):
+            must_conditions = []
+            should_conditions = []
+            must_not_conditions = []
+            
+            # Process must conditions
+            if 'must' in filter_dict:
+                for condition in filter_dict['must']:
+                    if isinstance(condition, dict) and 'key' in condition and 'match' in condition:
+                        # Simple field condition
+                        must_conditions.append(
+                            FieldCondition(
+                                key=condition['key'],
+                                match=MatchValue(value=condition['match']['value'])
+                            )
+                        )
+                    elif isinstance(condition, dict):
+                        # Handle nested structures in must conditions
+                        for key, value in condition.items():
+                            if key not in ['must', 'should', 'must_not']:
+                                must_conditions.append(
+                                    FieldCondition(
+                                        key=key,
+                                        match=MatchValue(value=value)
+                                    )
+                                )
+            
+            # Process should conditions
+            if 'should' in filter_dict:
+                for condition in filter_dict['should']:
+                    if isinstance(condition, dict) and 'key' in condition and 'match' in condition:
+                        should_conditions.append(
+                            FieldCondition(
+                                key=condition['key'],
+                                match=MatchValue(value=condition['match']['value'])
+                            )
+                        )
+                    elif isinstance(condition, dict):
+                        # Handle nested structures in should conditions
+                        for key, value in condition.items():
+                            if key not in ['must', 'should', 'must_not']:
+                                should_conditions.append(
+                                    FieldCondition(
+                                        key=key,
+                                        match=MatchValue(value=value)
+                                    )
+                                )
+            
+            # Process must_not conditions
+            if 'must_not' in filter_dict:
+                for condition in filter_dict['must_not']:
+                    if isinstance(condition, dict) and 'key' in condition and 'match' in condition:
+                        must_not_conditions.append(
+                            FieldCondition(
+                                key=condition['key'],
+                                match=MatchValue(value=condition['match']['value'])
+                            )
+                        )
+                    elif isinstance(condition, dict):
+                        # Handle nested structures in must_not conditions
+                        for key, value in condition.items():
+                            if key not in ['must', 'should', 'must_not']:
+                                must_not_conditions.append(
+                                    FieldCondition(
+                                        key=key,
+                                        match=MatchValue(value=value)
+                                    )
+                                )
+            
+            # Create filter with available conditions
+            if must_conditions or should_conditions or must_not_conditions:
+                return Filter(
+                    must=must_conditions if must_conditions else None,
+                    should=should_conditions if should_conditions else None,
+                    must_not=must_not_conditions if must_not_conditions else None
+                )
+            
+            return None
+            
+        # Handle simple key-value filters (backward compatibility)
+        if isinstance(filter_dict, dict):
+            must_conditions = []
+            for field, value in filter_dict.items():
+                if not isinstance(value, (dict, list)):
+                    must_conditions.append(
+                        FieldCondition(
+                            key=field,
+                            match=MatchValue(value=value)
+                        )
+                    )
+            if must_conditions:
+                return Filter(must=must_conditions)
+        
+        return None
     
     async def delete(self, id: str) -> bool:
         """
@@ -496,18 +603,19 @@ class QdrantAdapter(StorageAdapter):
                     result = {
                         'id': str(point.id),
                         'vector': point.vector,
-                        'content': point.payload.get('content'),
-                        'metadata': point.payload.get('metadata', {}),
+                        'content': point.payload.get('content') if point.payload else None,
+                        'metadata': point.payload.get('metadata', {}) if point.payload else {},
                     }
                     
                     # Add any additional payload fields
-                    for key, value in point.payload.items():
-                        if key not in ['content', 'metadata']:
-                            result[key] = value
-                    
-                    results.append(result)
-                else:
-                    results.append(None)
+                    if point.payload:
+                        for key, value in point.payload.items():
+                            if key not in ['content', 'metadata']:
+                                result[key] = value
+                        
+                        results.append(result)
+                    else:
+                        results.append(None)
             
             logger.debug(f"Retrieved {len([r for r in results if r])} of {len(ids)} vectors in batch")
             return results
@@ -540,9 +648,10 @@ class QdrantAdapter(StorageAdapter):
         
         try:
             # Delete all points at once
+            from qdrant_client.models import PointIdsList
             result = await self.client.delete(
                 collection_name=self.collection_name,
-                points_selector=ids
+                points_selector=PointIdsList(points=[str(id) for id in ids])
             )
             
             # Qdrant doesn't tell us which specific IDs were deleted
@@ -596,6 +705,7 @@ class QdrantAdapter(StorageAdapter):
                 collection_name=self.collection_name
             )
             
+            # Health check specific fields
             latency_ms = (time.perf_counter() - start_time) * 1000
             
             # Determine health status based on latency
@@ -606,14 +716,24 @@ class QdrantAdapter(StorageAdapter):
             else:
                 status = 'unhealthy'
             
+            # Get vector size from collection info
+            vectors_config = collection_info.config.params.vectors
+            if isinstance(vectors_config, dict):
+                # Named vectors case - get size from first vector config
+                first_config = next(iter(vectors_config.values())) if vectors_config else None
+                vector_size = first_config.size if first_config else 0
+            else:
+                # Single vector case
+                vector_size = vectors_config.size if vectors_config else 0
+            
             return {
                 'status': status,
                 'connected': True,
                 'latency_ms': round(latency_ms, 2),
                 'collection_exists': True,
                 'collection_name': self.collection_name,
-                'vector_count': collection_info.points_count,
-                'vector_size': collection_info.config.params.vectors.size,
+                'vector_count': collection_info.points_count or 0,
+                'vector_size': vector_size,
                 'details': f'Qdrant collection "{self.collection_name}" is accessible',
                 'timestamp': datetime.now(timezone.utc).isoformat()
             }
@@ -644,12 +764,15 @@ class QdrantAdapter(StorageAdapter):
             # Handle both dict and object types for vectors config
             vectors_config = collection_info.config.params.vectors
             if isinstance(vectors_config, dict):
-                vector_size = next(iter(vectors_config.values())).size if vectors_config else 0
+                # Named vectors case - get size from first vector config
+                first_config = next(iter(vectors_config.values())) if vectors_config else None
+                vector_size = first_config.size if first_config and hasattr(first_config, 'size') else 0
             else:
-                vector_size = vectors_config.size if hasattr(vectors_config, 'size') else 0
+                # Single vector case
+                vector_size = vectors_config.size if vectors_config and hasattr(vectors_config, 'size') else 0
             
             return {
-                'vector_count': collection_info.points_count,
+                'vector_count': collection_info.points_count or 0,
                 'vector_dim': vector_size,
                 'collection_name': self.collection_name,
                 'distance_metric': self.distance
@@ -657,3 +780,168 @@ class QdrantAdapter(StorageAdapter):
         except Exception as e:
             logger.error(f"Failed to get backend metrics: {e}")
             return {'error': str(e)}
+    
+    # Collection management methods
+    
+    async def create_collection(self, name: str, config: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Create a new collection with the specified configuration.
+        
+        Args:
+            name: Name of the collection to create
+            config: Configuration dictionary with vector parameters
+            
+        Returns:
+            True if collection was created, False if it already exists
+            
+        Raises:
+            StorageConnectionError: If not connected
+            StorageQueryError: If creation fails
+        """
+        if not self._connected or not self.client:
+            raise StorageConnectionError("Not connected to Qdrant")
+        
+        try:
+            # Check if collection already exists
+            try:
+                await self.client.get_collection(name)
+                # Collection exists, return False
+                return False
+            except Exception:
+                # Collection doesn't exist, proceed with creation
+                pass
+            
+            # Prepare vector configuration
+            if config and 'vectors' in config:
+                vectors_config = config['vectors']
+            else:
+                # Use default configuration based on adapter settings
+                distance_map = {
+                    'Cosine': Distance.COSINE,
+                    'Euclid': Distance.EUCLID,
+                    'Dot': Distance.DOT
+                }
+                vectors_config = VectorParams(
+                    size=self.vector_size,
+                    distance=distance_map.get(self.distance, Distance.COSINE)
+                )
+            
+            # Create collection
+            await self.client.create_collection(
+                collection_name=name,
+                vectors_config=vectors_config
+            )
+            
+            logger.info(f"Created Qdrant collection: {name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to create collection {name}: {e}", exc_info=True)
+            raise StorageQueryError(f"Failed to create collection {name}: {e}") from e
+    
+    async def update_collection(self, name: str, config: Dict[str, Any]) -> bool:
+        """
+        Update an existing collection with new configuration.
+        
+        Args:
+            name: Name of the collection to update
+            config: Configuration updates to apply
+            
+        Returns:
+            True if collection was updated, False if it doesn't exist
+            
+        Raises:
+            StorageConnectionError: If not connected
+            StorageQueryError: If update fails
+        """
+        if not self._connected or not self.client:
+            raise StorageConnectionError("Not connected to Qdrant")
+        
+        try:
+            # Check if collection exists
+            try:
+                await self.client.get_collection(name)
+            except Exception:
+                # Collection doesn't exist
+                return False
+            
+            # Update collection
+            await self.client.update_collection(
+                collection_name=name,
+                **config
+            )
+            
+            logger.info(f"Updated Qdrant collection: {name}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update collection {name}: {e}", exc_info=True)
+            raise StorageQueryError(f"Failed to update collection {name}: {e}") from e
+    
+    async def get_collection_info(self, name: str) -> Dict[str, Any]:
+        """
+        Get detailed information about a collection.
+        
+        Args:
+            name: Name of the collection to query
+            
+        Returns:
+            Dictionary with collection information
+            
+        Raises:
+            StorageConnectionError: If not connected
+            StorageQueryError: If query fails
+        """
+        if not self._connected or not self.client:
+            raise StorageConnectionError("Not connected to Qdrant")
+        
+        try:
+            collection_info = await self.client.get_collection(name)
+            
+            # Extract relevant information
+            vectors_config = collection_info.config.params.vectors
+            if isinstance(vectors_config, dict):
+                # Named vectors case - get size from first vector config
+                first_config = next(iter(vectors_config.values())) if vectors_config else None
+                vector_size = first_config.size if first_config else 0
+            else:
+                # Single vector case
+                vector_size = vectors_config.size if vectors_config else 0
+            
+            return {
+                'name': name,
+                'status': collection_info.status.value if collection_info.status else 'unknown',
+                'vectors_count': collection_info.vectors_count or 0,
+                'indexed_vectors_count': collection_info.indexed_vectors_count or 0,
+                'points_count': collection_info.points_count or 0,
+                'vector_size': vector_size,
+                'shard_number': collection_info.config.params.shard_number,
+                'replication_factor': collection_info.config.params.replication_factor
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get collection info for {name}: {e}", exc_info=True)
+            raise StorageQueryError(f"Failed to get collection info for {name}: {e}") from e
+    
+    async def list_collections(self) -> List[str]:
+        """
+        List all available collections.
+        
+        Returns:
+            List of collection names
+            
+        Raises:
+            StorageConnectionError: If not connected
+            StorageQueryError: If query fails
+        """
+        if not self._connected or not self.client:
+            raise StorageConnectionError("Not connected to Qdrant")
+        
+        try:
+            collections_response = await self.client.get_collections()
+            collection_names = [collection.name for collection in collections_response.collections]
+            return collection_names
+            
+        except Exception as e:
+            logger.error(f"Failed to list collections: {e}", exc_info=True)
+            raise StorageQueryError(f"Failed to list collections: {e}") from e
