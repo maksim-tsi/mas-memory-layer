@@ -5,7 +5,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 from src.storage.redis_adapter import RedisAdapter
-from src.storage.base import StorageConnectionError, StorageDataError
+from src.storage.base import StorageConnectionError, StorageDataError, StorageTimeoutError, StorageQueryError
 
 @pytest_asyncio.fixture
 async def redis_adapter():
@@ -661,3 +661,107 @@ async def test_multiple_sessions_isolation(redis_adapter, cleanup_session):
     
     assert await redis_adapter.session_exists(session1) is False
     assert await redis_adapter.session_exists(session2) is True
+
+
+@pytest.mark.asyncio
+async def test_connection_error_handling():
+    """Test connection error handling with invalid host"""
+    config = {
+        'host': '192.0.2.1',  # TEST-NET-1, should not be routable
+        'port': 6379,
+        'db': 0,
+        'socket_timeout': 0.1  # Short timeout
+    }
+    adapter = RedisAdapter(config)
+    
+    # Try to connect - should fail
+    with pytest.raises((StorageConnectionError, StorageTimeoutError)):
+        await adapter.connect()
+
+
+@pytest.mark.asyncio
+async def test_disconnect_error_handling(redis_adapter):
+    """Test that disconnect handles errors gracefully"""
+    # Connect normally
+    if not redis_adapter._connected:
+        await redis_adapter.connect()
+    
+    # Mock close to raise an error
+    original_close = redis_adapter.client.aclose
+    async def mock_close_error():
+        raise Exception("Close error")
+    
+    redis_adapter.client.aclose = mock_close_error
+    
+    # Disconnect should not raise
+    await redis_adapter.disconnect()
+    
+    # Restore original
+    redis_adapter.client.aclose = original_close
+
+
+@pytest.mark.asyncio
+async def test_already_connected_warning(redis_adapter):
+    """Test warning when trying to connect while already connected"""
+    # First connection
+    await redis_adapter.connect()
+    
+    # Try to connect again - should log warning but not error
+    await redis_adapter.connect()
+    
+    # Should still be connected
+    assert redis_adapter._connected is True
+    
+    await redis_adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_store_not_connected_error():
+    """Test store operation when not connected"""
+    config = {
+        'host': 'localhost',
+        'port': 6379,
+        'db': 0
+    }
+    adapter = RedisAdapter(config)
+    # Don't connect
+    
+    with pytest.raises(StorageConnectionError, match="Not connected"):
+        await adapter.store({
+            'session_id': 'test',
+            'turn_id': 0,
+            'content': 'test'
+        })
+
+
+@pytest.mark.asyncio
+async def test_retrieve_batch_empty_list(redis_adapter):
+    """Test retrieve_batch with empty list returns empty list"""
+    await redis_adapter.connect()
+    
+    results = await redis_adapter.retrieve_batch([])
+    assert results == []
+    
+    await redis_adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_delete_batch_empty_list(redis_adapter):
+    """Test delete_batch with empty list returns empty dict"""
+    await redis_adapter.connect()
+    
+    results = await redis_adapter.delete_batch([])
+    assert results == {}
+    
+    await redis_adapter.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_store_batch_empty_list(redis_adapter):
+    """Test store_batch with empty list returns empty list"""
+    await redis_adapter.connect()
+    
+    results = await redis_adapter.store_batch([])
+    assert results == []
+    
+    await redis_adapter.disconnect()
