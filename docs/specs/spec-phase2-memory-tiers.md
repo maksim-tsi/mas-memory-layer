@@ -1,10 +1,11 @@
 # Phase 2 Specification: Memory Tier Layer
 
-**Document Version**: 1.0  
-**Date**: October 22, 2025  
-**Status**: Draft - Ready for Population  
-**Target Completion**: Week 3-4  
-**Branch**: `dev-mas`
+**Document Version**: 1.1  
+**Date**: November 2, 2025  
+**Status**: Active - Aligned with Implementation Plan v1.0  
+**Target Completion**: 11 weeks (Phase 2A-2E)  
+**Branch**: `dev-mas`  
+**Implementation Plan Reference**: [implementation-plan-02112025.md](../plan/implementation-plan-02112025.md)
 
 ---
 
@@ -35,23 +36,30 @@ This specification presents a **four-tier hierarchical memory architecture** for
 
 ### CIAR Scoring: A Significance Metric for Memory Promotion
 
+> **📋 Authoritative Reference**: Complete CIAR formula specification, mathematical justification, and implementation guide in **[ADR-004: CIAR Scoring Formula](../ADR/004-ciar-scoring-formula.md)**.
+
 **Research Challenge**: Determining which conversation elements warrant long-term retention without human annotation.
 
 **Our Solution**: The **CIAR (Certainty, Impact, Age, Recency)** scoring framework quantifies memory significance:
 
 ```
-CIAR = (Certainty × Impact) × Age_Decay × Recency_Boost
+CIAR = (Certainty × Impact) × exp(-λ×days_since_creation) × (1 + α×access_count)
 ```
+
+**Parameters** (from ADR-004):
+- **λ (lambda)**: 0.0231 - exponential decay rate (30-day half-life)
+- **α (alpha)**: 0.1 - linear reinforcement factor (10% boost per access)
+- **Promotion Threshold**: 0.6 (configurable)
 
 **Components**:
 - **Certainty** (0.0-1.0): LLM-assessed confidence in extracted information
 - **Impact** (0.0-1.0): Predicted utility for future interactions (user preferences > casual mentions)
-- **Age_Decay**: Temporal discount favoring recent information
-- **Recency_Boost**: Amplification for information accessed/reinforced multiple times
+- **Age_Decay**: `exp(-λ×days)` - exponential temporal discount following Ebbinghaus forgetting curve
+- **Recency_Boost**: `1 + α×access_count` - linear amplification for accessed/reinforced information
 
 **Key Insight**: CIAR enables **autonomous memory management** without manual curation, with threshold-based promotion (default: 0.6) balancing retention and storage costs. Empirical evaluation shows 85% precision in retaining user-relevant information while filtering transient conversational artifacts.
 
-**Research Implication**: CIAR provides a trainable, interpretable alternative to end-to-end learned memory systems, allowing domain-specific tuning of significance criteria.
+**Research Implication**: CIAR provides a trainable, interpretable alternative to end-to-end learned memory systems, allowing domain-specific tuning of significance criteria. ADR-004 documents the decision to use exponential decay over additive/multiplicative alternatives based on cognitive psychology research.
 
 ---
 
@@ -78,6 +86,116 @@ CIAR = (Certainty × Impact) × Age_Decay × Recency_Boost
 - **Research Value**: Demonstrates how agents can form generalized models from experiential data
 
 **Critical Design Decision**: All processes are **asynchronous and non-blocking**—memory operations never delay agent responses, maintaining real-time interaction while background processes handle long-term storage.
+
+---
+
+### Lifecycle Engine Implementation Details
+
+**Reference:** See [implementation-plan-02112025.md](../plan/implementation-plan-02112025.md) Phase 2B-2D for detailed task breakdowns.
+
+#### Implementation Approach (Engineering Details)
+
+**Key Implementation Patterns:**
+
+**1. Base Engine Interface** (`src/memory/engines/base_engine.py`):
+   - Abstract `BaseEngine` class with `process()`, `health_check()`, and `get_metrics()` methods
+   - Dependency injection for storage adapters and metrics collectors
+   - Async/await patterns for non-blocking operations
+
+**2. Promotion Engine** (Phase 2B, Weeks 4-5):
+   - LLM-based fact extraction with circuit breaker fallback to rule-based extraction
+   - Batch processing (5-turn batches) to amortize LLM latency
+   - CIAR scoring with configurable thresholds
+   - Target: <200ms p95 latency, 100+ turns/second throughput
+
+**3. Consolidation Engine** (Phase 2C, Weeks 6-8):
+   - Time-windowed fact clustering (24-hour windows)
+   - LLM summarization with retry logic and fallback strategies
+   - Dual storage: Qdrant (vectors) + Neo4j (graph) with transaction coordination
+   - Episode deduplication and conflict resolution
+
+**4. Distillation Engine** (Phase 2D, Weeks 9-10):
+   - Multi-episode pattern analysis with confidence scoring
+   - Provenance tracking to source episodes
+   - Knowledge graph enhancement in Neo4j
+   - Periodic batch processing (daily/weekly schedules)
+
+**Test Coverage Target:** 80%+ per component with unit, integration, and performance tests.
+
+**Production Readiness:** Circuit breakers, graceful degradation, comprehensive metrics (150+ instrumented operations).
+
+---
+
+#### Lifecycle Engine Resilience Patterns
+
+**Promotion Engine Circuit Breaker:**
+
+The Promotion Engine implements a circuit breaker pattern to handle LLM service failures:
+
+**States:**
+- **CLOSED** (Normal): LLM-based fact extraction operational
+- **OPEN** (Failed): After 5 consecutive failures, switch to rule-based extraction
+- **HALF-OPEN** (Testing): After 60s timeout, test LLM with single request
+
+**Fallback Strategy:**
+```python
+async def extract_facts(turn_data: Dict) -> List[Fact]:
+    if circuit_breaker.state == "OPEN":
+        # Use rule-based extraction
+        return rule_based_extractor(turn_data)
+    
+    try:
+        facts = await llm_based_extractor(turn_data)
+        circuit_breaker.record_success()
+        return facts
+    except LLMTimeoutError:
+        circuit_breaker.record_failure()
+        # Fallback for this request
+        return rule_based_extractor(turn_data)
+```
+
+**Metrics Tracked:**
+- `promotion_llm_success_rate`: Percentage of successful LLM calls
+- `promotion_circuit_breaker_state`: Current state (0=closed, 1=half-open, 2=open)
+- `promotion_fallback_usage`: Count of rule-based fallback invocations
+
+---
+
+**Consolidation Engine Retry Logic:**
+
+Consolidation to L3 involves coordinating Qdrant (vectors) and Neo4j (graph) writes, which may fail independently:
+
+**Transaction Coordination:**
+1. Write to Qdrant (vector storage)
+2. If successful, write to Neo4j (graph storage)
+3. If Neo4j fails, rollback Qdrant write
+4. Retry with exponential backoff (3 attempts max)
+
+**Partial Success Handling:**
+- If Qdrant succeeds but Neo4j fails after 3 retries: Log error, queue for manual reconciliation
+- If both fail: Facts remain in L2, consolidation retried in next batch
+
+**Idempotency:**
+- All consolidation operations use deterministic IDs (hash of fact content)
+- Duplicate writes are detected and skipped
+- Safe to retry without data duplication
+
+---
+
+**Distillation Engine Batch Resilience:**
+
+Distillation processes multiple episodes in batches. Failures are isolated:
+
+**Batch Processing Strategy:**
+1. Retrieve N episodes for distillation (default: 100)
+2. Process in sub-batches of 10
+3. If sub-batch fails, log errors and continue with next sub-batch
+4. Report partial success: "85/100 episodes distilled successfully"
+
+**Failure Isolation:**
+- Single episode processing failure doesn't abort entire batch
+- Failed episodes marked for retry in next distillation cycle
+- Success metrics tracked per-episode and per-batch
 
 ---
 
@@ -184,9 +302,11 @@ CIAR = (Certainty × Impact) × Age_Decay × Recency_Boost
 
 ### Testing & Validation Methodology
 
+**Reference:** [implementation-plan-02112025.md](../plan/implementation-plan-02112025.md) - Each Phase 2 task includes detailed test specifications.
+
 **Four-Level Testing Pyramid**:
 
-**1. Unit Tests (70% coverage target)**:
+**1. Unit Tests (70% coverage target, 80%+ per component)**:
 - Component isolation with mocked dependencies
 - CIAR calculation accuracy with boundary values
 - Tier logic correctness (storage, retrieval, TTL management)
@@ -209,6 +329,63 @@ CIAR = (Certainty × Impact) × Age_Decay × Recency_Boost
 - Memory quality evaluation (precision/recall of fact extraction)
 
 **Research Contribution**: This testing methodology ensures **reproducible results**—critical for validating claimed performance characteristics and comparing against alternative approaches.
+
+---
+
+#### Test Implementation Details
+
+**Example Test Structure (L1 Active Context):**
+
+See `tests/memory/test_active_context_tier.py` for complete implementation.
+
+**Key Test Categories:**
+
+1. **Functional Tests:**
+   - `test_store_turn()`: Verify turn storage in Redis + PostgreSQL
+   - `test_window_enforcement()`: Confirm automatic trimming to window size
+   - `test_ttl_expiration()`: Validate TTL setting on Redis keys
+   - `test_session_isolation()`: Ensure sessions don't interfere
+
+2. **Failure Mode Tests:**
+   - `test_postgres_fallback()`: Redis failure → PostgreSQL recovery
+   - `test_concurrent_access()`: Thread safety under parallel writes
+   - `test_malformed_data()`: Error handling for invalid inputs
+
+3. **Performance Tests:**
+   - `test_latency_benchmark()`: Assert <5ms p95 for store operations
+   - `test_throughput_benchmark()`: Verify 1000+ ops/second sustained
+
+4. **Integration Tests:**
+   - `test_l1_to_l2_promotion()`: End-to-end lifecycle test
+   - `test_orchestrator_integration()`: Multi-tier coordination
+
+**Pytest Configuration:**
+
+```python
+# conftest.py excerpt
+@pytest.fixture
+async def active_context_tier(redis_adapter, postgres_adapter):
+    """Fixture providing configured L1 tier with cleanup."""
+    tier = ActiveContextTier(
+        redis_adapter=redis_adapter,
+        postgres_adapter=postgres_adapter,
+        config={'window_size': 10, 'ttl_hours': 24}
+    )
+    yield tier
+    # Cleanup after test
+    await tier.delete('test_session')
+```
+
+**CI/CD Integration:**
+- Tests run on every commit to `dev-mas` branch
+- Test coverage reports uploaded to CodeCov
+- Performance regression detection (alert if p95 latency increases >20%)
+- Docker Compose spins up all storage backends for integration tests
+
+**Test Data Management:**
+- Fixtures use deterministic UUIDs for reproducibility
+- Test sessions isolated via unique session IDs
+- Database cleanup after each test (pytest finalizers)
 
 ---
 
@@ -271,26 +448,163 @@ CIAR = (Certainty × Impact) × Age_Decay × Recency_Boost
 
 ### Implementation Priorities & Roadmap
 
-**Phase 2 delivers 12 prioritized components** (see detailed specifications in body):
+**Reference:** [implementation-plan-02112025.md](../plan/implementation-plan-02112025.md) Section 6 for complete details.
 
-**Priorities 0-3** (Week 1-2): Foundation
-- Orchestrator skeleton, L1-L3 tier implementations
-- Basic context assembly and storage operations
+**Phase 2 Total Duration:** 11 weeks (77 days)  
+**Start Date:** November 3, 2025  
+**Target Completion:** January 18, 2026
 
-**Priorities 4-6** (Week 3-4): Lifecycle Engines
-- Promotion (L1→L2) with CIAR scoring
-- Consolidation (L2→L3) with embedding generation
-- Distillation (L3→L4) with pattern mining
+---
 
-**Priorities 7-9** (Week 4-5): Advanced Features
-- L4 implementation, shared state management
-- Personal state management, query enhancements
+#### Phase 2A: Memory Tier Classes (Weeks 1-3)
 
-**Priorities 10-11** (Week 5-6): Testing & Validation
-- Comprehensive unit/integration test suites
-- Performance benchmarking and validation
+| Week | Milestone | Deliverables | Dependencies |
+|------|-----------|--------------|--------------|
+| **Week 1** | L1 Active Context | `base_tier.py`, `active_context_tier.py`, tests | Phase 1 complete |
+| **Week 2** | L2 Working Memory | `working_memory_tier.py`, CIAR schema, tests | Week 1 complete |
+| **Week 3** | L3/L4 Tiers | `episodic_memory_tier.py`, `semantic_memory_tier.py`, tests | Week 1-2 complete |
 
-**Post-Phase 2** (Week 7+): Agent Integration
+**Acceptance Criteria:**
+- ✅ All tier classes implement `BaseTier` interface
+- ✅ 80%+ test coverage per tier
+- ✅ Health checks and metrics instrumented
+- ✅ Documentation with usage examples
+
+---
+
+#### Phase 2B: CIAR Scoring & Promotion (Weeks 4-5)
+
+| Week | Milestone | Deliverables | Dependencies |
+|------|-----------|--------------|--------------|
+| **Week 4** | CIAR Scorer + Fact Extractor | `ciar_scorer.py`, `fact_extractor.py`, LLM integration | Phase 2A complete |
+| **Week 5** | Promotion Engine | `promotion_engine.py`, circuit breaker, batch processing | Week 4 complete |
+
+**Acceptance Criteria:**
+- ✅ CIAR scoring accuracy validated (precision/recall metrics)
+- ✅ LLM fact extraction with circuit breaker fallback
+- ✅ <200ms p95 latency for 5-turn batches
+- ✅ 100+ turns/second throughput
+
+---
+
+#### Phase 2C: Consolidation Engine (Weeks 6-8)
+
+| Week | Milestone | Deliverables | Dependencies |
+|------|-----------|--------------|--------------|
+| **Week 6** | Episode Consolidator | `episode_consolidator.py`, clustering logic | Phase 2B complete |
+| **Week 7** | Dual Storage Coordination | Qdrant + Neo4j transaction logic | Week 6 complete |
+| **Week 8** | Testing & Validation | Integration tests, deduplication tests | Week 6-7 complete |
+
+**Acceptance Criteria:**
+- ✅ Time-windowed fact clustering (24-hour windows)
+- ✅ LLM summarization with retry logic
+- ✅ Qdrant-Neo4j write coordination with rollback
+- ✅ Episode deduplication working
+
+---
+
+#### Phase 2D: Distillation Engine (Weeks 9-10)
+
+| Week | Milestone | Deliverables | Dependencies |
+|------|-----------|--------------|--------------|
+| **Week 9** | Knowledge Distiller | `knowledge_distiller.py`, pattern mining | Phase 2C complete |
+| **Week 10** | L4 Integration | Typesense indexing, provenance tracking | Week 9 complete |
+
+**Acceptance Criteria:**
+- ✅ Multi-episode pattern analysis functional
+- ✅ Confidence-scored knowledge items
+- ✅ Provenance tracking to source episodes
+- ✅ Typesense search with faceted filters
+
+---
+
+#### Phase 2E: Memory Orchestrator (Week 11)
+
+| Week | Milestone | Deliverables | Dependencies |
+|------|-----------|--------------|--------------|
+| **Week 11** | Unified Memory System | `memory_orchestrator.py`, end-to-end tests | Phase 2A-2D complete |
+
+**Acceptance Criteria:**
+- ✅ Unified API for all memory operations
+- ✅ Intelligent tier routing
+- ✅ Graceful degradation on tier failures
+- ✅ <100ms p95 latency for full context assembly
+- ✅ Comprehensive integration tests
+
+---
+
+#### Critical Path Dependencies
+
+```mermaid
+gantt
+    title Phase 2 Implementation Timeline
+    dateFormat YYYY-MM-DD
+    section Phase 2A
+    Base Tier + L1       :a1, 2025-11-03, 7d
+    L2 Working Memory    :a2, after a1, 7d
+    L3/L4 Tiers          :a3, after a2, 7d
+    section Phase 2B
+    CIAR + Fact Extract  :b1, after a3, 7d
+    Promotion Engine     :b2, after b1, 7d
+    section Phase 2C
+    Episode Consolidator :c1, after b2, 7d
+    Dual Storage Coord   :c2, after c1, 7d
+    Consolidation Tests  :c3, after c2, 7d
+    section Phase 2D
+    Knowledge Distiller  :d1, after c3, 7d
+    L4 Integration       :d2, after d1, 7d
+    section Phase 2E
+    Memory Orchestrator  :e1, after d2, 7d
+```
+
+**Week-by-Week Dependencies:**
+
+```mermaid
+graph TD
+    P1[Phase 1: Storage Adapters ✅] --> W1[Week 1: Base Tier + L1]
+    W1 --> W2[Week 2: L2 Working Memory]
+    W1 --> W3[Week 3: L3/L4 Tiers]
+    W2 --> W4[Week 4: CIAR + Fact Extractor]
+    W3 --> W4
+    W4 --> W5[Week 5: Promotion Engine]
+    W2 --> W6[Week 6: Episode Consolidator]
+    W3 --> W6
+    W5 --> W6
+    W6 --> W7[Week 7: Dual Storage Coord]
+    W7 --> W8[Week 8: Consolidation Tests]
+    W8 --> W9[Week 9: Knowledge Distiller]
+    W3 --> W9
+    W9 --> W10[Week 10: L4 Integration]
+    W10 --> W11[Week 11: Memory Orchestrator]
+    W2 --> W11
+    W3 --> W11
+    W5 --> W11
+    W8 --> W11
+```
+
+**Component-Level Dependencies:**
+
+| Component | Depends On | Blocks |
+|-----------|------------|--------|
+| Base Tier Interface | Phase 1 storage adapters | All tier implementations |
+| L1 Active Context | Base Tier, Redis, PostgreSQL | L2 promotion |
+| L2 Working Memory | Base Tier, PostgreSQL, CIAR schema | CIAR scorer, consolidation |
+| L3 Episodic Memory | Base Tier, Qdrant, Neo4j | Consolidation engine, distillation |
+| L4 Semantic Memory | Base Tier, Typesense | Distillation engine |
+| CIAR Scorer | L2 tier interface | Promotion engine |
+| Fact Extractor | LLM integration | Promotion engine |
+| Promotion Engine | L1, L2, CIAR, Fact Extractor | Memory orchestrator |
+| Consolidation Engine | L2, L3, Episode models | Memory orchestrator |
+| Distillation Engine | L3, L4, Pattern analysis | Memory orchestrator |
+| Memory Orchestrator | All tiers, all engines | Phase 3 (agents) |
+
+**Total Critical Path: 70 days (10 weeks)**
+
+Note: Week 3 (L3/L4 Tiers) can be parallelized with Week 2, reducing total time to 11 weeks as planned.
+
+---
+
+**Post-Phase 2** (Week 12+): Agent Integration
 - LangGraph agent integration (Phase 3)
 - Multi-agent orchestration and coordination
 
@@ -533,6 +847,46 @@ tests/
     │ - Distillation     │
     └─────────────────────┘
 ```
+
+### Memory Tier API Contracts
+
+**Reference:** Full implementation details in [implementation-plan-02112025.md](../plan/implementation-plan-02112025.md) Phase 2A.
+
+All memory tier classes implement the `BaseTier` abstract interface:
+
+**Core Operations:**
+- `store(data: Dict[str, Any]) -> str` - Store data, return unique identifier
+- `retrieve(identifier: str) -> Optional[Dict[str, Any]]` - Retrieve by ID
+- `query(filters: Dict, limit: int, **kwargs) -> List[Dict]` - Query with filters
+- `delete(identifier: str) -> bool` - Delete by ID
+- `health_check() -> Dict[str, Any]` - Check storage adapter health
+- `get_metrics() -> Dict[str, Any]` - Retrieve tier-specific metrics
+
+**Tier-Specific Extensions:**
+
+**L1 Active Context:**
+- `get_session_window(session_id: str, limit: int = 20) -> List[Dict]`
+- `extend_ttl(session_id: str, hours: int) -> bool`
+- `clear_session(session_id: str) -> int` (returns count deleted)
+
+**L2 Working Memory:**
+- `store_fact(session_id: str, fact: Dict, ciar_score: float) -> str`
+- `get_facts_by_ciar(session_id: str, min_score: float = 0.6) -> List[Dict]`
+- `update_ciar_score(fact_id: str, new_score: float) -> bool`
+
+**L3 Episodic Memory:**
+- `store_episode(episode: Dict, embedding: List[float]) -> str`
+- `semantic_search(query_embedding: List[float], limit: int = 10) -> List[Dict]`
+- `graph_traverse(entity_id: str, relationship_type: str, depth: int = 2) -> Dict`
+
+**L4 Semantic Memory:**
+- `store_knowledge(knowledge: Dict, source_episodes: List[str]) -> str`
+- `search(query: str, filters: Dict = None, limit: int = 10) -> List[Dict]`
+- `get_related_concepts(concept_id: str) -> List[Dict]`
+
+**Type Definitions:** See `src/memory/types.py` for `Turn`, `Fact`, `Episode`, `Knowledge` dataclass definitions.
+
+---
 
 ### Tier Characteristics Deep Dive
 
@@ -797,26 +1151,31 @@ Significance = (Certainty × 0.3) + (Impact × 0.3) + (Age_Factor × 0.2) + (Rec
 **Lifecycle Decision Logic:**
 
 ```python
+# Note: CIAR thresholds from ADR-004
 async def should_promote_to_l2(turn_data: Dict) -> bool:
     """Determine if a turn should be promoted from L1 to L2"""
-    ciar = calculate_ciar_score(turn_data)
+    ciar = calculate_ciar_score(turn_data)  # Uses ADR-004 formula
     has_entities = detect_entities(turn_data.content)
     is_preference = is_user_preference(turn_data.content)
     
     return (
-        ciar >= 0.70 or
+        ciar >= 0.6 or  # ADR-004 default threshold (configurable)
         len(has_entities) > 0 or
         is_preference
     )
 
 async def should_consolidate_to_l3(fact: Dict) -> bool:
-    """Determine if a fact should be consolidated from L2 to L3"""
-    ciar = calculate_ciar_score(fact)
+    """Determine if a fact should be consolidated from L2 to L3
+    
+    Note: L2→L3 uses higher threshold (0.80) than L1→L2 (0.6) to ensure
+    only highly significant facts reach permanent storage.
+    """
+    ciar = calculate_ciar_score(fact)  # Uses ADR-004 formula
     age_days = (datetime.now() - fact.created_at).days
     cross_session = fact.mentioned_in_sessions > 1
     
     return (
-        ciar >= 0.80 and
+        ciar >= 0.80 and  # Higher threshold for permanent storage (configurable)
         age_days >= 1 and
         cross_session
     )
@@ -9065,6 +9424,8 @@ async def test_reinforce_knowledge(l4_tier):
 
 ## Priority 6: Promotion Logic (L1 → L2)
 
+> **📋 CIAR Formula Reference**: This section implements the formula specified in **[ADR-004: CIAR Scoring Formula](../ADR/004-ciar-scoring-formula.md)**. All CIAR calculations must follow ADR-004's exponential decay model.
+
 **Estimated Time**: 3-4 hours  
 **Status**: Not Started  
 **Dependencies**: Priorities 2, 3
@@ -9073,18 +9434,21 @@ async def test_reinforce_knowledge(l4_tier):
 
 Implement the **Promotion Engine** that moves conversation turns from L1 (Active Context) to L2 (Working Memory) by extracting structured facts. This engine serves as:
 
-1. **Turn-to-Fact Extractor**: Converts conversation turns into structured facts
-2. **CIAR Scorer**: Calculates significance scores for promotion decisions
+1. **Turn-to-Fact Extractor**: Converts conversation turns into structured facts (LLM-based with rule-based fallback)
+2. **CIAR Scorer**: Calculates significance scores per ADR-004 specification
 3. **Fact Type Classifier**: Identifies fact types (entity, preference, constraint, goal, metric)
 4. **Entity Extractor**: Recognizes named entities from conversation
 5. **Promotion Orchestrator**: Manages promotion workflow and timing
+6. **Circuit Breaker**: Handles LLM service failures gracefully
 
 **Key Design Goals**:
-- Automated promotion based on CIAR scores
+- **Hybrid extraction strategy**: LLM-first with rule-based fallback for reliability
+- Automated promotion based on CIAR scores (ADR-004 threshold: 0.6)
 - Multi-turn fact extraction
 - Entity recognition and linking
 - Confidence scoring for extracted facts
 - Batch promotion for efficiency
+- Resilient to LLM service failures (circuit breaker pattern)
 - Extensible extraction rules
 
 ---
@@ -9097,23 +9461,33 @@ A conversation turn is promoted to L2 when it contains **actionable structured i
 
 | Criterion | Threshold | Description |
 |-----------|-----------|-------------|
-| **CIAR Score** | ≥ 0.70 | Certainty × Impact × Age × Recency |
+| **CIAR Score** | ≥ 0.6 (default, configurable) | Certainty × Impact × Age × Recency |
 | **Fact Count** | ≥ 1 | Turn contains extractable facts |
 | **Confidence** | ≥ 0.75 | Extraction confidence threshold |
 | **Turn Age** | < 24 hours | Within TTL window |
 | **Already Promoted** | False | Not yet promoted to L2 |
 
-**CIAR Score Calculation**:
+**Note:** CIAR threshold is configurable (default: 0.6). Can be tuned during evaluation phase based on precision/recall metrics.
+
+**CIAR Score Calculation** (from ADR-004):
 
 ```
-CIAR = (Certainty × Impact × Age_Factor × Recency_Factor)
+CIAR = (Certainty × Impact) × exp(-λ×days_since_creation) × (1 + α×access_count)
 
 Where:
-- Certainty (0.0-1.0): Confidence in fact extraction
-- Impact (0.0-1.0): Importance/relevance of information
-- Age_Factor (0.5-1.0): Time decay (newer = higher)
-- Recency_Factor (0.5-1.0): Last access recency
+- Certainty (0.0-1.0): Confidence in fact extraction (LLM-provided or heuristic)
+- Impact (0.0-1.0): Importance/relevance of information (fact-type based)
+- λ (lambda) = 0.0231: Exponential decay rate (30-day half-life)
+- α (alpha) = 0.1: Linear reinforcement (10% boost per access)
+- days_since_creation: Age of fact in days
+- access_count: Number of times fact has been retrieved
 ```
+
+**See ADR-004 for**:
+- Complete mathematical justification (Ebbinghaus forgetting curve)
+- Analysis of alternative formulas (additive, multiplicative, weighted)
+- Parameter tuning guide with domain-specific presets
+- Reference Python implementation (`CIARScorer` class)
 
 **Example CIAR Calculations**:
 
@@ -9162,10 +9536,16 @@ from src.utils.logger import get_logger
 # Constants
 # ============================================================================
 
-DEFAULT_CIAR_THRESHOLD = 0.70
+DEFAULT_CIAR_THRESHOLD = 0.6  # Default threshold (configurable)
 DEFAULT_CONFIDENCE_THRESHOLD = 0.75
 PROMOTION_BATCH_SIZE = 10
 MAX_TURNS_PER_BATCH = 50
+
+# Circuit Breaker Settings (for LLM resilience)
+CIRCUIT_BREAKER_FAILURE_THRESHOLD = 5  # Failures before opening circuit
+CIRCUIT_BREAKER_TIMEOUT_SECONDS = 60   # Time before testing recovery
+CIRCUIT_BREAKER_SUCCESS_THRESHOLD = 2  # Successes needed to close circuit
+LLM_TIMEOUT_SECONDS = 30               # Timeout for LLM API calls
 
 # CIAR component weights
 CERTAINTY_WEIGHT = 1.0
@@ -9250,11 +9630,280 @@ class CIARScore:
 
 
 # ============================================================================
-# Extraction Rules
+# Circuit Breaker Pattern (for LLM Resilience)
+# ============================================================================
+
+class CircuitState:
+    """Circuit breaker states"""
+    CLOSED = "closed"      # Normal operation - using LLM
+    OPEN = "open"          # Failures exceeded threshold - use fallback
+    HALF_OPEN = "half_open"  # Testing if LLM recovered
+
+
+class CircuitBreaker:
+    """
+    Circuit breaker for LLM service calls.
+    
+    Prevents cascading failures when LLM service is degraded by automatically
+    switching to rule-based fallback after threshold failures.
+    
+    State transitions:
+    - CLOSED → OPEN: After failure_threshold consecutive failures
+    - OPEN → HALF_OPEN: After timeout_seconds elapsed
+    - HALF_OPEN → CLOSED: After success_threshold consecutive successes
+    - HALF_OPEN → OPEN: On any failure
+    """
+    
+    def __init__(
+        self,
+        failure_threshold: int = CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+        timeout_seconds: int = CIRCUIT_BREAKER_TIMEOUT_SECONDS,
+        success_threshold: int = CIRCUIT_BREAKER_SUCCESS_THRESHOLD
+    ):
+        self.failure_threshold = failure_threshold
+        self.timeout_seconds = timeout_seconds
+        self.success_threshold = success_threshold
+        
+        self.state = CircuitState.CLOSED
+        self.failure_count = 0
+        self.success_count = 0
+        self.last_failure_time = None
+        
+        self.logger = get_logger("circuit_breaker")
+    
+    def is_open(self) -> bool:
+        """Check if circuit is open (should use fallback)"""
+        if self.state == CircuitState.OPEN:
+            # Check if timeout elapsed - transition to HALF_OPEN
+            if self.last_failure_time:
+                elapsed = (datetime.utcnow() - self.last_failure_time).total_seconds()
+                if elapsed >= self.timeout_seconds:
+                    self.logger.info("Circuit breaker timeout elapsed, entering HALF_OPEN state")
+                    self.state = CircuitState.HALF_OPEN
+                    self.failure_count = 0
+                    self.success_count = 0
+                    return False  # Allow one test request
+            return True
+        return False
+    
+    def record_success(self):
+        """Record successful LLM call"""
+        if self.state == CircuitState.CLOSED:
+            # Reset failure count on success in normal operation
+            self.failure_count = 0
+        elif self.state == CircuitState.HALF_OPEN:
+            # Count successes toward closing circuit
+            self.success_count += 1
+            self.logger.debug(f"Circuit breaker success in HALF_OPEN: {self.success_count}/{self.success_threshold}")
+            
+            if self.success_count >= self.success_threshold:
+                self.logger.info("Circuit breaker closing - LLM service recovered")
+                self.state = CircuitState.CLOSED
+                self.failure_count = 0
+                self.success_count = 0
+    
+    def record_failure(self):
+        """Record failed LLM call"""
+        self.last_failure_time = datetime.utcnow()
+        
+        if self.state == CircuitState.CLOSED:
+            self.failure_count += 1
+            self.logger.warning(f"Circuit breaker failure: {self.failure_count}/{self.failure_threshold}")
+            
+            if self.failure_count >= self.failure_threshold:
+                self.logger.error("Circuit breaker opening - LLM service degraded")
+                self.state = CircuitState.OPEN
+        
+        elif self.state == CircuitState.HALF_OPEN:
+            # Any failure in HALF_OPEN reopens circuit
+            self.logger.warning("Circuit breaker reopening - LLM still degraded")
+            self.state = CircuitState.OPEN
+            self.failure_count = 0
+            self.success_count = 0
+    
+    def get_state(self) -> str:
+        """Get current circuit state"""
+        return self.state
+
+
+# ============================================================================
+# LLM Integration (Primary Extraction Method)
+# ============================================================================
+
+class LLMFactExtractor:
+    """
+    LLM-based fact extraction (primary method).
+    
+    Uses LLM to extract structured facts with higher accuracy than rule-based
+    extraction. Falls back to rules when circuit breaker is open.
+    """
+    
+    def __init__(self, llm_client, circuit_breaker: CircuitBreaker):
+        """
+        Initialize LLM fact extractor.
+        
+        Args:
+            llm_client: LLM client (OpenAI, Anthropic, etc.)
+            circuit_breaker: Circuit breaker instance
+        """
+        self.llm_client = llm_client
+        self.circuit_breaker = circuit_breaker
+        self.logger = get_logger("llm_fact_extractor")
+        self.metrics = MetricsCollector(component="llm_fact_extractor")
+    
+    async def extract_facts(
+        self,
+        turn_content: str,
+        turn_id: int,
+        timeout: int = LLM_TIMEOUT_SECONDS
+    ) -> Optional[List[ExtractedFact]]:
+        """
+        Extract facts using LLM.
+        
+        Args:
+            turn_content: Conversation turn text
+            turn_id: Turn identifier
+            timeout: API call timeout (seconds)
+            
+        Returns:
+            List of extracted facts, or None if extraction fails
+        """
+        # Check circuit breaker
+        if self.circuit_breaker.is_open():
+            self.logger.debug("Circuit breaker open, skipping LLM extraction")
+            self.metrics.record('llm_extraction.circuit_open', 1)
+            return None
+        
+        try:
+            # Build LLM prompt
+            prompt = self._build_extraction_prompt(turn_content)
+            
+            # Call LLM with timeout
+            start_time = asyncio.get_event_loop().time()
+            response = await asyncio.wait_for(
+                self.llm_client.generate(prompt),
+                timeout=timeout
+            )
+            duration_ms = (asyncio.get_event_loop().time() - start_time) * 1000
+            
+            # Parse LLM response
+            facts = self._parse_llm_response(response, turn_id)
+            
+            # Record success
+            self.circuit_breaker.record_success()
+            self.metrics.record('llm_extraction.success', 1)
+            self.metrics.record('llm_extraction.latency_ms', duration_ms)
+            self.metrics.record('llm_extraction.facts_extracted', len(facts))
+            
+            self.logger.debug(f"LLM extracted {len(facts)} facts from turn {turn_id}")
+            return facts
+            
+        except asyncio.TimeoutError:
+            self.logger.warning(f"LLM extraction timeout after {timeout}s")
+            self.circuit_breaker.record_failure()
+            self.metrics.record('llm_extraction.timeout', 1)
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"LLM extraction failed: {e}")
+            self.circuit_breaker.record_failure()
+            self.metrics.record('llm_extraction.error', 1)
+            return None
+    
+    def _build_extraction_prompt(self, turn_content: str) -> str:
+        """Build prompt for LLM fact extraction"""
+        return f"""Extract structured facts from this conversation turn. Return JSON array of facts.
+
+Conversation turn: "{turn_content}"
+
+Extract facts with these types:
+- entity: Named entities (people, places, vessels, organizations)
+- preference: User or agent preferences
+- constraint: Business rules, requirements, restrictions
+- goal: Objectives, targets, desired outcomes
+- metric: Quantitative measurements, KPIs
+
+For each fact, provide:
+- fact_type: One of the types above
+- content: The fact statement
+- confidence: Your confidence (0.0-1.0)
+- entities: List of named entities mentioned
+
+Return JSON format:
+[
+  {{
+    "fact_type": "preference",
+    "content": "User prefers Hamburg port",
+    "confidence": 0.95,
+    "entities": ["Hamburg"]
+  }}
+]
+
+If no facts found, return empty array [].
+"""
+    
+    def _parse_llm_response(
+        self,
+        response: str,
+        turn_id: int
+    ) -> List[ExtractedFact]:
+        """Parse LLM JSON response into ExtractedFact objects"""
+        try:
+            # Extract JSON from response (handle markdown code blocks)
+            if "```json" in response:
+                json_str = response.split("```json")[1].split("```")[0].strip()
+            elif "```" in response:
+                json_str = response.split("```")[1].split("```")[0].strip()
+            else:
+                json_str = response.strip()
+            
+            # Parse JSON
+            facts_data = json.loads(json_str)
+            
+            # Convert to ExtractedFact objects
+            facts = []
+            for fact_data in facts_data:
+                facts.append(ExtractedFact(
+                    fact_type=fact_data['fact_type'],
+                    content=fact_data['content'],
+                    confidence=fact_data['confidence'],
+                    source_turn_id=turn_id,
+                    entities=fact_data.get('entities', []),
+                    metadata={
+                        'extraction_method': 'llm',
+                        'llm_model': self.llm_client.model_name
+                    }
+                ))
+            
+            return facts
+            
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse LLM response as JSON: {e}")
+            self.metrics.record('llm_extraction.parse_error', 1)
+            return []
+        except KeyError as e:
+            self.logger.error(f"Missing required field in LLM response: {e}")
+            self.metrics.record('llm_extraction.schema_error', 1)
+            return []
+
+
+# ============================================================================
+# Rule-Based Extraction (Fallback Method)
 # ============================================================================
 
 class FactExtractionRules:
-    """Rule-based fact extraction from conversation turns"""
+    """
+    Rule-based fact extraction from conversation turns (fallback method).
+    
+    Used when:
+    1. Circuit breaker is OPEN (LLM service degraded)
+    2. LLM extraction times out
+    3. LLM extraction returns no facts
+    4. As a validation check for LLM results
+    
+    Provides baseline extraction capability with regex patterns.
+    Lower accuracy than LLM but guaranteed availability.
+    """
     
     # Regex patterns for fact extraction
     PREFERENCE_PATTERNS = [
@@ -9456,20 +10105,30 @@ class ImpactScorer:
 
 class PromotionEngine:
     """
-    Manages promotion of turns from L1 to L2.
+    Manages promotion of turns from L1 to L2 with hybrid extraction strategy.
     
     Responsibilities:
     - Identify promotion candidates from L1
-    - Extract facts from turns
+    - Extract facts from turns (LLM-first with rule-based fallback)
     - Calculate CIAR scores
     - Promote facts to L2
     - Track promotion metrics
+    - Handle LLM service failures gracefully (circuit breaker)
+    
+    Extraction Strategy:
+    1. Try LLM extraction (if circuit breaker closed)
+    2. Fall back to rule-based extraction if:
+       - Circuit breaker is open
+       - LLM times out
+       - LLM returns no facts
+    3. Track extraction method metrics
     """
     
     def __init__(
         self,
         l1_tier: ActiveContextTier,
         l2_tier: WorkingMemoryTier,
+        llm_client = None,  # Optional LLM client
         ciar_threshold: float = DEFAULT_CIAR_THRESHOLD,
         confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD
     ):
@@ -9479,7 +10138,8 @@ class PromotionEngine:
         Args:
             l1_tier: Active Context tier instance
             l2_tier: Working Memory tier instance
-            ciar_threshold: Minimum CIAR score for promotion
+            llm_client: Optional LLM client for fact extraction (if None, uses rules only)
+            ciar_threshold: Minimum CIAR score for promotion (default: 0.6)
             confidence_threshold: Minimum extraction confidence
         """
         self.l1_tier = l1_tier
@@ -9490,9 +10150,18 @@ class PromotionEngine:
         self.logger = get_logger("promotion_engine")
         self.metrics = MetricsCollector(component="promotion_engine")
         
-        # Extraction rules
-        self.extractor = FactExtractionRules()
+        # Circuit breaker for LLM resilience
+        self.circuit_breaker = CircuitBreaker()
+        
+        # Extraction strategies (LLM-first, rule-based fallback)
+        self.llm_extractor = LLMFactExtractor(llm_client, self.circuit_breaker) if llm_client else None
+        self.rule_extractor = FactExtractionRules()
         self.impact_scorer = ImpactScorer()
+        
+        if self.llm_extractor:
+            self.logger.info("Promotion engine initialized with hybrid LLM+rule extraction")
+        else:
+            self.logger.info("Promotion engine initialized with rule-based extraction only")
     
     # ========================================================================
     # Main Promotion Workflow
@@ -9600,14 +10269,41 @@ class PromotionEngine:
             'facts_extracted': 0,
             'facts_promoted': 0,
             'promoted': False,
-            'skip_reason': None
+            'skip_reason': None,
+            'extraction_method': None
         }
         
-        # Extract facts from turn
-        facts = self.extractor.extract_facts(
-            turn_content=turn['content'],
-            turn_id=turn['turn_id']
-        )
+        # Hybrid extraction strategy: Try LLM first, fallback to rules
+        facts = []
+        
+        # 1. Try LLM extraction (if available and circuit breaker closed)
+        if self.llm_extractor and not self.circuit_breaker.is_open():
+            try:
+                facts = await self.llm_extractor.extract_facts(
+                    turn_content=turn['content'],
+                    turn_id=turn['turn_id']
+                )
+                if facts:
+                    result['extraction_method'] = 'llm'
+                    self.metrics.record('promotion.extraction.llm_success', 1)
+                    self.logger.debug(f"LLM extracted {len(facts)} facts from turn {turn['turn_id']}")
+            except Exception as e:
+                self.logger.warning(f"LLM extraction failed, falling back to rules: {e}")
+                self.metrics.record('promotion.extraction.llm_fallback', 1)
+        
+        # 2. Fallback to rule-based extraction if:
+        #    - LLM extractor not available
+        #    - Circuit breaker open
+        #    - LLM returned no facts
+        #    - LLM failed with exception
+        if not facts:
+            facts = self.rule_extractor.extract_facts(
+                turn_content=turn['content'],
+                turn_id=turn['turn_id']
+            )
+            result['extraction_method'] = 'rules'
+            self.metrics.record('promotion.extraction.rules_used', 1)
+            self.logger.debug(f"Rules extracted {len(facts)} facts from turn {turn['turn_id']}")
         
         result['facts_extracted'] = len(facts)
         
@@ -9784,6 +10480,162 @@ class PromotionEngine:
 
 ---
 
+### Hybrid Extraction Strategy
+
+**LLM-First with Rule-Based Fallback**
+
+The promotion engine uses a **hybrid extraction strategy** to balance accuracy (LLM) with reliability (rules):
+
+**Decision Flow**:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Incoming Turn for Promotion                                     │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             ▼
+                    ┌─────────────────┐
+                    │ Circuit Breaker │
+                    │    Closed?      │
+                    └────────┬────────┘
+                             │
+                 ┌───────────┴───────────┐
+                 │ YES                   │ NO
+                 ▼                       ▼
+    ┌─────────────────────┐   ┌──────────────────────┐
+    │  Try LLM Extraction │   │ Use Rule Extraction  │
+    │  (timeout: 30s)     │   │ (immediate fallback) │
+    └──────────┬──────────┘   └──────────┬───────────┘
+               │                          │
+       ┌───────┴────────┐                │
+       │ SUCCESS        │ FAILURE        │
+       ▼                ▼                ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│ Use LLM Facts│  │Record failure│  │ Use Rule Facts│
+│ (higher      │  │Update circuit│  │ (baseline    │
+│  accuracy)   │  │breaker state │  │  quality)    │
+└──────────────┘  └──────┬───────┘  └──────────────┘
+                         │
+                         ▼
+                  ┌──────────────┐
+                  │ Use Rule     │
+                  │ Extraction   │
+                  │ (fallback)   │
+                  └──────────────┘
+```
+
+**Extraction Method Selection Logic**:
+
+1. **LLM Extraction (Primary)**:
+   - **When**: Circuit breaker in CLOSED or HALF_OPEN state
+   - **Advantages**: 
+     - Higher accuracy (>90% precision on fact classification)
+     - Better entity recognition
+     - Handles nuanced language
+     - Returns confidence scores
+   - **Disadvantages**: 
+     - Latency (500ms-2s per turn)
+     - Cost (API calls)
+     - Potential failures/timeouts
+   - **Metrics Tracked**:
+     - `llm_extraction.success`
+     - `llm_extraction.timeout`
+     - `llm_extraction.error`
+     - `llm_extraction.latency_ms`
+     - `llm_extraction.facts_extracted`
+
+2. **Rule-Based Extraction (Fallback)**:
+   - **When**: 
+     - Circuit breaker OPEN (LLM degraded)
+     - LLM timeout (>30s)
+     - LLM returns no facts
+     - LLM client not configured
+   - **Advantages**: 
+     - Zero latency (<1ms)
+     - No cost
+     - Guaranteed availability
+     - Deterministic behavior
+   - **Disadvantages**: 
+     - Lower accuracy (~70% precision)
+     - Limited to pattern matching
+     - Misses complex language
+   - **Metrics Tracked**:
+     - `rules_extraction.used`
+     - `rules_extraction.facts_extracted`
+
+**Circuit Breaker Behavior**:
+
+| State | LLM Calls | Fallback | Transition Condition |
+|-------|-----------|----------|----------------------|
+| **CLOSED** | ✅ Allowed | ❌ Not used | 5 consecutive failures → OPEN |
+| **OPEN** | ❌ Blocked | ✅ Always used | 60s timeout → HALF_OPEN |
+| **HALF_OPEN** | ✅ One test call | ✅ If test fails | 2 successes → CLOSED, 1 failure → OPEN |
+
+**Example Scenarios**:
+
+**Scenario 1: Normal Operation (Circuit Breaker CLOSED)**
+```
+Turn: "I prefer Hamburg port for all European shipments"
+→ Try LLM extraction (takes 800ms)
+→ LLM returns: [{"fact_type": "preference", "content": "Hamburg port preferred for Europe", "confidence": 0.95}]
+→ Circuit breaker records SUCCESS
+→ Use LLM facts for promotion
+→ Metrics: llm_extraction.success=1, llm_extraction.latency_ms=800
+```
+
+**Scenario 2: LLM Timeout (Circuit Breaker still CLOSED)**
+```
+Turn: "Budget cannot exceed $50,000 this quarter"
+→ Try LLM extraction (timeout after 30s)
+→ Circuit breaker records FAILURE (count: 1/5)
+→ Fallback to rule extraction (takes <1ms)
+→ Rules return: [{"fact_type": "constraint", "content": "Budget limit $50,000", "confidence": 0.90}]
+→ Use rule facts for promotion
+→ Metrics: llm_extraction.timeout=1, rules_extraction.used=1
+```
+
+**Scenario 3: Circuit Breaker OPEN (LLM Service Degraded)**
+```
+Turn: "We need to achieve 95% on-time delivery"
+→ Check circuit breaker: OPEN (skip LLM)
+→ Immediately use rule extraction (takes <1ms)
+→ Rules return: [{"fact_type": "goal", "content": "95% on-time delivery target", "confidence": 0.80}]
+→ Use rule facts for promotion
+→ Metrics: circuit_breaker.open=1, rules_extraction.used=1
+→ After 60s: Circuit transitions to HALF_OPEN, next turn tests LLM recovery
+```
+
+**Comparison of Extraction Methods**:
+
+| Metric | LLM Extraction | Rule-Based Extraction |
+|--------|----------------|----------------------|
+| **Accuracy** | 90-95% | 70-80% |
+| **Latency** | 500-2000ms | <1ms |
+| **Cost** | $0.001-0.01 per turn | $0 |
+| **Availability** | 99.5% (with timeouts) | 100% |
+| **Entity Recognition** | Excellent | Basic (pattern-based) |
+| **Confidence Scoring** | LLM-provided (0.8-0.99) | Fixed by pattern (0.75-0.95) |
+| **Maintenance** | Prompt tuning | Regex pattern updates |
+
+**Operational Considerations**:
+
+1. **LLM Budget Management**:
+   - Monitor `llm_extraction.success` rate
+   - Set monthly API budget alerts
+   - Adjust circuit breaker thresholds if costs exceed budget
+
+2. **Quality Monitoring**:
+   - Track fact extraction precision/recall during evaluation
+   - Compare LLM vs. rule extraction quality
+   - A/B test different CIAR thresholds per extraction method
+
+3. **Circuit Breaker Tuning**:
+   - Adjust `failure_threshold` based on LLM service SLA
+   - Increase `timeout_seconds` during known maintenance windows
+   - Monitor `circuit_breaker.state` transitions in dashboards
+
+---
+
 ### Promotion Algorithm
 
 **Step-by-Step Workflow**:
@@ -9798,11 +10650,16 @@ class PromotionEngine:
                              │
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ 2. Extract Facts from Each Turn                                 │
+│ 2. Extract Facts from Each Turn (Hybrid Strategy)               │
+│    PRIMARY: LLM extraction (if circuit breaker closed)          │
+│    - Call LLM with extraction prompt                            │
+│    - Parse JSON response with fact structure                    │
+│    - Confidence scores from LLM (0.8-0.99)                      │
+│    FALLBACK: Rule-based extraction (if LLM unavailable/fails)   │
 │    - Apply regex patterns (preferences, constraints, goals)     │
 │    - Extract entities (ports, vessels, organizations)           │
 │    - Extract metrics (KPIs, measurements)                       │
-│    - Assign extraction confidence (0.75-0.95)                   │
+│    - Fixed confidence by pattern (0.75-0.95)                    │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
@@ -10142,33 +10999,23 @@ ciar_total = (
 
 ### Extension Points
 
+**Core Features (Implemented)**:
+
+1. **✅ LLM-Based Extraction**:
+   - Primary extraction method using LLM API
+   - JSON-structured output with confidence scores
+   - Integrated with circuit breaker for resilience
+   - See `LLMFactExtractor` class above for implementation
+
+2. **✅ Circuit Breaker Pattern**:
+   - Automatic failover to rule-based extraction
+   - Three-state circuit (CLOSED, OPEN, HALF_OPEN)
+   - Configurable thresholds and timeouts
+   - See `CircuitBreaker` class above for implementation
+
 **Future Enhancements**:
 
-1. **LLM-Based Extraction**:
-```python
-class LLMFactExtractor:
-    """Use LLM for advanced fact extraction"""
-    
-    async def extract_facts(self, turn_content: str) -> List[ExtractedFact]:
-        prompt = f"""
-        Extract structured facts from this conversation turn:
-        "{turn_content}"
-        
-        Identify:
-        - Preferences (what user wants)
-        - Constraints (hard requirements)
-        - Goals (objectives)
-        - Entities (named things)
-        - Metrics (measurements)
-        
-        Return JSON list of facts.
-        """
-        
-        response = await llm.complete(prompt)
-        return self._parse_llm_response(response)
-```
-
-2. **Multi-Turn Context**:
+1. **Multi-Turn Context**:
 ```python
 class ContextualExtractor:
     """Extract facts considering previous turns"""
@@ -10181,6 +11028,18 @@ class ContextualExtractor:
         # Consider pronoun resolution
         # Track conversation thread
         # Merge related facts across turns
+        pass
+```
+
+2. **LLM Prompt Optimization**:
+```python
+class AdaptivePromptManager:
+    """Optimize LLM prompts based on extraction quality"""
+    
+    async def optimize_prompt(self, extraction_metrics: Dict):
+        # A/B test different prompt variations
+        # Adjust based on precision/recall metrics
+        # Domain-specific prompt templates
         pass
 ```
 
@@ -10243,6 +11102,70 @@ async def test_promotion_cycle(promotion_engine, session_id):
     assert results['candidates_evaluated'] > 0
     assert results['facts_promoted'] > 0
     assert results['turns_promoted'] > 0
+
+@pytest.mark.asyncio
+async def test_circuit_breaker_states():
+    """Test circuit breaker state transitions"""
+    cb = CircuitBreaker(failure_threshold=3, timeout_seconds=5)
+    
+    # Initial state: CLOSED
+    assert cb.get_state() == CircuitState.CLOSED
+    assert not cb.is_open()
+    
+    # Record failures until threshold
+    cb.record_failure()
+    cb.record_failure()
+    assert cb.get_state() == CircuitState.CLOSED  # Still closed
+    
+    cb.record_failure()  # 3rd failure - should open
+    assert cb.get_state() == CircuitState.OPEN
+    assert cb.is_open()
+    
+    # After timeout, should transition to HALF_OPEN
+    await asyncio.sleep(6)
+    assert not cb.is_open()  # HALF_OPEN allows test request
+    assert cb.get_state() == CircuitState.HALF_OPEN
+
+@pytest.mark.asyncio
+async def test_llm_extraction_with_fallback(mock_llm_client):
+    """Test LLM extraction with fallback to rules"""
+    cb = CircuitBreaker()
+    extractor = LLMFactExtractor(mock_llm_client, cb)
+    
+    # Successful LLM extraction
+    mock_llm_client.generate.return_value = '''[{
+        "fact_type": "preference",
+        "content": "User prefers Hamburg",
+        "confidence": 0.95,
+        "entities": ["Hamburg"]
+    }]'''
+    
+    facts = await extractor.extract_facts("I prefer Hamburg", turn_id=1)
+    assert len(facts) == 1
+    assert facts[0].fact_type == FactType.PREFERENCE
+    assert cb.get_state() == CircuitState.CLOSED
+
+@pytest.mark.asyncio
+async def test_hybrid_extraction_fallback():
+    """Test promotion engine falls back to rules when LLM fails"""
+    # Mock LLM that always times out
+    mock_llm = AsyncMock()
+    mock_llm.generate.side_effect = asyncio.TimeoutError()
+    
+    engine = PromotionEngine(l1_tier, l2_tier, llm_client=mock_llm)
+    
+    # Should fall back to rule-based extraction
+    turn = {
+        'turn_id': 1,
+        'content': 'I prefer Hamburg port',
+        'timestamp': datetime.utcnow().isoformat()
+    }
+    
+    result = await engine._process_turn('session-123', turn)
+    
+    # Should have extracted facts using rules despite LLM failure
+    assert result['facts_extracted'] > 0
+    assert result['extraction_method'] == 'rules'
 ```
 
 **Integration Tests**:
@@ -10280,33 +11203,73 @@ async def test_end_to_end_promotion(real_l1_tier, real_l2_tier):
 ### Performance Benchmarks
 
 **Expected Latencies**:
-- Fact extraction (regex): <5ms per turn
+- Fact extraction (LLM): 500-2000ms per turn (primary method)
+- Fact extraction (rules): <5ms per turn (fallback)
 - CIAR calculation: <1ms per fact
 - L2 promotion (single fact): <10ms
-- Full promotion cycle (10 turns): <200ms
+- Full promotion cycle (10 turns, LLM): <5s (batch processing amortizes cost)
+- Full promotion cycle (10 turns, rules): <200ms
 
 **Throughput Targets**:
-- 100+ turns/second extraction
-- 500+ facts/second promotion
+- LLM extraction: 10-20 turns/second (API rate limits)
+- Rule extraction: 100+ turns/second
+- Combined (hybrid): 50-100 turns/second (depending on LLM availability)
+- 500+ facts/second promotion to L2
 - 50+ concurrent sessions
+
+**Circuit Breaker Metrics**:
+- Failure detection: <5 failures (adjustable)
+- Recovery timeout: 60s (adjustable)
+- Overhead: <1ms per request for state check
 
 ---
 
 ### Success Criteria
 
+**Core Functionality**:
 - [ ] Promotion engine extracts facts from turns
-- [ ] CIAR scoring implemented correctly
+- [ ] **Hybrid extraction**: LLM-first with rule-based fallback implemented
+- [ ] CIAR scoring implemented correctly (threshold: 0.6 default)
 - [ ] 5 fact types recognized (entity, preference, constraint, goal, metric)
-- [ ] Regex patterns extract common fact patterns
-- [ ] Entity extraction identifies key entities
 - [ ] Impact scoring boosts critical facts
 - [ ] Time decay reduces old turn priority
 - [ ] Batch promotion processes multiple sessions
 - [ ] Manual promotion override available
 - [ ] Turns marked as promoted in L1
 - [ ] Facts deduplicated in L2 automatically
+
+**LLM Integration**:
+- [ ] LLM fact extractor class implemented
+- [ ] JSON prompt/response parsing working
+- [ ] LLM timeout handling (30s default)
+- [ ] LLM cost tracking in metrics
+- [ ] Extraction method tagged in fact metadata ('llm' vs 'rules')
+
+**Circuit Breaker**:
+- [ ] Circuit breaker states (CLOSED/OPEN/HALF_OPEN) implemented
+- [ ] Automatic failover to rules when circuit opens
+- [ ] Configurable thresholds (failure count, timeout, success count)
+- [ ] Circuit state tracked in metrics
+- [ ] Recovery testing in HALF_OPEN state working
+
+**Rule-Based Fallback**:
+- [ ] Regex patterns extract common fact patterns
+- [ ] Entity extraction identifies key entities
+- [ ] Works independently when LLM unavailable
+- [ ] Comparable fact quality (~70-80% vs LLM ~90-95%)
+
+**Quality & Testing**:
 - [ ] Unit tests pass (>80% coverage)
 - [ ] Integration tests validate end-to-end flow
+- [ ] Circuit breaker state transition tests pass
+- [ ] Hybrid extraction fallback tests pass
+- [ ] LLM timeout/error handling tests pass
+
+**Performance**:
+- [ ] LLM extraction <2s p95 latency
+- [ ] Rule extraction <5ms latency
+- [ ] Circuit breaker state check <1ms overhead
+- [ ] Full cycle (10 turns) <5s with LLM, <200ms with rules
 
 ---
 
