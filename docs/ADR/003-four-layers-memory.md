@@ -1,56 +1,97 @@
-# **ADR-002: Adopting SOTA Neuro-Symbolic and Temporal Patterns for the Hybrid Memory System**
+# **ADR-003 (Revised): Adoption of a Production-Ready, Four-Tier Cognitive Memory Architecture**
 
-**Title:** Enhancement of the Hybrid Memory Architecture with State-of-the-Art Neuro-Symbolic and Temporal Modeling Patterns
+**Title:** Adoption of a Production-Ready, Four-Tier Cognitive Memory Architecture with Autonomous Lifecycle Engines
 **Status:** Accepted
-**Date:** September 14, 2025
+**Date:** November 02, 2025 (Original: September 14, 2025)
 
 ## **1. Context**
 
-Following the initial design and prototyping of our four-tier hybrid memory architecture, a comprehensive review of state-of-the-art (SOTA) research in neuro-symbolic AI, graph databases, and agent memory systems was conducted. This review included a detailed analysis of the Zep Temporal Knowledge Graph architecture by Rasmussen et al. and a broader survey of 140+ recent papers on related topics.
-
-The findings from this research have validated our core architectural direction but have also highlighted specific opportunities to enhance our system's capabilities, align it more closely with SOTA practices, and increase its practical value for complex domains like Supply Chain Management. This ADR documents the decisions to adopt these enhancements.
+This ADR supersedes the previous version of ADR-002. Following an initial design, a comprehensive review of state-of-the-art (SOTA) research—including systems like Zep and Mem0—was conducted. This review validated our core direction but also revealed opportunities to adopt more sophisticated, production-ready patterns. The key drivers for this revision are:
+1.  The need for a more nuanced, multi-stage memory hierarchy that better reflects cognitive science models.
+2.  The necessity for a formal, interpretable model for managing information significance.
+3.  The requirement for robust temporal reasoning and the modeling of complex, higher-order relationships, especially for the SCM domain.
+4.  The imperative to design for production, incorporating patterns for performance, reliability, and observability from the outset.
 
 ## **2. Decision**
 
-We will enhance the `MAS Memory Layer` with the following four key architectural patterns:
+We will officially adopt and implement a **four-tier hierarchical memory architecture (L1-L4)**, governed by three distinct, asynchronous **autonomous lifecycle engines**. The architecture will be production-ready by design, incorporating a bi-temporal data model, hypergraph simulation, and explicit resilience patterns.
 
-1.  **Adopt "Think-on-Graph" Reasoning:** The internal logic of our agents will be updated to use an iterative, step-by-step graph traversal pattern when reasoning over the Persistent Knowledge Layer, rather than a single, monolithic query.
-2.  **Simulate Hypergraphs in the Property Graph:** We will model higher-order, multi-entity events (e.g., shipments, transactions) by introducing a central "event" or "hyperedge" node in our Neo4j schema, to which all participating entities are linked.
-3.  **Implement a Full Bi-Temporal Data Model:** We will evolve our Neo4j data model to be bi-temporal, explicitly separating a fact's validity in the real world (`factValidFrom`, `factValidTo`) from the system's observation of that fact (`sourceObservationTimestamp`).
-4.  **Defer Direct RDF Ingestion:** We will not build a dedicated RDF ingestion and triple store pipeline at this stage. Instead, we will focus on the more pragmatic and performant property graph model, with the option to add RDF-to-Property-Graph converters in the future.
+This decision formalizes the following architectural commitments for each tier:
+
+---
+
+### **L1: Active Context (Working Memory Buffer)**
+
+*   **Component:** **Redis**.
+*   **Purpose:** To serve as a high-speed, ephemeral cache for the most recent, raw conversational turns (approx. 10-20 turns). This is the agent's immediate sensory buffer.
+*   **Data Model:** Simple key-value store. Key: `session_id`, Value: a list of raw message strings.
+*   **Procedure (Lifecycle):**
+    *   **Ingestion:** New messages are appended to the list.
+    *   **Eviction:** A strict **Time-To-Live (TTL)** policy (e.g., 24 hours) is enforced to automatically discard stale data, ensuring the layer remains lightweight.
+*   **Architectural Pattern:** **Ephemeral Cache.** This layer prioritizes speed and recency over durability.
+
+---
+
+### **L2: Working Memory (Significance-Filtered Store)**
+
+*   **Component:** **PostgreSQL**.
+*   **Purpose:** To act as an intermediate, short-term store for **significant facts only**. This is the critical filtering stage that protects the more expensive downstream layers from noise.
+*   **Data Model:** A relational table (`significant_facts`) with columns for `fact_id`, `content`, `ciar_score`, `certainty`, `impact`, `source_uri`, `timestamp`, etc.
+*   **Procedure (Lifecycle - Promotion Engine):**
+    1.  **Extraction:** An LLM-based process extracts candidate facts from the raw L1 context.
+    2.  **Scoring:** Each candidate fact is scored using the formal **CIAR (Certainty, Impact, Age, Recency) model:** `CIAR = (Certainty * Impact) * Age_Decay * Recency_Boost`.
+    3.  **Promotion:** Facts with a CIAR score exceeding a tunable threshold (e.g., >0.6) are written to this L2 table.
+*   **Architectural Pattern:** **Significance-Based Caching.** This is our key differentiator from systems like Mem0. It is an interpretable, cost-saving filter that ensures only high-value information proceeds to deeper processing.
+
+---
+
+### **L3: Episodic Memory (Hybrid Experience Store)**
+
+*   **Components:** **Qdrant (Vector) & Neo4j (Graph)**.
+*   **Purpose:** To create a permanent, rich, and multi-faceted record of consolidated "episodes" or experiences.
+*   **Data Model:**
+    *   **Neo4j:** A **bi-temporal property graph**. All factual relationships will have properties for `factValidFrom`, `factValidTo`, `sourceObservationTimestamp`, and `sourceType`. Higher-order events (e.g., shipments) will be modeled using a **hypergraph simulation pattern** (e.g., a central `:Shipment` node connected to participants).
+    *   **Qdrant:** A vector collection where each vector represents the embedding of a full "episode" summary. The vector payload will contain the ID of the corresponding event node in Neo4j.
+*   **Procedure (Lifecycle - Consolidation Engine):**
+    1.  **Clustering:** On a periodic, asynchronous basis, facts from L2 (PostgreSQL) are clustered by time and context.
+    2.  **Summarization:** An LLM summarizes each cluster into a coherent narrative "episode."
+    3.  **Dual-Indexing:** The episode is dually indexed into L3: its vector embedding is stored in **Qdrant**, and its structured entities and relationships (with full bi-temporal metadata) are written to **Neo4j**, including the hypergraph event nodes.
+*   **Architectural Pattern:** **Hybrid Retrieval Model.** This enables two powerful query pathways: semantic similarity search across experiences ("find similar situations") via Qdrant, and precise, structured traversal of relationships ("show me the full history of this container") via Neo4j.
+
+---
+
+### **L4: Semantic Memory (Distilled Knowledge Store)**
+
+*   **Component:** **Typesense**.
+*   **Purpose:** To store permanent, generalized, and procedural knowledge that has been "distilled" from patterns across many episodes.
+*   **Data Model:** A full-text searchable index of documents. Each document represents a single piece of generalized knowledge (e.g., a user preference, a best practice, a learned rule) and includes provenance metadata linking back to the L3 episodes it was derived from.
+*   **Procedure (Lifecycle - Distillation Engine):**
+    1.  **Pattern Mining:** A long-running, low-priority background process analyzes multiple episodes in L3 (Neo4j/Qdrant) to identify recurring themes, patterns, and correlations.
+    2.  **Synthesis:** An LLM synthesizes these patterns into concise, durable knowledge items (e.g., "User prefers async communication on weekends").
+    3.  **Archiving:** These synthesized knowledge documents are indexed in **Typesense** for fast keyword and faceted search.
+*   **Architectural Pattern:** **Unsupervised Learning & Knowledge Generalization.** This layer allows the system to move beyond recalling specific events to applying generalized, learned principles.
+
+---
 
 ## **3. Rationale**
 
-These decisions are grounded in empirical evidence from the SOTA literature and are designed to maximize our system's performance, auditability, and real-world modeling accuracy.
+This four-tier architecture, governed by autonomous lifecycle engines, is a direct synthesis of our internal research and the SOTA patterns observed in the literature.
 
-*   **"Think-on-Graph" reasoning** is a proven pattern (e.g., ToG, PoG) for reducing LLM hallucination by 30-50%. By constraining agent reasoning to verified paths in the knowledge graph, we create more reliable and auditable decision traces, a critical requirement for enterprise decision support.
-*   **Hypergraph simulation** is necessary because real-world SCM events are rarely simple pairwise relationships. Modeling a shipment as a higher-order event involving a supplier, vessel, product, and port is a more accurate representation of reality. This pattern allows us to capture this complexity within our existing, high-performance Neo4j stack without adding a dedicated (and less mature) hypergraph database.
-*   **A bi-temporal data model** is the core innovation of SOTA memory systems like Zep. It is the only robust way to handle dynamic, evolving knowledge and answer critical business questions like "What was our inventory level *before* the disruption?" or "Show me the full route this container took." Our previous, simpler temporal model was insufficient for these tasks. This enhancement is critical for the system's practical utility.
-*   **Deferring RDF support** is a pragmatic engineering decision. The research indicates a clear industry trend towards property graphs (like Neo4j) for LLM integration due to their more navigable schemas and LLM-friendly query languages (Cypher). By focusing on the property graph model first, we align with best practices and avoid unnecessary complexity.
+*   **Addresses Core Research Gaps:** It provides a formal, operational model for the "knowledge lifecycle," a concept that is theoretically discussed but rarely implemented with this level of detail.
+*   **Combines SOTA Patterns:** It integrates a bi-temporal data model (inspired by Zep), an interpretable significance filter (our novel CIAR model), and a production-ready, asynchronous design (inspired by Mem0's focus on efficiency) into a single, coherent system.
+*   **Optimized for Performance and Cost:** The hierarchical filtering (L1 -> L2 -> L3) ensures that computational and storage costs are only incurred for information that has been deemed significant, making the system more efficient and scalable than architectures that process all raw data.
+*   **Production-Ready by Design:** The architecture explicitly includes resilience patterns (circuit breakers, graceful degradation) and a non-blocking, asynchronous design for its lifecycle engines, ensuring that memory management does not impact the real-time responsiveness of the agents.
 
 ## **4. Consequences**
 
 *   **Positive:**
-    *   **Increased Novelty & Impact:** The system is now more closely aligned with frontier research, incorporating advanced concepts like temporal reasoning and hypergraph modeling.
-    *   **Improved Performance & Reliability:** The "Think-on-Graph" pattern will reduce costly LLM errors. The bi-temporal model will improve the accuracy of time-sensitive queries.
-    *   **Enhanced Real-World Modeling:** The system will be able to represent complex, multi-party SCM events and reason about their evolution over time, dramatically increasing its value.
-    *   **Clearer Development Path:** This ADR provides a precise set of implementation requirements for the development team.
-
+    *   The system will be highly capable, supporting nuanced temporal and multi-hop reasoning.
+    *   The architecture is more efficient and cost-effective than a monolithic or simpler two-layer model.
+    *   Our contribution to the research community is significantly stronger and more novel.
+    *   The system is designed for reliability and observability, making it suitable for real-world deployment.
 *   **Negative / Trade-offs:**
-    *   **Increased Implementation Complexity:** The agent's reasoning logic and the data consolidation procedures will be more complex. Specifically, the `ConsolidationAgent` will now need to handle temporal invalidation, and a new `KnowledgeAuditorAgent` is required to maintain the freshness of dynamic data.
-    *   **Richer Data Schema:** The Neo4j schema becomes more complex, requiring careful management of temporal and provenance properties on all factual relationships.
-    *   **No Native RDF Support (Initially):** The system will not be able to directly ingest and query RDF/SPARQL sources out-of-the-box, which is an accepted short-term limitation.
+    *   **Increased Complexity:** The implementation is more complex, requiring the management of four distinct storage backends and three separate background lifecycle processes.
+    *   **Data Consistency:** The asynchronous, multi-stage nature of the memory pipeline operates on a principle of eventual consistency. There will be a natural delay between an event occurring in L1 and its final distillation into L4. This is an acceptable trade-off for most conversational AI tasks but must be managed.
+    *   **DevOps Overhead:** Managing a distributed, multi-database stack requires more sophisticated monitoring and maintenance than a single-database solution.
 
-## **5. High-Level Implementation Plan**
-
-1.  **Data Model Update (DBMS):**
-    *   Modify the Neo4j schema to include the new node label (e.g., `:SCM_Event`).
-    *   Add the full suite of temporal and provenance properties (`validity_type`, `factValidFrom`, `factValidTo`, `sourceURI`, `sourceObservationTimestamp`, etc.) to all factual relationship types.
-
-2.  **Agent Logic Update (Code):**
-    *   Refactor the `PlannerAgent` to implement an iterative "Think-on-Graph" reasoning loop.
-    *   Update all data-extraction agents (`TextbookExtractor`, `StandardsAnalyst`, `LiveKnowledgeCollector`) to correctly populate the new, richer metadata properties.
-    *   Enhance the `ConsolidationAgent` with the "find-and-invalidate" logic for handling superseded facts.
-    *   Create the new, background `KnowledgeAuditorAgent` for proactive re-validation of dynamic data.
-
-This ADR formalizes our commitment to building a state-of-the-art system. While it increases the engineering effort, the resulting improvements in capability, reliability, and academic contribution are substantial and necessary.
+This ADR provides the definitive blueprint for the next phase of development. All future implementation work should align with the components, data models, and procedures defined herein.
