@@ -2,52 +2,29 @@
 
 This directory contains documentation for Large Language Model (LLM) integrations in the Multi-Layered Memory System project.
 
-## Documents
+## ⚠️ Provider Status
 
-### Primary Integration Guide
-📄 **[AgentRouter Setup Guide](agentrouter-setup-guide.md)**
-- Complete step-by-step integration guide
-- Account setup and configuration
-- Code implementation examples
-- Testing and troubleshooting
-- Production deployment checklist
+**AgentRouter Integration: ABANDONED**
 
-**Target Audience:** Developers implementing Phase 2  
-**Time to Complete:** 2-3 hours for full setup and testing
+AgentRouter was initially selected (see ADR-005) but encountered persistent authentication issues during setup. Integration attempt abandoned on 2025-11-02. See **[ADR-006](../ADR/006-agentrouter-not-accessible.md)** for details.
+
+**Current Status:** Selecting alternative LLM provider for Phase 2 implementation.
 
 ## Architecture Decision Records
 
-See related ADRs for architectural context:
-- **[ADR-005: Multi-Tier LLM Provider Strategy](../ADR/005-multi-tier-llm-provider-strategy.md)** - Why AgentRouter was selected and model tier strategy
+See related ADRs for LLM provider strategy:
+- **[ADR-006: AgentRouter Not Accessible - Alternative Strategy Required](../ADR/006-agentrouter-not-accessible.md)** - Why AgentRouter was abandoned, alternative options
+- **[ADR-005: Multi-Tier LLM Provider Strategy](../ADR/005-multi-tier-llm-provider-strategy.md)** - ~~Superseded~~ Original AgentRouter evaluation
 
-## Quick Start
+## Next Steps
 
-If you're already familiar with LLM integration and just need to get started:
+LLM provider selection in progress. Options being evaluated:
+1. **Direct OpenAI** - Immediate availability, higher cost
+2. **LiteLLM** - Multi-provider proxy, requires setup
+3. **Multiple Direct Providers** - Maximum flexibility, more complexity
+4. **Local Models (Ollama)** - Development only, zero cost
 
-### 1. Get API Key
-```bash
-# Register at https://agentrouter.org
-# Get API key from dashboard
-```
-
-### 2. Configure Environment
-```bash
-# Add to .env file
-echo "AGENTROUTER_API_KEY=ar_your_key_here" >> .env
-```
-
-### 3. Install Dependencies
-```bash
-pip install langchain langchain-openai openai pydantic python-dotenv
-```
-
-### 4. Test Integration
-```bash
-python scripts/test_llm_client.py
-```
-
-### 5. Start Implementation
-See **Week 4** in the [Implementation Plan](../plan/implementation-plan-02112025.md)
+See ADR-006 for detailed analysis and recommendations
 
 ## Model Selection Quick Reference
 

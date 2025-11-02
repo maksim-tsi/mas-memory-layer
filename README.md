@@ -252,14 +252,14 @@ The core memory intelligence layer has not yet been implemented. This phase will
 - ❌ **Hypergraph Simulation** - Event nodes with participant relationships
 - ❌ **Circuit Breaker Patterns** - Graceful degradation and resilience
 
-**LLM Integration** (✅ Architecture Defined):
-- ✅ **Multi-Tier Provider Strategy** - AgentRouter with 7 models across 4 providers
-- ✅ **Cost-Optimized Selection** - 85% savings through tiered model usage
-- ⏳ **Implementation Pending** - Week 4-5 of Phase 2
+**LLM Integration** (⚠️ Provider Selection In Progress):
+- ⚠️ **AgentRouter Abandoned** - Authentication issues, integration not accessible
+- ⏳ **Evaluating Alternatives** - Direct OpenAI, LiteLLM, or multi-provider approach
+- ⏳ **Implementation Blocked** - Waiting for provider decision
 
 **See**: 
-- [ADR-005: Multi-Tier LLM Provider Strategy](docs/ADR/005-multi-tier-llm-provider-strategy.md) for LLM architecture
-- [AgentRouter Integration Guide](docs/integrations/agentrouter-setup-guide.md) for setup instructions
+- [ADR-006: AgentRouter Not Accessible](docs/ADR/006-agentrouter-not-accessible.md) for current status and alternatives
+- ~~[ADR-005: Multi-Tier LLM Provider Strategy](docs/ADR/005-multi-tier-llm-provider-strategy.md)~~ (Superseded)
 - [ADR-003 Architecture Review](docs/reports/adr-003-architecture-review.md) for detailed gap analysis
 
 **Estimated Effort**: 6-8 weeks of focused development

@@ -1,13 +1,23 @@
 # ADR-005: Multi-Tier LLM Provider Strategy with AgentRouter
 
 **Title:** Selection of AgentRouter as Multi-Model LLM Provider for Memory Lifecycle Engines  
-**Status:** Proposed  
+**Status:** ~~Proposed~~ **SUPERSEDED by [ADR-006](006-agentrouter-not-accessible.md)**  
 **Date:** November 2, 2025  
+**Superseded Date:** November 2, 2025  
 **Author:** Development Team  
 **Affects:** Phase 2B-2D (Weeks 4-11), Phase 3 (Agent Integration)  
 **Related ADRs:** 
 - [ADR-003: Four-Tier Cognitive Memory Architecture](003-four-layers-memory.md)
 - [ADR-004: CIAR Scoring Formula](004-ciar-scoring-formula.md)
+- [ADR-006: AgentRouter Not Accessible - Alternative Strategy Required](006-agentrouter-not-accessible.md) ⚠️ **Supersedes this ADR**
+
+---
+
+## ⚠️ UPDATE: This ADR is Superseded
+
+**AgentRouter integration was abandoned due to persistent authentication issues.** This document is preserved for historical context and analysis that informed the evaluation. See [ADR-006](006-agentrouter-not-accessible.md) for current LLM provider strategy.
+
+---
 
 ---
 
