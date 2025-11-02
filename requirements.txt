@@ -35,19 +35,19 @@ meilisearch==0.28.0      # The official Python client for the Meilisearch engine
 # --- LLM Providers (ADR-006: Free-Tier Multi-Provider Strategy) ---
 
 # Google Gemini (Primary Provider)
-google-genai>=0.2.0      # Official Google Generative AI SDK for Gemini models
+google-genai==1.2.0      # Official Google Generative AI SDK for Gemini models
                         # Supports: gemini-2.5-flash, gemini-2.0-flash, gemini-2.5-flash-lite
                         # Rate limits: 10-15 RPM, 250k-1M TPM
                         # Documentation: https://ai.google.dev/
 
 # Groq (Ultra-Fast Inference Provider)
-groq>=0.9.0              # Official Groq SDK for ultra-fast LPU inference
-                        # Supports: llama-3.1-8b-instant, llama-3.1-70b-versatile, mixtral, gemma2
+groq==0.33.0             # Official Groq SDK for ultra-fast LPU inference
+                        # Supports: llama-3.1-8b-instant, openai/gpt-oss-120b, mixtral, gemma2
                         # Rate limits: 30 RPM, 20k-200k TPM, ~250-800 tokens/sec
                         # Documentation: https://console.groq.com/docs
 
 # Mistral AI (Complex Reasoning Provider)
-mistralai>=1.0.0         # Official Mistral AI SDK for advanced reasoning models
+mistralai==1.0.3         # Official Mistral AI SDK for advanced reasoning models
                         # Supports: mistral-large-latest, mistral-small-latest
                         # Rate limits: 60 RPM (1 RPS), fair use policy
                         # Documentation: https://docs.mistral.ai/

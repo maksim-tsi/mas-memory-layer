@@ -251,7 +251,7 @@ pip install groq
 ```
 
 **Available Free Models:**
-- **llama-3.1-70b-versatile** - Best reasoning, 128k context
+- **openai/gpt-oss-120b** - Best reasoning, 120B parameters (reasoning fallback)
 - **llama-3.1-8b-instant** - Ultra-fast, 8k context
 - **mixtral-8x7b-32768** - Good reasoning, 32k context
 - **gemma2-9b-it** - Fast, efficient, 8k context
@@ -287,7 +287,7 @@ pip install groq
 | **CIAR Certainty Scoring (Week 4)** | Groq (Llama 3.1 8B) | Gemini 2.5 Flash-Lite | Gemini 2.5 Flash | N/A | Groq ultra-fast for simple classification; Lite optimized for speed; 2.5 Flash for nuanced scoring |
 | **Episode Summarization (Week 7)** | Gemini 2.5 Flash | Gemini 2.0 Flash | Mistral Large | N/A | 2.5 Flash's reasoning for coherent narratives; 2.0 Flash for batch processing; Mistral for complex episodes |
 | **Knowledge Synthesis (Week 10)** | Mistral Large | Gemini 2.5 Flash | Gemini 2.0 Flash | N/A | Mistral excels at complex reasoning/analysis; 2.5 Flash for distillation; 2.0 Flash handles multiple episodes |
-| **Pattern Mining (Week 9)** | Gemini 2.5 Flash | Mistral Large | Gemini 2.0 Flash | Groq (Llama 3.1 70B) | 2.5 Flash for pattern recognition; Mistral for complex theme analysis; 2.0 for high throughput; Groq for fast frequency detection |
+| **Pattern Mining (Week 9)** | Gemini 2.5 Flash | Mistral Large | Gemini 2.0 Flash | Groq (GPT OSS 120B) | 2.5 Flash for pattern recognition; Mistral for complex theme analysis; 2.0 for high throughput; Groq reasoning fallback for complex patterns |
 | **Development/Testing** | Groq (Llama 3.1 8B) | Gemini 2.5 Flash-Lite | Gemini 2.5 Flash | N/A | Groq ultra-fast (800 tok/sec) for instant feedback; Lite's speed for rapid iteration; 2.5 Flash for quality testing |
 
 ---
@@ -358,12 +358,12 @@ DAILY_LIMITS = {
         'tpd': None,  # Evaluation tier - fair use
         'context_window': 32000,
     },
-    'groq_llama_3_1_70b': {
+    'groq_gpt_oss_120b': {
         'rpm': 30,
         'tpm': 20000,
         'rpd': 14400,
         'tpd': 1000000,
-        'context_window': 128000,
+        'context_window': 8000,  # GPT OSS 120B context window
     },
     'groq_llama_3_1_8b': {
         'rpm': 30,
@@ -425,7 +425,7 @@ class LLMProvider(Enum):
     GEMINI_2_5_FLASH_LITE = "gemini-2.5-flash-lite"
     MISTRAL_LARGE = "mistral-large-latest"
     MISTRAL_SMALL = "mistral-small-latest"
-    GROQ_LLAMA_3_1_70B = "llama-3.1-70b-versatile"
+    GROQ_GPT_OSS_120B = "openai/gpt-oss-120b"
     GROQ_LLAMA_3_1_8B = "llama-3.1-8b-instant"
     GROQ_MIXTRAL_8X7B = "mixtral-8x7b-32768"
 
@@ -463,7 +463,7 @@ TASK_PROVIDER_PRIORITY = {
         LLMProvider.GEMINI_2_5_FLASH,
         LLMProvider.MISTRAL_LARGE,
         LLMProvider.GEMINI_2_0_FLASH,
-        LLMProvider.GROQ_LLAMA_3_1_70B
+        LLMProvider.GROQ_GPT_OSS_120B
     ],
     LLMTask.DEVELOPMENT: [
         LLMProvider.GROQ_LLAMA_3_1_8B,
@@ -630,7 +630,7 @@ Assuming each fact extraction request requires:
 | **Gemini 2.5 Flash-Lite** | Fast classification, dev/test | 15 | 250k | 1M tokens | Ultra-fast inference |
 | **Mistral Large** | Complex analysis, structured output | 60 | N/A | 128k tokens | Excellent reasoning, JSON mode |
 | **Groq (Llama 3.1 8B)** | Real-time responses, dev/test | 30 | 200k | 8k tokens | Ultra-fast (800 tok/sec) |
-| **Groq (Llama 3.1 70B)** | Complex reasoning, pattern analysis | 30 | 20k | 128k tokens | Strong reasoning + speed |
+| **Groq (GPT OSS 120B)** | Complex reasoning fallback | 30 | 20k | 8k tokens | Strong reasoning, 120B params |
 
 ### **Worst-Case Scenario: Exceed Free Tiers**
 
@@ -642,7 +642,7 @@ If free tiers are exhausted and we need to upgrade to paid tier:
 | **Gemini 2.0 Flash** | Input: $0.10, Output: $0.40 | **Input: $0.80, Output: $0.96 = $1.76** |
 | **Gemini 2.5 Flash-Lite** | Input: $0.10, Output: $0.40 | **Input: $0.80, Output: $0.96 = $1.76** |
 | **Mistral Large** | Input: $2.00, Output: $6.00 | **Input: $16, Output: $14.40 = $30.40** |
-| **Groq (Llama 3.1 70B)** | Input: $0.59, Output: $0.79 | **Input: $4.72, Output: $1.90 = $6.62** |
+| **Groq (GPT OSS 120B)** | Input: $0.59, Output: $0.79 | **Input: $4.72, Output: $1.90 = $6.62** |
 
 ### **Monthly Cost Estimate (Paid Tier)**
 

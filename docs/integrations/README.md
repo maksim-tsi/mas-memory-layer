@@ -79,7 +79,7 @@ See **Week 4-5** in the [Implementation Plan](../plan/implementation-plan-021120
 | **Fact Extraction** | Gemini 2.5 Flash | Mistral Large | Gemini 2.0 Flash | Best quality + 1M context |
 | **Episode Summary** | Gemini 2.5 Flash | Gemini 2.0 Flash | Mistral Large | Narrative generation |
 | **Knowledge Synthesis** | Mistral Large | Gemini 2.5 Flash | Gemini 2.0 Flash | Complex reasoning |
-| **Pattern Mining** | Gemini 2.5 Flash | Mistral Large | Groq (Llama 70B) | Pattern recognition |
+| **Pattern Mining** | Gemini 2.5 Flash | Mistral Large | Groq (GPT OSS 120B) | Pattern recognition |
 | **Development/Testing** | Groq (Llama 8B) | Gemini 2.5 Flash-Lite | - | Instant feedback (800 tok/sec) |
 
 **See ADR-006** for detailed task-to-provider mappings and fallback logic.

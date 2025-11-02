@@ -130,7 +130,7 @@ def test_groq():
         # Test key models (not all to avoid rate limits)
         models = [
             ("llama-3.1-8b-instant", "Llama 3.1 8B Instant (Primary - Fast Tasks)"),
-            ("llama-3.1-70b-versatile", "Llama 3.1 70B Versatile (Complex Tasks)"),
+            ("openai/gpt-oss-120b", "GPT OSS 120B (Reasoning Fallback)"),
         ]
         
         results = {}
@@ -157,7 +157,7 @@ def test_groq():
         print("\n⚡ Ultra-Fast: ~250-800 tokens/sec (custom LPU hardware)")
         print("\nAvailable Models:")
         print("  • llama-3.1-8b-instant - Ultra-fast, 8k context")
-        print("  • llama-3.1-70b-versatile - Best reasoning, 128k context")
+        print("  • openai/gpt-oss-120b - Best reasoning, 120B parameters")
         print("  • mixtral-8x7b-32768 - Good reasoning, 32k context")
         print("  • gemma2-9b-it - Fast, efficient, 8k context")
         print("=" * 60)
