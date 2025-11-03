@@ -39,7 +39,8 @@ class SemanticMemoryTier(BaseTier):
     
     async def initialize(self) -> None:
         """Initialize Typesense collection."""
-        await self.typesense.initialize()
+        # Call parent initialize to connect adapter
+        await super().initialize()
     
     async def store(self, data: Dict[str, Any]) -> str:
         """

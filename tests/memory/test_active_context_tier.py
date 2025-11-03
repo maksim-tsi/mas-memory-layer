@@ -11,7 +11,7 @@ Tests cover:
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch, MagicMock
 import json
 
@@ -38,7 +38,7 @@ class TestActiveContextTierStore:
             'turn_id': 'turn_001',
             'role': 'user',
             'content': 'Hello, world!',
-            'timestamp': datetime.utcnow(),
+            'timestamp': datetime.now(timezone.utc),
             'metadata': {'source': 'test'}
         }
         
@@ -93,9 +93,9 @@ class TestActiveContextTierStore:
             'content': 'Test message'
         }
         
-        before = datetime.utcnow()
+        before = datetime.now(timezone.utc)
         turn_id = await tier.store(turn_data)
-        after = datetime.utcnow()
+        after = datetime.now(timezone.utc)
         
         assert turn_id == 'turn_001'
         
@@ -223,14 +223,14 @@ class TestActiveContextTierRetrieve:
                 'turn_id': 'turn_002',
                 'role': 'assistant',
                 'content': 'Response',
-                'timestamp': datetime.utcnow().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'metadata': {}
             }),
             json.dumps({
                 'turn_id': 'turn_001',
                 'role': 'user',
                 'content': 'Hello',
-                'timestamp': datetime.utcnow().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'metadata': {}
             })
         ]
@@ -258,8 +258,8 @@ class TestActiveContextTierRetrieve:
     
     @pytest.mark.asyncio
     async def test_retrieve_postgres_fallback(self, redis_adapter, postgres_adapter):
-        """Test fallback to PostgreSQL when Redis is empty."""
-        # Mock Redis returning empty
+        """Test fallback to PostgreSQL when Redis doesn't have data."""
+        # Mock Redis with no data
         redis_adapter.lrange = AsyncMock(return_value=[])
         
         # Mock PostgreSQL returning data
@@ -268,7 +268,7 @@ class TestActiveContextTierRetrieve:
                 'turn_id': 'turn_001',
                 'role': 'user',
                 'content': 'Hello',
-                'timestamp': datetime.utcnow(),
+                'timestamp': datetime.now(timezone.utc),
                 'metadata': '{}'
             }
         ]
@@ -307,7 +307,7 @@ class TestActiveContextTierRetrieve:
                 'turn_id': 'turn_001',
                 'role': 'user',
                 'content': 'Hello',
-                'timestamp': datetime.utcnow(),
+                'timestamp': datetime.now(timezone.utc),
                 'metadata': '{}'
             }
         ]
@@ -359,7 +359,7 @@ class TestActiveContextTierQuery:
                 'turn_id': 'turn_001',
                 'role': 'user',
                 'content': 'Hello',
-                'timestamp': datetime.utcnow(),
+                'timestamp': datetime.now(timezone.utc),
                 'tier': 'L1'
             }
         ]

@@ -54,8 +54,8 @@ class EpisodicMemoryTier(BaseTier):
     
     async def initialize(self) -> None:
         """Initialize Qdrant collection and Neo4j constraints."""
-        await self.qdrant.initialize()
-        await self.neo4j.initialize()
+        # Call parent initialize to connect adapters
+        await super().initialize()
         
         # Create collection if needed
         try:

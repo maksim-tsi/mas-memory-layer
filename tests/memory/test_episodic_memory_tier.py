@@ -20,11 +20,12 @@ def mock_qdrant_adapter():
     """Mock Qdrant adapter for testing."""
     adapter = AsyncMock(spec=QdrantAdapter)
     adapter.initialize = AsyncMock()
+    adapter.connect = AsyncMock()
+    adapter.disconnect = AsyncMock()
     adapter.create_collection = AsyncMock()
     adapter.upsert = AsyncMock()
     adapter.search = AsyncMock(return_value=[])
     adapter.delete = AsyncMock()
-    adapter.cleanup = AsyncMock()
     adapter.health_check = AsyncMock(return_value={'status': 'healthy'})
     return adapter
 
@@ -34,8 +35,9 @@ def mock_neo4j_adapter():
     """Mock Neo4j adapter for testing."""
     adapter = AsyncMock(spec=Neo4jAdapter)
     adapter.initialize = AsyncMock()
+    adapter.connect = AsyncMock()
+    adapter.disconnect = AsyncMock()
     adapter.execute_query = AsyncMock(return_value=[])
-    adapter.cleanup = AsyncMock()
     adapter.health_check = AsyncMock(return_value={'status': 'healthy'})
     return adapter
 
@@ -262,7 +264,7 @@ class TestEpisodicMemoryTierRetrieve:
             'e': {
                 'episodeId': 'ep_001',
                 'sessionId': 'session_1',
-                'summary': 'Test',
+                'summary': 'Test episode summary with sufficient length for validation',
                 'factCount': 1,
                 'timeWindowStart': now.isoformat(),
                 'timeWindowEnd': now.isoformat(),
@@ -469,7 +471,7 @@ class TestEpisodicMemoryTierQuery:
                 'e': {
                     'episodeId': 'ep_001',
                     'sessionId': 'session_1',
-                    'summary': 'Episode 1',
+                    'summary': 'Episode 1 with sufficient length for validation',
                     'factCount': 2,
                     'timeWindowStart': now.isoformat(),
                     'timeWindowEnd': now.isoformat(),
@@ -539,7 +541,7 @@ class TestEpisodicMemoryTierDelete:
                 'e': {
                     'episodeId': 'ep_001',
                     'sessionId': 'session_1',
-                    'summary': 'Test',
+                    'summary': 'Test episode summary with sufficient length',
                     'factCount': 1,
                     'timeWindowStart': now.isoformat(),
                     'timeWindowEnd': now.isoformat(),
@@ -638,10 +640,10 @@ class TestEpisodicMemoryTierContextManager:
         )
         
         async with tier:
-            # Verify initialization called
-            mock_qdrant_adapter.initialize.assert_called_once()
-            mock_neo4j_adapter.initialize.assert_called_once()
+            # Verify connect called during initialization (via parent's initialize)
+            mock_qdrant_adapter.connect.assert_called_once()
+            mock_neo4j_adapter.connect.assert_called_once()
         
-        # Verify cleanup called
-        mock_qdrant_adapter.cleanup.assert_called_once()
-        mock_neo4j_adapter.cleanup.assert_called_once()
+        # Verify disconnect called during cleanup (__aexit__)
+        mock_qdrant_adapter.disconnect.assert_called_once()
+        mock_neo4j_adapter.disconnect.assert_called_once()

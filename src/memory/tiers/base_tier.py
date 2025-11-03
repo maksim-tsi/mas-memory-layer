@@ -8,7 +8,7 @@ interact with memory without knowing the underlying storage details.
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from src.storage.base import StorageAdapter, StorageError
@@ -233,7 +233,7 @@ class BaseTier(ABC):
         
         return {
             'tier': self.__class__.__name__,
-            'timestamp': datetime.utcnow().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
             'metrics': base_metrics
         }
     

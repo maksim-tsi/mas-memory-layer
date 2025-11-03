@@ -12,7 +12,7 @@ Architecture:
 """
 
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import logging
 
@@ -57,7 +57,7 @@ class ActiveContextTier(BaseTier):
             'turn_id': 'turn-001',
             'role': 'user',
             'content': 'Hello, world!',
-            'timestamp': datetime.utcnow()
+            'timestamp': datetime.now(timezone.utc)
         })
         
         # Retrieve recent turns
@@ -134,7 +134,7 @@ class ActiveContextTier(BaseTier):
                 
                 session_id = data['session_id']
                 turn_id = data['turn_id']
-                timestamp = data.get('timestamp', datetime.utcnow())
+                timestamp = data.get('timestamp', datetime.now(timezone.utc))
                 
                 logger.debug(f"Storing turn {turn_id} in session {session_id}")
                 
@@ -385,7 +385,7 @@ class ActiveContextTier(BaseTier):
             return {
                 'tier': 'L1_active_context',
                 'status': overall_status,
-                'timestamp': datetime.utcnow().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'storage': {
                     'redis': redis_health,
                     'postgres': postgres_health
@@ -401,6 +401,6 @@ class ActiveContextTier(BaseTier):
             return {
                 'tier': 'L1_active_context',
                 'status': 'unhealthy',
-                'timestamp': datetime.utcnow().isoformat(),
+                'timestamp': datetime.now(timezone.utc).isoformat(),
                 'error': str(e)
             }

@@ -19,12 +19,13 @@ def mock_typesense_adapter():
     """Mock Typesense adapter for testing."""
     adapter = AsyncMock(spec=TypesenseAdapter)
     adapter.initialize = AsyncMock()
+    adapter.connect = AsyncMock()
+    adapter.disconnect = AsyncMock()
     adapter.index_document = AsyncMock()
     adapter.get_document = AsyncMock(return_value=None)
     adapter.search = AsyncMock(return_value={'hits': []})
     adapter.update_document = AsyncMock()
     adapter.delete_document = AsyncMock()
-    adapter.cleanup = AsyncMock()
     adapter.health_check = AsyncMock(return_value={'status': 'healthy'})
     return adapter
 
@@ -506,7 +507,7 @@ class TestSemanticMemoryTierHealthCheck:
                 {
                     'document': {
                         'id': 'know_001',
-                        'title': 'Test',
+                        'title': 'Test Knowledge Title',
                         'content': 'Test content with enough characters here',
                         'knowledge_type': 'insight',
                         'confidence_score': 0.8,
@@ -557,8 +558,9 @@ class TestSemanticMemoryTierContextManager:
         )
         
         async with tier:
-            # Verify initialization called
-            mock_typesense_adapter.initialize.assert_called_once()
+            # Verify initialize called during __aenter__
+            # Note: SemanticMemoryTier uses base class initialize which calls connect
+            mock_typesense_adapter.connect.assert_called_once()
         
-        # Verify cleanup called
-        mock_typesense_adapter.cleanup.assert_called_once()
+        # Verify disconnect called during cleanup (__aexit__)
+        mock_typesense_adapter.disconnect.assert_called_once()
