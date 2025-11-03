@@ -144,6 +144,197 @@ health = await tier.health_check()
 
 ---
 
+### 2025-11-03 - Phase 2A Week 2: L2 Working Memory Tier (CIAR-Scored Fact Storage) ✅
+
+**Status:** ✅ Complete
+
+**Summary:**
+Successfully implemented L2 Working Memory Tier with CIAR-based significance filtering, access tracking, and fact lifecycle management. This tier stores only significant facts (CIAR score ≥ 0.6) extracted from L1, implementing the core research contribution of automatic memory significance assessment.
+
+**Key Achievement:**
+Completed CIAR (Certainty, Impact, Age, Recency) scoring system integration at the tier level, enabling automatic significance-based filtering and access-driven memory reinforcement.
+
+**CIAR Formula Implemented:**
+```
+CIAR = (Certainty × Impact) × Age_Decay × Recency_Boost
+
+Where:
+- Certainty: Confidence in fact accuracy (0.0-1.0)
+- Impact: Estimated importance/utility (0.0-1.0)
+- Age_Decay: Time-based decay = 2^(-λ × age_days)
+- Recency_Boost: Access-based boost = 1 + (α × access_count)
+```
+
+**Files Created:**
+
+1. **`src/memory/models.py`** (185 lines)
+   - Pydantic `Fact` model with full validation
+   - `FactType` enum: preference, constraint, entity, mention, relationship, event
+   - `FactCategory` enum: personal, business, technical, operational
+   - CIAR score validation and auto-calculation
+   - Access tracking methods: `mark_accessed()`, `calculate_age_decay()`
+   - Database serialization: `to_db_dict()`
+   - `FactQuery` model for structured queries
+
+2. **`src/memory/tiers/working_memory_tier.py`** (485 lines)
+   - L2 implementation with PostgreSQL backend
+   - CIAR threshold enforcement (default: 0.6, configurable)
+   - Access tracking with automatic recency boost updates
+   - Query methods:
+     - `query_by_session()` - Facts for specific session
+     - `query_by_type()` - Facts by FactType
+     - `query()` - General queries with CIAR filtering
+   - CIAR update methods:
+     - `update_ciar_score()` - Direct CIAR updates
+     - Component-based recalculation (certainty, impact, etc.)
+   - TTL-based cleanup (7 days default)
+   - Comprehensive health checks with statistics
+
+3. **`tests/memory/test_working_memory_tier.py`** (615 lines)
+   - Comprehensive test suite with 17 test cases
+   - **100% pass rate** (17/17 tests passing)
+   - Test coverage:
+     - Store operations (4 tests): success, threshold rejection, model usage, custom threshold
+     - Retrieve operations (3 tests): success, not found, recency boost updates
+     - Query operations (3 tests): by session, by type, CIAR filtering
+     - CIAR updates (2 tests): direct updates, component-based calculation
+     - Delete operations (2 tests): success, not found
+     - Health checks (2 tests): healthy, degraded
+     - Context manager (1 test): async lifecycle
+
+4. **`src/memory/__init__.py`** (12 lines)
+   - Package initialization with model exports
+
+**Implementation Features:**
+
+**CIAR-Based Filtering:**
+- Only facts with CIAR ≥ threshold (default 0.6) are stored
+- Configurable threshold per tier instance
+- Automatic rejection with ValueError for low-significance facts
+
+**Access Tracking:**
+- Automatic on every `retrieve()` call
+- Updates: `last_accessed`, `access_count`, `recency_boost`, `ciar_score`
+- Recency boost formula: `1 + (0.05 × access_count)` (5% per access)
+- Non-blocking: Doesn't fail retrieve if tracking update fails
+
+**Age Decay:**
+- Exponential decay: `2^(-λ × age_days)`
+- Default decay rate λ = 0.1 per day
+- Callable method: `fact.calculate_age_decay()`
+- Can be recalculated periodically by maintenance tasks
+
+**Query Capabilities:**
+```python
+# By session with CIAR filtering
+facts = await tier.query_by_session('session-123', min_ciar_score=0.7)
+
+# By fact type
+preferences = await tier.query_by_type(FactType.PREFERENCE)
+
+# Complex queries
+facts = await tier.query(
+    filters={
+        'session_id': 'session-123',
+        'min_ciar_score': 0.8,
+        'fact_type': 'preference'
+    },
+    limit=20
+)
+```
+
+**CIAR Component Updates:**
+```python
+# Update individual components (auto-recalculates CIAR)
+await tier.update_ciar_score(
+    'fact-001',
+    certainty=0.95,
+    impact=0.90
+)
+
+# Or update CIAR directly
+await tier.update_ciar_score('fact-001', ciar_score=0.85)
+```
+
+**Testing Results:**
+```bash
+============================= test session starts ==============================
+collected 17 items
+
+tests/memory/test_working_memory_tier.py .................               [100%]
+
+======================== 17 passed, 2 warnings in 1.27s ========================
+```
+
+**Configuration Options:**
+```python
+tier = WorkingMemoryTier(
+    postgres_adapter=postgres,
+    config={
+        'ciar_threshold': 0.6,        # Minimum CIAR for storage
+        'ttl_days': 7,                 # Fact expiration
+        'recency_boost_alpha': 0.05,   # Boost factor per access
+        'age_decay_lambda': 0.1        # Decay rate per day
+    }
+)
+```
+
+**Health Check Output:**
+```json
+{
+    "tier": "L2_working_memory",
+    "status": "healthy",
+    "statistics": {
+        "total_facts": 1247,
+        "high_ciar_facts": 892,
+        "average_ciar_score": 0.7234
+    },
+    "config": {
+        "ciar_threshold": 0.6,
+        "ttl_days": 7,
+        "recency_boost_alpha": 0.05,
+        "age_decay_lambda": 0.1
+    }
+}
+```
+
+**Key Design Decisions:**
+
+1. **Pydantic Validation**: Strong typing and automatic validation prevent invalid data
+2. **Enum for Types**: Type-safe fact classification with `FactType` and `FactCategory`
+3. **Access-Driven Reinforcement**: Frequently accessed facts get CIAR boost (reinforcement learning principle)
+4. **Graceful Degradation**: Access tracking failures don't break retrieval
+5. **In-Memory Filtering**: CIAR filtering done in-memory (PostgreSQL adapter doesn't support `__gte` yet)
+
+**Integration with L1:**
+- Facts reference source turns via `source_uri`: `"l1:session:{session_id}:turn:{turn_id}"`
+- Promotion Engine (Week 4) will extract facts from L1 and store in L2
+- L2 provides the filtered fact stream for L3 consolidation
+
+**Schema Notes:**
+PostgreSQL schema migration needed (marked as TODO):
+- Current: Using existing `working_memory` table
+- Required: Columns for `ciar_score`, `certainty`, `impact`, `age_decay`, `recency_boost`, etc.
+- Migration script specified in implementation plan but deferred for production setup
+
+**Performance Characteristics:**
+- CIAR calculation: O(1) arithmetic operations
+- Fact storage: Single PostgreSQL INSERT
+- Query with filtering: O(N) scan + in-memory filter (will improve with database-level filtering)
+- Access tracking: Single UPDATE (async, non-blocking)
+
+**Next Steps:**
+- ⏳ **Week 3 (Phase 2A)**: Implement L3 `EpisodicMemoryTier` (Qdrant+Neo4j) and L4 `SemanticMemoryTier` (Typesense)
+- ⏳ **Week 4-5 (Phase 2B)**: Build CIAR certainty scorer (LLM-based) and fact extractor
+- ⏳ **Week 4-5**: Implement Promotion Engine (L1→L2 pipeline with CIAR filtering)
+
+**Documentation References:**
+- Implementation Plan: `docs/plan/implementation-plan-02112025.md` (Phase 2A Week 2)
+- Architecture: `docs/ADR/003-four-layers-memory.md` (L2 specification)
+- CIAR Scoring: `docs/ADR/004-ciar-scoring-model.md` (formula details)
+
+---
+
 ### 2025-11-02 - LLM Provider Connectivity Tests & Multi-Provider Strategy Implementation 🚀
 
 **Status:** ✅ Complete

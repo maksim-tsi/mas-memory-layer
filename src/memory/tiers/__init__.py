@@ -15,11 +15,13 @@ tier-specific logic (windowing, filtering, consolidation, etc.)
 
 from .base_tier import BaseTier, MemoryTierError, TierConfigurationError, TierOperationError
 from .active_context_tier import ActiveContextTier
+from .working_memory_tier import WorkingMemoryTier
 
 __all__ = [
     'BaseTier',
     'MemoryTierError',
     'TierConfigurationError',
     'TierOperationError',
-    'ActiveContextTier'
+    'ActiveContextTier',
+    'WorkingMemoryTier'
 ]
