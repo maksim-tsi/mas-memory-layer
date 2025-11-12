@@ -5,6 +5,12 @@
 #
 # This file contains the Python dependencies for the Hybrid Memory System project.
 # To install, run: pip install -r requirements.txt
+#
+# SYSTEM DEPENDENCIES (install before pip install):
+# - PostgreSQL client tools (psql): Required for database setup and migrations
+#   Ubuntu/Debian: sudo apt install -y postgresql-client
+#   macOS: brew install postgresql
+#   Verify: psql --version
 
 # --- Core Frameworks & Data Validation ---
 pydantic==2.8.2          # For data validation, settings management, and defining our data schemas.

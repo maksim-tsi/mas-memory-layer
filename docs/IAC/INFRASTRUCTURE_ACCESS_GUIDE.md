@@ -249,6 +249,17 @@ All services healthy and using correct storage locations as per ADR-002.
 
 ### Prerequisites
 
+**System Tools:**
+```bash
+# Install PostgreSQL client (required for database setup)
+sudo apt update && sudo apt install -y postgresql-client
+
+# Verify installation
+psql --version  # Should show: psql (PostgreSQL) 16.x
+```
+
+**Python Environment:**
+
 1. **Environment configured:**
    ```bash
    # Ensure .env file exists with real credentials
