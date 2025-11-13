@@ -1,0 +1,74 @@
+{
+  "timestamp": "2025-11-02T21:25:58.566967",
+  "base_url": "https://agentrouter.org/v1",
+  "total_models": 8,
+  "successful": 0,
+  "failed": 8,
+  "success_rate": 0.0,
+  "results": [
+    {
+      "success": false,
+      "model": "gpt-5",
+      "tier": "router",
+      "provider": "AgentRouter (Auto-Select)",
+      "error": "Error code: 401 - {'message': 'UNAUTHENTICATED', 'success': False}",
+      "latency_ms": 897.72
+    },
+    {
+      "success": false,
+      "model": "gpt-4o-mini",
+      "tier": "tier_1",
+      "provider": "OpenAI",
+      "error": "Error code: 401 - {'message': 'UNAUTHENTICATED', 'success': False}",
+      "latency_ms": 235.45
+    },
+    {
+      "success": false,
+      "model": "claude-3-5-haiku-20241022",
+      "tier": "tier_1",
+      "provider": "Anthropic",
+      "error": "Error code: 401 - {'message': 'UNAUTHENTICATED', 'success': False}",
+      "latency_ms": 226.82
+    },
+    {
+      "success": false,
+      "model": "gemini-2.0-flash-exp",
+      "tier": "tier_1",
+      "provider": "Google",
+      "error": "Error code: 401 - {'message': 'UNAUTHENTICATED', 'success': False}",
+      "latency_ms": 226.42
+    },
+    {
+      "success": false,
+      "model": "deepseek-chat",
+      "tier": "tier_2",
+      "provider": "DeepSeek",
+      "error": "Error code: 401 - {'message': 'UNAUTHENTICATED', 'success': False}",
+      "latency_ms": 227.89
+    },
+    {
+      "success": false,
+      "model": "glm-4-plus",
+      "tier": "tier_2",
+      "provider": "Zhipu AI",
+      "error": "Error code: 401 - {'message': 'UNAUTHENTICATED', 'success': False}",
+      "latency_ms": 226.73
+    },
+    {
+      "success": false,
+      "model": "gpt-4o",
+      "tier": "tier_3",
+      "provider": "OpenAI",
+      "error": "Error code: 401 - {'message': 'UNAUTHENTICATED', 'success': False}",
+      "latency_ms": 228.47
+    },
+    {
+      "success": false,
+      "model": "claude-3-5-sonnet-20241022",
+      "tier": "tier_3",
+      "provider": "Anthropic",
+      "error": "Error code: 401 - {'message': 'UNAUTHENTICATED', 'success': False}",
+      "latency_ms": 227.65
+    }
+  ]
+}
