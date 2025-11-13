@@ -5,6 +5,12 @@
 #
 # This file contains the Python dependencies for the Hybrid Memory System project.
 # To install, run: pip install -r requirements.txt
+#
+# SYSTEM DEPENDENCIES (install before pip install):
+# - PostgreSQL client tools (psql): Required for database setup and migrations
+#   Ubuntu/Debian: sudo apt install -y postgresql-client
+#   macOS: brew install postgresql
+#   Verify: psql --version
 
 # --- Core Frameworks & Data Validation ---
 pydantic==2.8.2          # For data validation, settings management, and defining our data schemas.
@@ -31,6 +37,26 @@ neo4j==5.22.0            # The official Python driver for the Neo4j graph databa
 
 # Search Store Client
 meilisearch==0.28.0      # The official Python client for the Meilisearch engine.
+
+# --- LLM Providers (ADR-006: Free-Tier Multi-Provider Strategy) ---
+
+# Google Gemini (Primary Provider)
+google-genai==1.2.0      # Official Google Generative AI SDK for Gemini models
+                        # Supports: gemini-2.5-flash, gemini-2.0-flash, gemini-2.5-flash-lite
+                        # Rate limits: 10-15 RPM, 250k-1M TPM
+                        # Documentation: https://ai.google.dev/
+
+# Groq (Ultra-Fast Inference Provider)
+groq==0.33.0             # Official Groq SDK for ultra-fast LPU inference
+                        # Supports: llama-3.1-8b-instant, openai/gpt-oss-120b, mixtral, gemma2
+                        # Rate limits: 30 RPM, 20k-200k TPM, ~250-800 tokens/sec
+                        # Documentation: https://console.groq.com/docs
+
+# Mistral AI (Complex Reasoning Provider)
+mistralai==1.0.3         # Official Mistral AI SDK for advanced reasoning models
+                        # Supports: mistral-large-latest, mistral-small-latest
+                        # Rate limits: 60 RPM (1 RPS), fair use policy
+                        # Documentation: https://docs.mistral.ai/
 
 # --- Development & Testing Utilities ---
 fakeredis==2.23.1        # A mock Redis client, useful for running tests without a live Redis server.

@@ -1,0 +1,78 @@
+{
+  "timestamp": "2025-11-02T21:07:57.320873",
+  "total_models": 7,
+  "successful": 0,
+  "failed": 7,
+  "results": [
+    {
+      "model_id": "gpt-4o-mini",
+      "model_name": "GPT-4o Mini",
+      "provider": "OpenAI",
+      "success": false,
+      "response": null,
+      "latency_ms": 1159.53,
+      "error": "Error code: 401 - {'message': 'UNAUTHENTICATED', 'success': False}",
+      "tokens": 0
+    },
+    {
+      "model_id": "claude-3-5-haiku-20241022",
+      "model_name": "Claude 3.5 Haiku",
+      "provider": "Anthropic",
+      "success": false,
+      "response": null,
+      "latency_ms": 201.48,
+      "error": "Error code: 401 - {'message': 'UNAUTHENTICATED', 'success': False}",
+      "tokens": 0
+    },
+    {
+      "model_id": "gemini-2.0-flash-exp",
+      "model_name": "Gemini 2.0 Flash",
+      "provider": "Google",
+      "success": false,
+      "response": null,
+      "latency_ms": 200.5,
+      "error": "Error code: 401 - {'message': 'UNAUTHENTICATED', 'success': False}",
+      "tokens": 0
+    },
+    {
+      "model_id": "deepseek-chat",
+      "model_name": "DeepSeek Chat",
+      "provider": "DeepSeek",
+      "success": false,
+      "response": null,
+      "latency_ms": 202.66,
+      "error": "Error code: 401 - {'message': 'UNAUTHENTICATED', 'success': False}",
+      "tokens": 0
+    },
+    {
+      "model_id": "glm-4-plus",
+      "model_name": "GLM-4 Plus",
+      "provider": "Zhipu AI",
+      "success": false,
+      "response": null,
+      "latency_ms": 204.44,
+      "error": "Error code: 401 - {'message': 'UNAUTHENTICATED', 'success': False}",
+      "tokens": 0
+    },
+    {
+      "model_id": "gpt-4o",
+      "model_name": "GPT-4o",
+      "provider": "OpenAI",
+      "success": false,
+      "response": null,
+      "latency_ms": 200.51,
+      "error": "Error code: 401 - {'message': 'UNAUTHENTICATED', 'success': False}",
+      "tokens": 0
+    },
+    {
+      "model_id": "claude-3-5-sonnet-20241022",
+      "model_name": "Claude 3.5 Sonnet",
+      "provider": "Anthropic",
+      "success": false,
+      "response": null,
+      "latency_ms": 200.7,
+      "error": "Error code: 401 - {'message': 'UNAUTHENTICATED', 'success': False}",
+      "tokens": 0
+    }
+  ]
+}

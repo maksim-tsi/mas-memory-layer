@@ -1,6 +1,9 @@
 # Environment and Credentials
+# CRITICAL: Never commit .env with real credentials
+# See .env.example for template with placeholders
 .env
 *.env.local
+.env.*.local
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -140,8 +143,6 @@ celerybeat.pid
 
 # Environments
 .env
-.env.*
-!.env.example
 .envrc
 .venv
 env/
@@ -211,7 +212,3 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-
-# Project-specific ignores
-# Exclude raw PDFs (stored locally on Mac while NAS is disabled)
-*.pdf

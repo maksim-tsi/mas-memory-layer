@@ -6,16 +6,32 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 
 ---
 
-## 🚧 **Current Status: Phase 1 Complete (Storage Foundation) | Phase 2-4 Not Started**
+## 🚧 **Current Status: Phase 1 Complete | Phase 2A 92% Complete | Phase 2B-2D Not Started**
 
-**Overall ADR-003 Completion: ~30%**
+**Overall ADR-003 Completion: ~43%**
 
-This project has successfully implemented **production-ready storage adapters** but the **intelligent memory tiers and autonomous lifecycle engines** specified in [ADR-003](docs/ADR/003-four-layers-memory.md) are not yet implemented.
+**Phase 1 (Storage Adapters):** ✅ 100% Complete - 143/143 tests passing  
+**Phase 2A (Memory Tiers):** 🚧 92% Complete - 70/76 tests passing (6 Pydantic validation errors)  
+**Phase 2B (LLM Integration):** ❌ 0% Complete - Connectivity verified, production code not started  
+**Phase 2C-2D (Lifecycle Engines):** ❌ 0% Complete - Blocked by Phase 2B
 
-**What's Complete**: Storage infrastructure (database clients)  
-**What's Missing**: Memory intelligence (CIAR scoring, lifecycle engines, bi-temporal model, LLM integration)
+**What's Complete**: 
+- ✅ Storage infrastructure (5 database adapters, metrics, benchmarks)
+- ✅ Memory tier classes (L1-L4 with dual-indexing, bi-temporal model)
+- ✅ CIAR scoring system (calculation logic)
+- ✅ Data models (Fact, Episode, KnowledgeDocument)
+- ✅ LLM provider connectivity (7 models tested across 3 providers)
 
-**See**: [ADR-003 Architecture Review](docs/reports/adr-003-architecture-review.md) for comprehensive gap analysis.
+**What's Missing**: 
+- ❌ Multi-provider LLM client (`src/utils/llm_client.py`)
+- ❌ Lifecycle engines (Promotion, Consolidation, Distillation)
+- ❌ LLM-based fact extraction and episode summarization
+- ❌ Circuit breaker pattern for resilience
+- ❌ Autonomous memory management (L1→L2→L3→L4 flow)
+
+**See**: 
+- [ADR-003 Architecture Review](docs/reports/adr-003-architecture-review.md) for gap analysis
+- [DEVLOG 2025-11-12](DEVLOG.md#2025-11-12---multi-provider-llm-engine-status-review--phase-2b-gap-analysis-) for comprehensive LLM engine status
 
 ---
 
@@ -160,11 +176,27 @@ These documents provide detailed specifications of the experimental setup, compo
 
 ### Prerequisites
 
+**System Requirements:**
 - Python 3.11+
+- PostgreSQL client tools (`psql`) - Required for database setup and migrations
 - Docker & Docker Compose (for databases)
+
+**Infrastructure:**
 - PostgreSQL, Redis, Neo4j, Qdrant, and Typesense services
 
-### Installation`
+**Installing PostgreSQL client:**
+```bash
+# Ubuntu/Debian
+sudo apt update && sudo apt install -y postgresql-client
+
+# macOS
+brew install postgresql
+
+# Verify installation
+psql --version
+```
+
+### Installation
 
 ## 6. Current Implementation Status
 
@@ -231,30 +263,92 @@ prometheus_metrics = await adapter.export_metrics('prometheus')
 
 See [`docs/metrics_usage.md`](docs/metrics_usage.md) for complete metrics documentation.
 
-### Phase 2: Memory Tiers & Lifecycle Engines ❌ Not Started (0%)
+### Phase 2: Memory Tiers & Lifecycle Engines 🚧 In Progress (~46%)
 
-The core memory intelligence layer has not yet been implemented. This phase will add:
+**Phase 2A: Memory Tier Storage Layer** (92% complete - 70/76 tests passing):
 
-**Memory Tier Classes** (0% complete):
-- ❌ **L1: Active Context Tier** - Turn windowing and promotion triggers
-- ❌ **L2: Working Memory Tier** - CIAR-based fact storage and filtering
-- ❌ **L3: Episodic Memory Tier** - Dual-indexed episode consolidation
-- ❌ **L4: Semantic Memory Tier** - Pattern-based knowledge distillation
+**Memory Tier Classes** (✅ Implemented, 🚧 6 tests failing):
+- ✅ **L1: Active Context Tier** - Redis + PostgreSQL dual storage with turn windowing (18/18 tests ✅)
+- ✅ **L2: Working Memory Tier** - CIAR-filtered fact storage with access tracking (17/17 tests ✅)
+- 🚧 **L3: Episodic Memory Tier** - Qdrant + Neo4j dual-indexing with bi-temporal support (30+ tests, 3 failing)
+- 🚧 **L4: Semantic Memory Tier** - Typesense full-text search with provenance tracking (5+ tests, 3 failing)
 
-**Autonomous Lifecycle Engines** (0% complete):
+**Core Innovations** (✅ Implemented in Phase 2A):
+- ✅ **CIAR Scoring System** - `(Certainty × Impact) × Age_Decay × Recency_Boost` (312 lines implemented)
+- ✅ **Bi-Temporal Data Model** - `factValidFrom`, `factValidTo` for temporal reasoning
+- ✅ **Hypergraph Simulation** - Episode nodes with entity relationships in Neo4j
+- ✅ **Data Models** - `Fact`, `Episode`, `KnowledgeDocument` with Pydantic validation (341 lines)
+
+**Known Issues (6 failing tests - blocking 100% Phase 2A):**
+1. Episode model Pydantic validation (3 tests) - missing required field defaults
+2. Context manager cleanup expectations (2 tests) - mock adapter interface
+3. KnowledgeDocument validation (1 test) - missing required field
+
+**Phase 2B: LLM Integration & Lifecycle Engines** (0% complete - NOT STARTED):
+
+**Autonomous Lifecycle Engines** (❌ Not implemented - blocks Weeks 5-10):
 - ❌ **Promotion Engine (L1→L2)** - LLM-based fact extraction + CIAR scoring
-- ❌ **Consolidation Engine (L2→L3)** - Time-windowed clustering + dual indexing
-- ❌ **Distillation Engine (L3→L4)** - Pattern mining + knowledge synthesis
+- ❌ **Consolidation Engine (L2→L3)** - Time-windowed clustering + LLM episode summarization
+- ❌ **Distillation Engine (L3→L4)** - Multi-episode pattern mining + LLM knowledge synthesis
 
-**Core Innovations** (0% complete):
-- ❌ **CIAR Scoring System** - `(Certainty × Impact) × Age_Decay × Recency_Boost`
-- ❌ **Bi-Temporal Data Model** - `factValidFrom`, `factValidTo`, temporal reasoning
-- ❌ **Hypergraph Simulation** - Event nodes with participant relationships
-- ❌ **Circuit Breaker Patterns** - Graceful degradation and resilience
+**LLM Infrastructure** (✅ Connectivity Complete, ❌ Production Integration Missing):
+- ✅ **Multi-Provider Strategy** - 7 models across 3 providers (Gemini, Groq, Mistral AI)
+  - Google Gemini: 2.5 Flash, 2.0 Flash, 2.5 Flash-Lite (3/3 tested ✅)
+  - Groq: Llama 3.1 8B, GPT OSS 120B (2/2 tested ✅)
+  - Mistral AI: Large, Small (2/2 tested ✅)
+- ✅ **Zero Cost** - All providers offer generous free tiers (14,400+ req/day capacity)
+- ✅ **Connectivity Verified** - Test scripts validate all 7 models working
+- ✅ **Documentation Complete** - ADR-006 (775 lines) with rate limits, cost analysis, fallback chains
+- ✅ **Dependencies Installed** - `google-genai`, `groq`, `mistralai` SDKs in requirements.txt
+- ❌ **Production Client Missing** - `src/utils/llm_client.py` does NOT exist
+- ❌ **Circuit Breaker Missing** - Resilience pattern not implemented
+- ❌ **Fact Extractor Missing** - LLM-based extraction not implemented
+- ❌ **Lifecycle Engines Missing** - `src/memory/engines/` directory does NOT exist
 
-**Estimated Effort**: 6-8 weeks of focused development
+**Critical Blocker:** Without the multi-provider LLM client and lifecycle engines, the memory system is **storage-only** and cannot autonomously:
+- Extract facts from conversations (Promotion Engine blocked)
+- Summarize episodes from fact clusters (Consolidation Engine blocked)  
+- Synthesize knowledge patterns (Distillation Engine blocked)
 
-**See**: [ADR-003 Architecture Review](docs/reports/adr-003-architecture-review.md) for detailed gap analysis.
+**Architecture Status:**
+```
+Phase 2A (Weeks 1-3): Memory Tier Storage ✅ 92% COMPLETE (70/76 tests)
+                ↓
+Phase 2B (Weeks 4-5): LLM Client + Promotion ❌ 0% (CRITICAL BLOCKER)
+                ↓
+Phase 2C (Weeks 6-8): Consolidation Engine ❌ BLOCKED (needs LLM)
+                ↓
+Phase 2D (Weeks 9-10): Distillation Engine ❌ BLOCKED (needs LLM)
+```
+
+**Quick Start Testing LLM Connectivity:**
+```bash
+# Test all providers at once
+./scripts/test_llm_providers.py
+
+# Or test individually
+./scripts/test_gemini.py
+./scripts/test_groq.py
+./scripts/test_mistral.py
+```
+
+**Next Steps (Phase 2B - Critical Path):**
+1. Fix 6 failing tests (1-2 days) - Complete Phase 2A to 100%
+2. Implement `src/utils/llm_client.py` (3-5 days) - Multi-provider client with fallbacks
+3. Implement `src/memory/engines/circuit_breaker.py` (1 day) - Resilience pattern
+4. Implement `src/memory/fact_extractor.py` (2-3 days) - LLM extraction with fallback
+5. Implement `src/memory/engines/promotion_engine.py` (3-5 days) - L1→L2 pipeline
+
+**Timeline:** 12-18 days to unblock Phase 2C (Consolidation Engine)
+
+**See**: 
+- [ADR-006: Free-Tier LLM Provider Strategy](docs/ADR/006-free-tier-llm-strategy.md) for multi-provider architecture
+- [LLM Provider Tests](docs/LLM_PROVIDER_TESTS.md) for connectivity testing guide
+- [Phase 2 Action Plan](docs/reports/phase-2-action-plan.md) for week-by-week implementation details
+- [DEVLOG Entry 2025-11-12](DEVLOG.md) for comprehensive LLM engine status analysis
+- ~~[ADR-005: Multi-Tier LLM Provider Strategy](docs/ADR/005-multi-tier-llm-provider-strategy.md)~~ (Superseded - AgentRouter not accessible)
+
+**Estimated Remaining Effort**: 4-6 weeks for Phase 2B-2D (LLM integration + lifecycle engines)
 
 ### Phase 3: Agent Integration ❌ Not Started (0%)
 

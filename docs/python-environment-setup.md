@@ -1,5 +1,35 @@
 # Python Environment Setup
 
+## System Prerequisites
+
+Before setting up the Python environment, ensure you have the required system dependencies installed:
+
+### PostgreSQL Client Tools
+
+**Required for database setup, migrations, and management.**
+
+**Ubuntu/Debian:**
+```bash
+sudo apt update && sudo apt install -y postgresql-client
+
+# Verify installation
+psql --version  # Should show: psql (PostgreSQL) 16.x
+```
+
+**macOS:**
+```bash
+brew install postgresql
+
+# Verify installation
+psql --version
+```
+
+**Windows:**
+- Install WSL2 and follow Ubuntu instructions, OR
+- Download PostgreSQL from https://www.postgresql.org/download/windows/
+
+---
+
 ## Recommended: venv (Python Virtual Environment)
 
 This project uses Python's built-in `venv` module for virtual environment management.

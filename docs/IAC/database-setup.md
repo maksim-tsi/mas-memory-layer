@@ -10,6 +10,32 @@
 
 This project uses a **dedicated PostgreSQL database** named `mas_memory` to ensure complete isolation from other projects and prevent any interference with existing databases.
 
+## Prerequisites
+
+### PostgreSQL Client Installation
+
+The PostgreSQL client tools (including `psql`) are **required** for database setup and migrations.
+
+**Ubuntu/Debian:**
+```bash
+sudo apt update && sudo apt install -y postgresql-client
+
+# Verify installation
+psql --version  # Should show: psql (PostgreSQL) 16.x
+```
+
+**macOS:**
+```bash
+brew install postgresql
+
+# Verify installation
+psql --version
+```
+
+**Windows:**
+- Download PostgreSQL installer from https://www.postgresql.org/download/windows/
+- Or use WSL2 with Ubuntu and follow Ubuntu instructions above
+
 ## Database Configuration
 
 - **Database Name:** `mas_memory`
