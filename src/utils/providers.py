@@ -10,7 +10,7 @@ import asyncio
 import logging
 from typing import Any, Dict, Optional
 
-from .llm_client import BaseProvider, LLMResponse
+from .llm_client import BaseProvider, LLMResponse, ProviderHealth
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,30 @@ class GeminiProvider(BaseProvider):
 
         return LLMResponse(text=getattr(response, "text", ""), provider=self.name, model=model, usage=usage_dict)
 
+    async def health_check(self) -> ProviderHealth:
+        """Attempt a lightweight call to verify Gemini connectivity.
+
+        This uses the same SDK call path as `generate` but with a fast
+        config and a simple prompt. Providers should return a ProviderHealth with
+        `healthy=False` when an exception is raised.
+        """
+        from google.genai import types
+
+        def sync_call():
+            # call a minimally expensive empty prompt (SDK may charge tokens; this is a pragmatic choice for health checks)
+            return self.client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents="Ping",
+                config=types.GenerateContentConfig(temperature=0.0, max_output_tokens=1),
+            )
+
+        try:
+            await asyncio.to_thread(sync_call)
+            return ProviderHealth(name=self.name, healthy=True, details="OK")
+        except Exception as exc:
+            logger.warning("Gemini health check failed: %s", exc)
+            return ProviderHealth(name=self.name, healthy=False, last_error=str(exc))
+
 
 class GroqProvider(BaseProvider):
     def __init__(self, api_key: str):
@@ -89,6 +113,23 @@ class GroqProvider(BaseProvider):
 
         return LLMResponse(text=text, provider=self.name, model=model, usage=usage_dict)
 
+    async def health_check(self) -> ProviderHealth:
+        try:
+            def sync_call():
+                # Minimal call to validate client
+                return self.client.chat.completions.create(
+                    model="llama-3.1-8b-instant",
+                    messages=[{"role": "user", "content": "Ping"}],
+                    temperature=0.0,
+                    max_tokens=1,
+                )
+
+            await asyncio.to_thread(sync_call)
+            return ProviderHealth(name=self.name, healthy=True, details="OK")
+        except Exception as exc:
+            logger.warning("Groq health check failed: %s", exc)
+            return ProviderHealth(name=self.name, healthy=False, last_error=str(exc))
+
 
 class MistralProvider(BaseProvider):
     def __init__(self, api_key: str):
@@ -126,6 +167,22 @@ class MistralProvider(BaseProvider):
             text = getattr(response, "text", "")
 
         return LLMResponse(text=text, provider=self.name, model=model, usage=usage_dict)
+
+    async def health_check(self) -> ProviderHealth:
+        try:
+            def sync_call():
+                return self.client.chat.complete(
+                    model="mistral-small-latest",
+                    messages=[{"role": "user", "content": "Ping"}],
+                    temperature=0.0,
+                    max_tokens=1,
+                )
+
+            await asyncio.to_thread(sync_call)
+            return ProviderHealth(name=self.name, healthy=True, details="OK")
+        except Exception as exc:
+            logger.warning("Mistral health check failed: %s", exc)
+            return ProviderHealth(name=self.name, healthy=False, last_error=str(exc))
 
 
 __all__ = ["GeminiProvider", "GroqProvider", "MistralProvider"]
