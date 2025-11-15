@@ -33,6 +33,19 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 - [ADR-003 Architecture Review](docs/reports/adr-003-architecture-review.md) for gap analysis
 - [DEVLOG 2025-11-12](DEVLOG.md#2025-11-12---multi-provider-llm-engine-status-review--phase-2b-gap-analysis-) for comprehensive LLM engine status
 
+## Developer Updates
+
+### 2025-11-15 — Demo: File Output & Test Coverage
+
+Added developer-facing improvements to the `LLMClient` demo harness:
+- `--output-format` (ndjson | json-array)
+- `--output-mode` (overwrite | append)
+- File output support for NDJSON and JSON arrays, with append/overwrite semantics
+- Unit tests verifying NDJSON and JSON-array file behavior were added (`tests/utils/test_llm_client_demo_output.py`) and are passing locally
+
+See `scripts/README.md` and `scripts/llm_client_demo.README.md` for example usage and details.
+
+
 ---
 
 ## 1. Abstract & Core Problem

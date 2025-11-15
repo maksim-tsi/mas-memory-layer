@@ -15,6 +15,41 @@ Each entry should include:
 ---
 
 ## Log Entries
+### 2025-11-15 - Demo: File output formats + Unit Tests (NDJSON / JSON-array) 🧪
+
+**Status:** ✅ Complete
+
+**Summary:**
+Implemented demo output-format flags and file write modes for `scripts/llm_client_demo.py` and added unit tests that assert NDJSON and JSON-array overwrite/append behaviors using a mock LLM client. Updated the scripts' README and the demo README to document the flags and usage, and added a test verifying file writing logic.
+
+**Details:**
+- `scripts/llm_client_demo.py`: added/confirmed flags `--output-format` (choices: `ndjson` | `json-array`) and `--output-mode` (`overwrite` | `append`), with semantics for file initialization and append/overwrite behavior. Added conditional in-memory collect-and-merge for `json-array` outputs (write occurs at end of run).
+- `tests/utils/test_llm_client_demo_output.py`: NEW test file that mocks the `make_client_from_env` function to return a `FakeClient`, uses `tmp_path` for a test `project_root`, and exercises both NDJSON and JSON-array file output behavior, asserting file contents and append/overwrite semantics.
+- `scripts/README.md`: Added a section titled "New File Output Behavior (ndjson vs json-array)" that documents new flags and examples.
+- `scripts/llm_client_demo.README.md`: Added documentation clarifying `ndjson` vs `json-array` behavior and append/overwrite semantics.
+
+**Test & Verification:**
+- Unit tests added: `tests/utils/test_llm_client_demo_output.py` — 2 tests covering NDJSON and JSON-array behaviours; both passed locally:
+   - `./.venv/bin/pytest tests/utils/test_llm_client_demo_output.py -q` → 2 passed
+- Demo behaviors were manually tested by running the demo script and validating file contents for both `ndjson` and `json-array` modes with `overwrite` and `append` options.
+
+**Notes & Next Steps:**
+- There remain lint warnings from `ruff`; recommend a dedicated cleanup pass (`ruff --fix`) in a separate PR across the repo.
+- Consider extracting file-writing logic into a small utility function for easier unit testing and to support more granular tests (e.g., error cases while writing file, JSON-merge failure path).
+- Optionally add additional unit tests for `--skip-health-check`, `--model` overrides, and per-provider model flags.
+
+**Commands to Reproduce:**
+```bash
+# Run the new file-output tests
+./.venv/bin/pytest tests/utils/test_llm_client_demo_output.py -q
+
+# Run the demo to write NDJSON (overwrite)
+./.venv/bin/python scripts/llm_client_demo.py --json --output-format=ndjson --output-mode=overwrite --output-file /tmp/llm_demo_out.ndjson --skip-health-check
+
+# Run the demo to append JSON array
+./.venv/bin/python scripts/llm_client_demo.py --json --output-format=json-array --output-mode=append --output-file /tmp/llm_demo_array.json --skip-health-check
+```
+
 
 ### 2025-11-12 - Multi-Provider LLM Engine Status Review & Phase 2B Gap Analysis 📊
 
