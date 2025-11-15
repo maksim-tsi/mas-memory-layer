@@ -24,6 +24,7 @@ redis==5.0.7             # The official Python client for Redis.
 # Option 2: Ensure build tools are installed: apt-get install build-essential python3-dev
 # For Python 3.13, we use psycopg with binary wheels (works with Python 3.13)
 psycopg[binary]>=3.2.0  # PostgreSQL adapter with binary wheels (works with Python 3.13)
+psycopg_pool==3.2.7     # Async connection pooling layer used by PostgresAdapter
 
 # --- Persistent Knowledge Layer (Specialized Databases) ---
 
@@ -61,3 +62,6 @@ mistralai==1.0.3         # Official Mistral AI SDK for advanced reasoning models
 # --- Development & Testing Utilities ---
 fakeredis==2.23.1        # A mock Redis client, useful for running tests without a live Redis server.
 # Note: For the __main__ demo block in memory_system.py to run self-contained.
+
+# --- Environment Management ---
+python-dotenv==1.2.1     # Loads provider keys and infra settings for scripts/tests

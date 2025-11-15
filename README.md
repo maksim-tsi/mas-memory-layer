@@ -398,6 +398,49 @@ source .venv/bin/activate  # Linux/macOS
 # or: .venv\Scripts\activate  # Windows
 
 # Upgrade pip
+```
+
+### 3. Environment Bootstrap Checklist (Multi-Host Safe)
+
+1. **Identify where you are executing.** Before running any project task, confirm the host type so path assumptions are correct:
+  ```bash
+  uname -a
+  hostname
+  pwd
+  ```
+  - macOS local checkout → expect `Darwin` and a path such as `/Users/<name>/Documents/code/mas-memory-layer`.
+  - Remote Ubuntu over SSH → expect `Linux` plus `/home/<user>/code/mas-memory-layer`.
+  - Local Ubuntu desktop/RDP → expect `Linux` with `/home/<user>/...` but no SSH hostname suffix.
+
+2. **Create/refresh the virtual environment using a relative path** so the same instructions work on every host:
+  ```bash
+  python3 -m venv .venv
+  ```
+
+3. **Install primary dependencies explicitly via the venv interpreter.** Avoid `pip` from the system path.
+  ```bash
+  ./.venv/bin/pip install -r requirements.txt
+  ```
+
+4. **Install test and tooling dependencies whenever you plan to run any test suite.**
+  ```bash
+  ./.venv/bin/pip install -r requirements-test.txt
+  ```
+
+5. **Verify the interpreter being used by automation.** The command below must print the absolute path to `.venv/bin/python` on the current host.
+  ```bash
+  ./.venv/bin/python -c "import sys; print(sys.executable)"
+  ```
+
+6. **Run smoke validations before heavy workflows.**
+  ```bash
+  ./.venv/bin/python scripts/test_llm_providers.py --help
+  ./scripts/run_smoke_tests.sh --summary
+  ```
+
+> **Why this sequence?** Contributors regularly switch between a remote Ubuntu VM, a macOS laptop, and containerised CI. Using relative paths plus the explicit interpreter commands prevents accidental invocation of a different Python installation that might live outside the repo.
+
+For more detailed troubleshooting guidance, see [`docs/environment-guide.md`](docs/environment-guide.md).
 pip install --upgrade pip
 ```
 
