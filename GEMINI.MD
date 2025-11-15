@@ -83,6 +83,17 @@ python script.py           # May use wrong interpreter
 command > /tmp/gemini.out 2>&1 && cat /tmp/gemini.out
 ```
 
+## Multi-Host Development Guidance
+
+Multiple contributors alternate between a remote Ubuntu VM, local macOS laptops, and local Ubuntu desktops. Follow this checklist before executing any command:
+
+1. **Probe the environment** – run `uname -a`, `hostname`, and `pwd` to determine whether you are on macOS (`Darwin`), remote Ubuntu (hostnames such as `skz-dev-lv`), or a local Ubuntu session.
+2. **Prefer relative interpreter paths** (`./.venv/bin/python`, `./scripts/...`) whenever you are on macOS or a self-managed Ubuntu machine. This keeps instructions portable and prevents accidental writes to system Python installations.
+3. **Use the absolute paths shown above only when you are attached to the managed remote VM** that enforces `/home/max/code/mas-memory-layer/.venv/bin/...`.
+4. **Document the host context** in commit messages or DEVLOG entries when environment-specific behaviour (e.g., missing packages) occurs.
+
+See [`docs/environment-guide.md`](docs/environment-guide.md) for the full detection and bootstrap procedure.
+
 ## Coding Style
 
 ### Python Code Style

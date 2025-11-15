@@ -53,10 +53,20 @@ This project is guided by five core principles. All new code and refactoring sho
 - **Python Version**: Python 3.12.3
 - **Virtual Environment Path**: `/home/max/code/mas-memory-layer/.venv`
 - **CRITICAL RULE**: You MUST NOT use the `source .venv/bin/activate` command. Your `run_in_terminal` tool operates in a stateless shell, and any environment activation will be lost on the very next command.
-- **MANDATORY**: All Python, pip, or pytest commands MUST use the direct, absolute executable path to ensure the correct environment is used:
+- **Host Detection**: Before running any command, execute the following to determine whether you are on the managed remote Ubuntu VM, a local macOS checkout, or a local Ubuntu/RDP session:
+  ```bash
+  uname -a
+  hostname
+  pwd
+  ```
+  - If the output shows `Linux` and a hostname such as `skz-dev-lv`, you are on the managed remote VM and must use the absolute paths below.
+  - If the output shows `Darwin` (macOS) or a local Ubuntu hostname, you may use the relative `.venv` paths (e.g., `./.venv/bin/python`).
+  - Always document the host context in worklogs/DEVLOG entries when it affects behaviour.
+- **MANDATORY (Remote VM)**: When operating on the managed remote host, all Python, pip, or pytest commands MUST use the direct, absolute executable path to ensure the correct environment is used:
   - To run Python scripts: `/home/max/code/mas-memory-layer/.venv/bin/python ...`
   - To run tests (pytest): `/home/max/code/mas-memory-layer/.venv/bin/pytest ...`
   - To install packages: `/home/max/code/mas-memory-layer/.venv/bin/pip ...`
+- **RECOMMENDED (Local environments)**: Use the equivalent relative commands (`./.venv/bin/python`, etc.) to keep paths portable. The relative commands map 1:1 to the absolute versions and prevent accidental use of a different interpreter.
 
 ## MANDATORY: Terminal Resiliency Protocol (Remote SSH)
 
@@ -119,6 +129,7 @@ Copy `.env.example` to `.env` with:
 - PostgreSQL: `DEV_IP`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
 - Neo4j: `STG_IP`, `NEO4J_USER`, `NEO4J_PASSWORD`
 - LLM APIs: `GOOGLE_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`
+- Detailed host-detection and bootstrap steps live in `docs/environment-guide.md`; follow that guide before running commands.
 
 ## External Tool: Gemini CLI (Future Use)
 
