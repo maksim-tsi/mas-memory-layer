@@ -72,6 +72,8 @@ You must adhere to the following file and directory interaction policies. This s
 | AGENTS.MD | **AGENT PROTOCOL (This file).** | **Read-Only**. You must read and obey this file at the start of your session. You *must not* modify it. |
 | /tmp/copilot.out | Temporary output file for terminal commands. | **Write (via redirection)**, **Read (via cat)**. This file is your trusted source for command output (see Protocol 5.0). |
 
+Document every incident and mitigation in `docs/lessons-learned.md`. Use the structured table format so future agents can reference prior failures and their resolutions.
+
 ## **3.0 Environment Setup and Management Protocol**
 
 This protocol is **non-negotiable**. You *must* perform and verify these steps before running any test, build, or application-specific command.
@@ -102,12 +104,12 @@ Consult `docs/environment-guide.md` for examples of expected output.
 
 1. **Check for .venv:** Use a terminal command to check for the existence of the .venv directory at the project root.  
 2. **Create (if non-existent):** If the .venv directory does not exist, you *must* run the appropriate command:  
-   * Remote host: `python3 -m venv /home/max/code/mas-memory-layer/.venv > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`  
-   * Local host: `python3 -m venv .venv > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`  
+   * Remote host: `python3 -m venv /home/max/code/mas-memory-layer/.venv > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`  
+   * Local host: `python3 -m venv .venv > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`  
 3. **NO ACTIVATION STEP**: Skip any activation. Use the resolved interpreter path from Step 0 for every command.  
 4. **Install Dependencies:** Run the pip command determined in Step 0 against `requirements.txt`.  
 5. **Verify Installation:** After installation, run the python command determined in Step 0:  
-   * `<python_path_from_step_0> -c 'import sys; print(sys.executable)' > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`  
+   * `<python_path_from_step_0> -c 'import sys; print(sys.executable)' > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`  
 6. **Verify Output:** You must then read the output from /tmp/copilot.out.  
    * **Expected Output:** The output *must* contain the `.venv/bin/python` path that belongs to this repository (absolute path on remote, relative path resolving locally).  
    * **Failure Condition:** If the output does not match, you *must* stop and report to the user that the environment is not correctly configured. **Do not proceed.**
@@ -118,12 +120,12 @@ This section outlines the "inner loop" of development that you must emulate. Thi
 
 ### **4.1 Linting**
 
-* **Command:** `/home/max/code/mas-memory-layer/.venv/bin/ruff check . > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`  
+* **Command:** `/home/max/code/mas-memory-layer/.venv/bin/ruff check . > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`  
 * **Protocol:** You must run this command *before* running tests. If it fails, you must fix the linting errors first. Analyze the output in /tmp/copilot.out to identify and correct the reported issues.
 
 ### **4.2 Testing (Core Protocol)**
 
-* **Command:** `/home/max/code/mas-memory-layer/.venv/bin/pytest tests/ -v > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`  
+* **Command:** `/home/max/code/mas-memory-layer/.venv/bin/pytest tests/ -v > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`  
 * **Protocol (Test-Driven Fix):** This protocol is designed to prevent a critical agent failure mode where agents, when asked to "fix failing tests," will instead *modify or delete the tests* to match the broken code.15  
   1. After *any* code modification in /src/, you *must* run the full test suite using the pytest command.  
   2. If tests fail, you must analyze the pytest output from /tmp/copilot.out.  
@@ -133,7 +135,7 @@ This section outlines the "inner loop" of development that you must emulate. Thi
 
 ### **4.3 Building**
 
-* **Command:** `make build > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out` (Modify as appropriate for the project)  
+* **Command:** `make build > /tmp/copilot.out 2>&1; cat /tmp/copilot.out` (Modify as appropriate for the project)  
 * **Protocol:** You must run this command after all tests pass to ensure the project builds successfully.
 
 ## **5.0 Mandatory Tooling Workarounds and Execution Contracts**
@@ -151,9 +153,10 @@ You must follow this exact sequence for *every* terminal command you run.
 **MANDATORY Terminal Resiliency Protocol**: You are operating on a remote Ubuntu machine (skz-dev-lv) via SSH. The `run_in_terminal` tool is known to be unreliable; it can hang, time out, or fail to capture command output.
 
 **Rule 1 (Execution)**: All commands that produce output MUST use the **redirect-and-cat pattern**. This decouples execution from output capture:
-   * **Pattern**: `<command> > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`
-   * **Correct Example**: `/home/max/code/mas-memory-layer/.venv/bin/pytest tests/ -v > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`  
-   * **Correct Example**: `/home/max/code/mas-memory-layer/.venv/bin/ruff check . > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`  
+   * **Pattern**: `<command> > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`
+   * The semicolon ensures the log is surfaced even when the primary command exits non-zero. See `docs/lessons-learned.md` (entry LL-20251115-01) for the root-cause analysis.
+   * **Correct Example**: `/home/max/code/mas-memory-layer/.venv/bin/pytest tests/ -v > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`  
+   * **Correct Example**: `/home/max/code/mas-memory-layer/.venv/bin/ruff check . > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`  
    * **Incorrect Example (FORBIDDEN)**: `pytest` (no redirection or absolute path)
 
 **Rule 2 (Fallback)**: If this fails and you get no output, you MUST immediately use the `get_terminal_output` tool to try and retrieve the output.

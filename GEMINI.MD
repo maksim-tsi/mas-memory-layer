@@ -80,8 +80,9 @@ python script.py           # May use wrong interpreter
 
 **Terminal Output Capture**: When running commands, use redirect-and-cat pattern for reliability:
 ```bash
-command > /tmp/gemini.out 2>&1 && cat /tmp/gemini.out
+command > /tmp/gemini.out 2>&1; cat /tmp/gemini.out
 ```
+The semicolon ensures logs are displayed even if the command exits non-zero. See `docs/lessons-learned.md` (entry LL-20251115-01) for context.
 
 ## Multi-Host Development Guidance
 
@@ -93,6 +94,8 @@ Multiple contributors alternate between a remote Ubuntu VM, local macOS laptops,
 4. **Document the host context** in commit messages or DEVLOG entries when environment-specific behaviour (e.g., missing packages) occurs.
 
 See [`docs/environment-guide.md`](docs/environment-guide.md) for the full detection and bootstrap procedure.
+
+Maintain the structured incident log in [`docs/lessons-learned.md`](docs/lessons-learned.md) whenever a workflow issue or mitigation is discovered. Reference the relevant entry ID when updating instructions or DEVLOG notes.
 
 ## Coding Style
 
