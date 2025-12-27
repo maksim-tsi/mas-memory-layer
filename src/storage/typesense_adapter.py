@@ -88,6 +88,12 @@ class TypesenseAdapter(StorageAdapter):
             raise StorageDataError("Typesense URL and API key required")
         
         logger.info(f"TypesenseAdapter initialized (collection: {self.collection_name})")
+
+    async def _raise_for_status(self, response: httpx.Response) -> None:
+        """Awaitable-safe wrapper for raise_for_status to support AsyncMock responses."""
+        maybe_coro = response.raise_for_status()
+        if asyncio.iscoroutine(maybe_coro):
+            await maybe_coro
     
     def _get_default_schema(self) -> Dict[str, Any]:
         """
@@ -132,7 +138,7 @@ class TypesenseAdapter(StorageAdapter):
                         f"{self.url}/collections",
                         json=schema_to_use
                     )
-                    response.raise_for_status()
+                    await self._raise_for_status(response)
                     logger.info(f"Created collection: {self.collection_name}")
                 
                 self._connected = True
@@ -166,7 +172,7 @@ class TypesenseAdapter(StorageAdapter):
                     f"{self.url}/collections/{self.collection_name}/documents",
                     json=data
                 )
-                response.raise_for_status()
+                await self._raise_for_status(response)
                 
                 # Fix: Handle both coroutine and regular dict return types
                 json_result = response.json()
@@ -199,7 +205,7 @@ class TypesenseAdapter(StorageAdapter):
                 if response.status_code == 404:
                     return None
                 
-                response.raise_for_status()
+                await self._raise_for_status(response)
                 # Fix: Handle both coroutine and regular dict return types
                 json_result = response.json()
                 if asyncio.iscoroutine(json_result):
@@ -246,7 +252,7 @@ class TypesenseAdapter(StorageAdapter):
                     f"{self.url}/collections/{self.collection_name}/documents/search",
                     params=params
                 )
-                response.raise_for_status()
+                await self._raise_for_status(response)
                 
                 # Fix: Handle both coroutine and regular dict return types
                 json_result = response.json()
@@ -329,7 +335,7 @@ class TypesenseAdapter(StorageAdapter):
                     'Content-Type': 'text/plain'
                 }
             )
-            response.raise_for_status()
+            await self._raise_for_status(response)
             
             logger.debug(f"Indexed {len(documents)} documents in batch")
             return ids
@@ -454,7 +460,7 @@ class TypesenseAdapter(StorageAdapter):
             response = await self.client.get(
                 f"{self.url}/collections/{self.collection_name}"
             )
-            response.raise_for_status()
+            await self._raise_for_status(response)
             
             collection_info = await response.json()  # Fix: Await the json() coroutine
             latency_ms = (time.perf_counter() - start_time) * 1000
@@ -512,7 +518,7 @@ class TypesenseAdapter(StorageAdapter):
             response = await self.client.get(
                 f"{self.url}/collections/{self.collection_name}"
             )
-            response.raise_for_status()
+            await self._raise_for_status(response)
             collection = response.json()
             return {
                 'document_count': collection.get('num_documents', 0),

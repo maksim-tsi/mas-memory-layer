@@ -14,7 +14,7 @@ Architecture:
 
 import logging
 from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import yaml
 from pathlib import Path
@@ -253,7 +253,7 @@ class KnowledgeSynthesizer:
         result, timestamp = self._cache[cache_key]
         
         # Check TTL
-        age_seconds = (datetime.utcnow() - timestamp).total_seconds()
+        age_seconds = (datetime.now(timezone.utc) - timestamp).total_seconds()
         if age_seconds > self.cache_ttl_seconds:
             # Expired
             del self._cache[cache_key]
@@ -263,7 +263,7 @@ class KnowledgeSynthesizer:
     
     def _cache_result(self, cache_key: str, result: str):
         """Store result in cache with timestamp."""
-        self._cache[cache_key] = (result, datetime.utcnow())
+        self._cache[cache_key] = (result, datetime.now(timezone.utc))
         
         # Cleanup old entries (simple LRU-like behavior)
         if len(self._cache) > 100:  # Max 100 cached items
@@ -504,7 +504,7 @@ Synthesized Response:"""
     
     async def get_cache_stats(self) -> Dict[str, Any]:
         """Get cache statistics."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         valid_entries = sum(
             1 for _, timestamp in self._cache.values()
             if (now - timestamp).total_seconds() <= self.cache_ttl_seconds

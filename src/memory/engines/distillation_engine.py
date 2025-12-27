@@ -14,7 +14,7 @@ Architecture:
 
 import logging
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 import yaml
 from pathlib import Path
@@ -347,7 +347,7 @@ Provide a structured response with the following fields:
             
             # Create KnowledgeDocument
             doc = KnowledgeDocument(
-                knowledge_id=f"know_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{knowledge_type}",
+                knowledge_id=f"know_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{knowledge_type}",
                 knowledge_type=knowledge_type,
                 content=content,
                 title=title,

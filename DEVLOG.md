@@ -16,6 +16,37 @@ Each entry should include:
 
 ## Log Entries
 
+### 2025-12-27 - Coverage Regeneration & Timezone Safety ✅
+
+**Status:** ✅ Complete
+
+**Summary:**
+Regenerated coverage with pytest-cov (added to requirements), confirmed 86% total coverage, and eliminated `datetime.utcnow()` deprecation warnings by adopting timezone-aware timestamps in distillation and synthesis engines. Hardened Typesense adapter test mocks by awaiting `raise_for_status` to remove AsyncMock warnings.
+
+**Key Findings:**
+- Coverage meets ≥80% gate: 441 passed / 4 skipped, total 86% (htmlcov refreshed).
+- Deprecation warnings resolved in `DistillationEngine` and `KnowledgeSynthesizer` via `datetime.now(timezone.utc)`.
+- Typesense adapter tests no longer emit unawaited coroutine warnings after awaiting `raise_for_status` on AsyncMock responses.
+
+**✅ What's Complete:**
+- Added `pytest-cov>=7.0.0` to testing dependencies and regenerated coverage.
+- Updated `DistillationEngine` knowledge_id generation to timezone-aware timestamps.
+- Updated `KnowledgeSynthesizer` cache bookkeeping to timezone-aware timestamps.
+- Added await-safe `raise_for_status` handling in `TypesenseAdapter` to satisfy AsyncMock-based tests.
+
+**❌ What's Missing:**
+- Performance gate: latest perf run shows p95 above 2s for Postgres/Qdrant/Neo4j/Typesense; tuning pending.
+- End-to-end live pipeline metrics capture still outstanding.
+
+**Current Project Completion:**
+- **Phase 2**: 92% 🚧 (441/445 tests passing; coverage 86%)
+
+**Evidence from Codebase:**
+```bash
+/home/max/code/mas-memory-layer/.venv/bin/pytest tests/ --cov=src --cov-report=html -v
+# result: 441 passed, 4 skipped, total coverage 86%
+```
+
 ### 2025-12-27 - Phase 2D Distillation Engine & Knowledge Synthesizer Completion ✅
 
 **Status:** ✅ Complete
