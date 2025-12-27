@@ -156,15 +156,15 @@ def print_summary(results):
         print("   Action: Configure at least one API key to proceed.")
         print("   Priority: Start with Google Gemini (easiest to set up)")
     elif passed == 1:
-        print(f"\n✓ One provider is working, but consider adding more for:")
+        print("\n✓ One provider is working, but consider adding more for:")
         print("  • Fallback resilience (if primary provider fails)")
         print("  • Task-specific optimization (different models for different tasks)")
         print("  • Rate limit distribution (spread load across providers)")
     elif passed == 2:
-        print(f"\n✓ Two providers are working - good resilience!")
-        print(f"  Consider adding the remaining provider for maximum flexibility.")
+        print("\n✓ Two providers are working - good resilience!")
+        print("  Consider adding the remaining provider for maximum flexibility.")
     else:
-        print(f"\n✅ All providers are working - excellent setup!")
+        print("\n✅ All providers are working - excellent setup!")
         print("   You have maximum resilience and task optimization options.")
     
     print("\nNext Steps:")

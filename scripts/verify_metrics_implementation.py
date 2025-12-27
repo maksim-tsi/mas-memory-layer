@@ -27,13 +27,13 @@ async def test_neo4j_metrics():
     }
     
     adapter = Neo4jAdapter(config)
-    print(f"✓ Neo4j adapter created with metrics enabled")
+    print("✓ Neo4j adapter created with metrics enabled")
     print(f"✓ Has metrics collector: {hasattr(adapter, 'metrics')}")
     print(f"✓ Has _get_backend_metrics method: {hasattr(adapter, '_get_backend_metrics')}")
     
     # Get metrics before any operations
     metrics = await adapter.get_metrics()
-    print(f"\n✓ Initial metrics collected:")
+    print("\n✓ Initial metrics collected:")
     print(f"  - Operations tracked: {list(metrics.get('operations', {}).keys())}")
     
     print("\n" + "=" * 60)
@@ -52,13 +52,13 @@ async def test_typesense_metrics():
     }
     
     adapter = TypesenseAdapter(config)
-    print(f"✓ Typesense adapter created with metrics enabled")
+    print("✓ Typesense adapter created with metrics enabled")
     print(f"✓ Has metrics collector: {hasattr(adapter, 'metrics')}")
     print(f"✓ Has _get_backend_metrics method: {hasattr(adapter, '_get_backend_metrics')}")
     
     # Get metrics before any operations
     metrics = await adapter.get_metrics()
-    print(f"\n✓ Initial metrics collected:")
+    print("\n✓ Initial metrics collected:")
     print(f"  - Operations tracked: {list(metrics.get('operations', {}).keys())}")
     
     print("\n" + "=" * 60)

@@ -60,7 +60,7 @@ def test_model(client, model_name: str, description: str) -> bool:
         if hasattr(response, 'usage') and response.usage:
             usage = response.usage
             tokens_per_sec = usage.completion_tokens / elapsed if elapsed > 0 else 0
-            print(f"\n2. Token Usage & Performance:")
+            print("\n2. Token Usage & Performance:")
             print(f"   Prompt tokens: {usage.prompt_tokens}")
             print(f"   Response tokens: {usage.completion_tokens}")
             print(f"   Total tokens: {usage.total_tokens}")

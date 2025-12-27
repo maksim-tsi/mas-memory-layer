@@ -18,7 +18,7 @@ from src.storage.qdrant_adapter import QdrantAdapter
 from src.storage.neo4j_adapter import Neo4jAdapter
 from src.storage.metrics.collector import MetricsCollector
 from src.storage.metrics.timer import OperationTimer
-from src.memory.models import Episode, EpisodeQuery
+from src.memory.models import Episode
 
 
 class EpisodicMemoryTier(BaseTier):

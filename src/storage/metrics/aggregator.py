@@ -1,7 +1,7 @@
 """
 Calculate statistical aggregations from raw metrics.
 """
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import math
 
 

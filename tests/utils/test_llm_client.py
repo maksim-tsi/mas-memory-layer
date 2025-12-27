@@ -1,56 +1,75 @@
-import asyncio
-from dataclasses import dataclass
-
 import pytest
 
-from src.utils.llm_client import LLMClient, BaseProvider, LLMResponse
+from src.utils.llm_client import (
+    BaseProvider,
+    LLMClient,
+    LLMResponse,
+    ProviderConfig,
+    ProviderHealth,
+)
 
 
-class MockProvider(BaseProvider):
-    def __init__(self, name: str, response_text: str = "ok", raise_exc: Exception | None = None):
+class _SuccessProvider(BaseProvider):
+    def __init__(self, name: str, text: str, model: str | None = None) -> None:
         super().__init__(name=name)
-        self._response_text = response_text
-        self._raise = raise_exc
+        self._text = text
+        self._model = model
 
-    async def generate(self, prompt: str, model: None = None, **kwargs) -> LLMResponse:
-        if self._raise:
-            raise self._raise
-        # mimic some async delay
-        await asyncio.sleep(0)
-        return LLMResponse(text=self._response_text, provider=self.name, model=model or "mock-model")
+    async def generate(self, *_: object, **__: object) -> LLMResponse:  # pragma: no cover - deterministic helper
+        return LLMResponse(text=self._text, provider=self.name, model=self._model)
 
 
-@pytest.mark.asyncio
-async def test_llm_client_fallback_order():
-    # gemini will fail, groq will succeed
-    gemini = MockProvider("gemini", raise_exc=RuntimeError("boom"))
-    groq = MockProvider("groq", response_text="groq-ok")
+class _FailingProvider(BaseProvider):
+    async def generate(self, *_: object, **__: object) -> LLMResponse:
+        raise RuntimeError("simulated failure")
 
-    client = LLMClient(providers={"gemini": gemini, "groq": groq})
-    resp = await client.generate("What is 2+2?")
 
-    assert resp.text == "groq-ok"
-    assert resp.provider == "groq"
+class _FailingHealthProvider(BaseProvider):
+    async def generate(self, *_: object, **__: object) -> LLMResponse:
+        return LLMResponse(text="ok", provider=self.name)
+
+    async def health_check(self) -> ProviderHealth:
+        raise ConnectionError("unhealthy")
 
 
 @pytest.mark.asyncio
-async def test_llm_client_priority_override():
-    gemini = MockProvider("gemini", response_text="gemini-ok")
-    groq = MockProvider("groq", response_text="groq-ok")
+async def test_generate_uses_fallback_order_when_first_fails() -> None:
+    """LLMClient should move to the next provider when the first raises."""
 
-    client = LLMClient(providers={"gemini": gemini, "groq": groq})
-    # Force groq as priority
-    resp = await client.generate("Q", provider_priority="groq")
+    client = LLMClient()
+    client.register_provider(_FailingProvider(name="first"), ProviderConfig(name="first", priority=0))
+    client.register_provider(
+        _SuccessProvider(name="second", text="ok", model="m1"),
+        ProviderConfig(name="second", priority=1),
+    )
 
-    assert resp.text == "groq-ok"
-    assert resp.provider == "groq"
+    response = await client.generate("prompt")
+
+    assert response.text == "ok"
+    assert response.provider == "second"
+    assert response.model == "m1"
 
 
 @pytest.mark.asyncio
-async def test_llm_client_all_fail_raises():
-    gemini = MockProvider("gemini", raise_exc=RuntimeError("fail1"))
-    groq = MockProvider("groq", raise_exc=RuntimeError("fail2"))
+async def test_health_check_reports_unhealthy_provider() -> None:
+    """Health check should capture providers that raise during readiness."""
 
-    client = LLMClient(providers={"gemini": gemini, "groq": groq})
-    with pytest.raises(RuntimeError):
-        await client.generate("Q")
+    client = LLMClient()
+    client.register_provider(_SuccessProvider(name="healthy", text="done"), ProviderConfig(name="healthy"))
+    client.register_provider(_FailingHealthProvider(name="unhealthy"), ProviderConfig(name="unhealthy"))
+
+    report = await client.health_check()
+
+    assert report["healthy"].healthy is True
+    assert report["unhealthy"].healthy is False
+    assert report["unhealthy"].last_error == "unhealthy"
+
+
+def test_provider_config_defaults() -> None:
+    """Default provider configs should expose sane defaults."""
+
+    config = ProviderConfig(name="test")
+
+    assert config.enabled is True
+    assert config.priority == 0
+    assert config.timeout == 15.0

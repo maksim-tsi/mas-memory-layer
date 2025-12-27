@@ -183,7 +183,7 @@ class StorageBenchmark:
         seed = workload_seed or self.config['workload_seed']
         
         logger.info("="*80)
-        logger.info(f"Starting Storage Adapter Benchmark")
+        logger.info("Starting Storage Adapter Benchmark")
         logger.info(f"Workload size: {size} operations")
         logger.info(f"Random seed: {seed}")
         logger.info("="*80)
@@ -242,7 +242,7 @@ class StorageBenchmark:
         # Save results
         output_file = self._save_results(results)
         logger.info(f"\n{'='*80}")
-        logger.info(f"✓ Benchmark complete!")
+        logger.info("✓ Benchmark complete!")
         logger.info(f"📁 Results saved to: {output_file}")
         logger.info(f"{'='*80}")
         

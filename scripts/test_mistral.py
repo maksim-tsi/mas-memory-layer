@@ -49,14 +49,14 @@ def test_model(client, model_name: str, description: str) -> bool:
             max_tokens=100,
         )
         
-        print(f"   ✓ Response received")
+        print("   ✓ Response received")
         print(f"   Prompt: {test_prompt}")
         print(f"   Response: {response.choices[0].message.content}")
         
         # Check usage statistics
         if hasattr(response, 'usage') and response.usage:
             usage = response.usage
-            print(f"\n2. Token Usage:")
+            print("\n2. Token Usage:")
             print(f"   Prompt tokens: {usage.prompt_tokens}")
             print(f"   Response tokens: {usage.completion_tokens}")
             print(f"   Total tokens: {usage.total_tokens}")

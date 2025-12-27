@@ -12,7 +12,7 @@ from src.memory.tiers.base_tier import BaseTier
 from src.storage.typesense_adapter import TypesenseAdapter
 from src.storage.metrics.collector import MetricsCollector
 from src.storage.metrics.timer import OperationTimer
-from src.memory.models import KnowledgeDocument, KnowledgeQuery
+from src.memory.models import KnowledgeDocument
 
 
 class SemanticMemoryTier(BaseTier):

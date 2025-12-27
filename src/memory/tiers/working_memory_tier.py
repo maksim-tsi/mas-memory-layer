@@ -19,11 +19,10 @@ import json
 import logging
 
 from src.memory.tiers.base_tier import BaseTier, TierOperationError
-from src.storage.base import StorageError, StorageDataError, validate_required_fields
 from src.storage.postgres_adapter import PostgresAdapter
 from src.storage.metrics.collector import MetricsCollector
 from src.storage.metrics.timer import OperationTimer
-from src.memory.models import Fact, FactType, FactCategory
+from src.memory.models import Fact, FactType
 
 
 logger = logging.getLogger(__name__)

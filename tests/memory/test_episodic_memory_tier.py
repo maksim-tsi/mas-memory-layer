@@ -8,7 +8,7 @@ bi-temporal properties, and hybrid retrieval patterns.
 import pytest
 import pytest_asyncio
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from src.memory.tiers.episodic_memory_tier import EpisodicMemoryTier
 from src.memory.models import Episode
 from src.storage.qdrant_adapter import QdrantAdapter

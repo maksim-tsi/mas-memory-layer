@@ -10,7 +10,7 @@ import random
 import string
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List
-from unittest.mock import Mock, AsyncMock, MagicMock
+from unittest.mock import Mock, AsyncMock
 
 # ============================================================================
 # Sample Test Data
@@ -182,7 +182,6 @@ def mock_redis_client():
 @pytest.fixture
 def mock_qdrant_client():
     """Mock Qdrant client."""
-    from qdrant_client.models import PointStruct, ScoredPoint
     
     client = AsyncMock()
     client.get_collections.return_value.collections = []

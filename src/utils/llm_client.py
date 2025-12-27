@@ -1,115 +1,161 @@
-"""Minimal multi-provider LLM client used by lifecycle engines.
+"""LLM client scaffolding for multi-provider Phase 2 work.
 
-This is a lightweight, extensible wrapper that supports provider
-registration, async `generate()` calls, and a simple fallback policy.
+This module defines an orchestrating LLM client that can register multiple
+provider wrappers, execute fallback-aware generations, and surface simple
+health indicators for the lifecycle engines that will promote facts across
+tiers.
 
-It is intentionally minimal for Phase 2B scaffolding.
+The implementation keeps the core logic simple while still exposing enough APIs
+for Phase 2A/2B controllers to scale: configurable provider order, timeout
+control, and health checks.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Callable
+from dataclasses import dataclass, field
+from typing import Any, Dict, Iterable, List, Optional, Sequence, cast
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class ProviderHealth:
+    """Runtime health report returned by each provider wrapper."""
+
+    name: str
+    healthy: bool
+    details: Optional[str] = None
+    last_error: Optional[str] = None
+
+
 @dataclass
 class LLMResponse:
+    """Standardized response returned from every provider."""
+
     text: str
     provider: str
     model: Optional[str] = None
     usage: Optional[Dict[str, Any]] = None
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ProviderConfig:
+    """Configuration metadata used to prioritize and time-bound providers."""
+
+    name: str
+    timeout: float = 15.0
+    priority: int = 0
+    enabled: bool = True
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 class BaseProvider:
-    """Abstract provider wrapper interface.
+    """Abstract provider wrapper interface for the orchestrating client."""
 
-    Concrete provider wrappers should implement `generate()` which returns
-    a mapping containing the response text plus optional usage/metadata.
-    """
-
-    def __init__(self, name: str):
+    def __init__(self, name: str) -> None:
         self.name = name
 
-    async def generate(self, prompt: str, model: Optional[str] = None, **kwargs) -> LLMResponse:
+    async def generate(self, prompt: str, model: Optional[str] = None, **kwargs: Any) -> LLMResponse:
+        """Generate text for the supplied prompt."""
         raise NotImplementedError()
+
+    async def health_check(self) -> ProviderHealth:
+        """Return a lightweight health signal that lifecycle engines can inspect."""
+        return ProviderHealth(name=self.name, healthy=True, details="Provider configured")
 
 
 class LLMClient:
-    """Minimal LLM client with provider management and fallback.
+    """Multi-provider orchestrator with fallback support and health diagnostics."""
 
-    Example usage:
-        client = LLMClient()
-        client.register_provider('gemini', GeminiProvider(api_key))
-        client.register_provider('groq', GroqProvider(api_key))
+    def __init__(self, provider_configs: Optional[Iterable[ProviderConfig]] = None) -> None:
+        self._providers: Dict[str, BaseProvider] = {}
+        self._configs: Dict[str, ProviderConfig] = {}
+        if provider_configs:
+            for config in provider_configs:
+                self._configs[config.name] = config
 
-        resp = await client.generate('What is 2+2?')
-        print(resp.text)
-    """
+    def register_provider(self, provider: BaseProvider, config: Optional[ProviderConfig] = None) -> None:
+        """Register a provider instance alongside optional configuration metadata."""
+        self._providers[provider.name] = provider
+        if config:
+            self._configs[provider.name] = config
+        elif provider.name not in self._configs:
+            self._configs[provider.name] = ProviderConfig(name=provider.name)
 
-    def __init__(self, providers: Optional[Dict[str, BaseProvider]] = None):
-        self.providers: Dict[str, BaseProvider] = {}
-        # Default preference order (used for fallback)
-        self.provider_order = ["gemini", "groq", "mistral"]
-        if providers:
-            for name, p in providers.items():
-                self.register_provider(name, p)
+    def deregister_provider(self, name: str) -> None:
+        """Remove a provider from future generation attempts."""
+        self._providers.pop(name, None)
+        self._configs.pop(name, None)
 
-    def register_provider(self, name: str, provider: BaseProvider) -> None:
-        self.providers[name] = provider
-        if name not in self.provider_order:
-            self.provider_order.append(name)
+    def available_providers(self) -> Sequence[str]:
+        """Return the currently registered provider names."""
+        return list(self._providers.keys())
 
     async def generate(
         self,
         prompt: str,
         model: Optional[str] = None,
-        provider_priority: Optional[str] = None,
-        timeout: Optional[float] = 10.0,
-        **kwargs,
+        provider_order: Optional[Sequence[str]] = None,
+        **kwargs: Any,
     ) -> LLMResponse:
-        """Try to generate text using provider priority, fallbacking to other providers.
+        """Attempt generation with the preferred provider order and fallback if necessary."""
 
-        Returns first successful response (LLMResponse).
-        Raises the last exception if all providers fail.
-        """
-        order = []
-        if provider_priority:
-            # ensure priority provider is tried first
-            order.append(provider_priority)
-        # extend with remaining configured providers in preference order
-        order.extend([p for p in self.provider_order if p not in order and p in self.providers])
-
-        last_exc = None
-        for name in order:
-            provider = self.providers.get(name)
-            if not provider:
+        order = self._resolve_order(provider_order)
+        last_exc: Optional[Exception] = None
+        for provider_name in order:
+            provider = self._providers.get(provider_name)
+            config = self._configs.get(provider_name, ProviderConfig(name=provider_name))
+            if not provider or not config.enabled:
                 continue
             try:
-                # Run provider.generate in an executor in case it is sync
                 coro = provider.generate(prompt, model=model, **kwargs)
+                response: LLMResponse
                 if asyncio.iscoroutine(coro):
-                    task = asyncio.wait_for(coro, timeout=timeout)
+                    response = cast(LLMResponse, await asyncio.wait_for(coro, timeout=config.timeout))
                 else:
-                    # provider.generate returned non-coroutine, wrap with to_thread
-                    task = asyncio.wait_for(asyncio.to_thread(lambda: coro), timeout=timeout)
-
-                result: LLMResponse = await task  # type: ignore[assignment]
-                # Attach provider name if not present
-                if not result.provider:
-                    result.provider = name
-                return result
-            except Exception as e:
-                logger.warning("Provider '%s' failed: %s", name, e)
-                last_exc = e
+                    response = cast(LLMResponse, await asyncio.wait_for(asyncio.to_thread(lambda: coro), timeout=config.timeout))
+                if not response.provider:
+                    response.provider = provider_name
+                return response
+            except Exception as exc:  # pragma: no cover - defensive fallback
+                logger.warning("Provider '%s' failed: %s", provider_name, exc)
+                last_exc = exc
                 continue
 
-        # If no provider succeeded
-        raise last_exc or RuntimeError("No LLM providers configured")
+        raise last_exc or RuntimeError("No healthy LLM provider available")
+
+    async def health_check(self) -> Dict[str, ProviderHealth]:
+        """Return health reports for every registered provider."""
+
+        tasks: Dict[str, asyncio.Task[ProviderHealth]] = {}
+        for name, provider in self._providers.items():
+            tasks[name] = asyncio.create_task(provider.health_check())
+
+        reports: Dict[str, ProviderHealth] = {}
+        for name, task in tasks.items():
+            try:
+                reports[name] = await task
+            except Exception as exc:  # pragma: no cover - health fallback
+                reports[name] = ProviderHealth(name=name, healthy=False, last_error=str(exc), details="health check failure")
+        return reports
+
+    def _resolve_order(self, provider_order: Optional[Sequence[str]] = None) -> List[str]:
+        """Determine the final provider order by combining config priorities and overrides."""
+
+        if provider_order:
+            order = [name for name in provider_order if name in self._providers]
+        else:
+            order = sorted(
+                (name for name, cfg in self._configs.items() if cfg.enabled and name in self._providers),
+                key=lambda name: self._configs[name].priority,
+            )
+        for provider_name in self._providers:
+            if provider_name not in order and self._configs.get(provider_name, ProviderConfig(name=provider_name)).enabled:
+                order.append(provider_name)
+        return order
 
 
-__all__ = ["LLMClient", "BaseProvider", "LLMResponse"]
+__all__ = ["BaseProvider", "LLMClient", "LLMResponse", "ProviderConfig", "ProviderHealth"]

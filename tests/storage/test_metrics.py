@@ -3,7 +3,6 @@ Unit tests for metrics collection components.
 """
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, patch
 from src.storage.metrics import MetricsCollector, OperationTimer, MetricsStorage, MetricsAggregator
 
 

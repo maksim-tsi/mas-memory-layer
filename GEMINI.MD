@@ -226,8 +226,8 @@ docs/
 
 ### Environment Setup
 Configuration in `.env` (NOT tracked in git):
-- PostgreSQL: `DEV_IP`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
-- Neo4j: `STG_IP`, `NEO4J_USER`, `NEO4J_PASSWORD`
+- PostgreSQL: `DATA_NODE_IP`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
+- Neo4j: `DATA_NODE_IP`, `NEO4J_USER`, `NEO4J_PASSWORD`
 - LLM APIs: `GOOGLE_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`
 
 Reference `.env.example` for required variables (uses placeholder values only).

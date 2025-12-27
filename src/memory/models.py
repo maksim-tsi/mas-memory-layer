@@ -80,10 +80,7 @@ class Fact(BaseModel):
     access_count: int = Field(default=0, ge=0)
     
     model_config = {
-        "use_enum_values": True,
-        "json_encoders": {
-            datetime: lambda v: v.isoformat()
-        }
+        "use_enum_values": True
     }
     
     @field_validator('ciar_score')
@@ -207,12 +204,6 @@ class Episode(BaseModel):
     
     metadata: Dict[str, Any] = Field(default_factory=dict)
     
-    model_config = {
-        "json_encoders": {
-            datetime: lambda v: v.isoformat()
-        }
-    }
-    
     def to_qdrant_payload(self) -> Dict[str, Any]:
         """Convert to Qdrant payload format."""
         return {
@@ -292,12 +283,6 @@ class KnowledgeDocument(BaseModel):
     usefulness_score: float = Field(default=0.5, ge=0.0, le=1.0)
     
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    
-    model_config = {
-        "json_encoders": {
-            datetime: lambda v: v.isoformat()
-        }
-    }
     
     def to_typesense_document(self) -> Dict[str, Any]:
         """Convert to Typesense document format."""

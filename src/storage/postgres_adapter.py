@@ -11,7 +11,7 @@ Database Tables:
 
 import psycopg
 from psycopg_pool import AsyncConnectionPool
-from psycopg import AsyncConnection, sql
+from psycopg import sql
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, timezone
 import json
@@ -23,7 +23,6 @@ from .base import (
     StorageQueryError,
     StorageDataError,
     StorageTimeoutError,
-    StorageNotFoundError,
     validate_required_fields,
 )
 

@@ -1,11 +1,10 @@
 """
 Metrics collector for storage adapters.
 """
-from typing import Dict, Any, List, Optional, Union
+from typing import Dict, Any, Optional, Union
 import time
 import random
 from datetime import datetime, timezone, timedelta
-from collections import defaultdict, deque
 import asyncio
 from .storage import MetricsStorage
 from .aggregator import MetricsAggregator
@@ -243,5 +242,32 @@ class MetricsCollector:
         from .exporters import export_metrics
         metrics = await self.get_metrics()
         return export_metrics(metrics, format)
+
+    def start_timer(self, operation: str, metadata: Optional[Dict[str, Any]] = None):
+        """
+        Start a timer for an operation.
+        
+        Returns:
+            OperationTimer context manager (already started)
+        """
+        from .timer import OperationTimer
+        timer = OperationTimer(self, operation, metadata)
+        timer.start()
+        return timer
+
+    async def stop_timer(self, operation: str, timer: Any) -> float:
+        """
+        Stop a timer manually.
+        
+        Args:
+            operation: Operation name (ignored, used for compatibility)
+            timer: OperationTimer instance
+            
+        Returns:
+            Elapsed time in milliseconds
+        """
+        if hasattr(timer, 'stop'):
+            return await timer.stop()
+        return 0.0
 
 

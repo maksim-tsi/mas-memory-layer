@@ -13,14 +13,11 @@ Tests cover:
 """
 
 import pytest
-from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock
-import json
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 
 from src.memory.tiers.working_memory_tier import WorkingMemoryTier
-from src.memory.tiers.base_tier import TierOperationError
-from src.memory.models import Fact, FactType, FactCategory
-from src.storage.base import StorageDataError
+from src.memory.models import Fact, FactType
 
 
 class TestWorkingMemoryTierStore:

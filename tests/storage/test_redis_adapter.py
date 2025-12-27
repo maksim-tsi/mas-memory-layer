@@ -5,7 +5,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 from src.storage.redis_adapter import RedisAdapter
-from src.storage.base import StorageConnectionError, StorageDataError, StorageTimeoutError, StorageQueryError
+from src.storage.base import StorageConnectionError, StorageDataError, StorageTimeoutError
 
 @pytest_asyncio.fixture
 async def redis_adapter():

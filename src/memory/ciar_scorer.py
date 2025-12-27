@@ -219,6 +219,9 @@ class CIARScorer:
         age_delta = now - created_at
         age_days = age_delta.total_seconds() / 86400  # seconds to days
         
+        # Handle future timestamps (negative age)
+        age_days = max(0.0, age_days)
+        
         # Cap at max_age_days
         age_days = min(age_days, self.max_age_days)
         

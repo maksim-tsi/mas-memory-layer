@@ -46,14 +46,14 @@ def test_model(client, model_name: str, description: str) -> bool:
             )
         )
         
-        print(f"   ✓ Response received")
+        print("   ✓ Response received")
         print(f"   Prompt: {test_prompt}")
         print(f"   Response: {response.text}")
         
         # Check usage statistics
         if hasattr(response, 'usage_metadata') and response.usage_metadata:
             usage = response.usage_metadata
-            print(f"\n2. Token Usage:")
+            print("\n2. Token Usage:")
             print(f"   Prompt tokens: {usage.prompt_token_count}")
             print(f"   Response tokens: {usage.candidates_token_count}")
             print(f"   Total tokens: {usage.total_token_count}")
