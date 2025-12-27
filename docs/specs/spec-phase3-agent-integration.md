@@ -1,12 +1,14 @@
 # Phase 3 Specification: Agent Integration Layer
 
-**Document Version**: 1.1  
+**Document Version**: 2.0  
 **Date**: December 27, 2025  
 **Last Updated**: December 27, 2025  
-**Status**: Draft - Pending Team Review  
-**Target Completion**: 6-8 weeks  
+**Status**: Research Validated — Ready for Implementation  
+**Target Completion**: 6 weeks  
 **Branch**: `dev-mas`  
 **Prerequisites**: Phase 2 Complete (Lifecycle Engines)
+
+> **v2.0 Changes**: Incorporates validated research findings from RT1-RT5. See [Research Validation](../research/README.md) for critical analysis. Key updates: Hash Tag namespaces (MANDATORY), Lua scripting for state transitions, Reasoning-First schemas, Tool Message injection pattern.
 
 ---
 
@@ -737,6 +739,40 @@ async def memory_query(
     ...
 
 # src/agents/tools/ciar_tools.py
+from pydantic import BaseModel, Field
+from typing import List, Literal, Optional
+
+class CIARFilters(BaseModel):
+    """CIAR-aware filtering for fact retrieval (RT-05 validated)."""
+    min_certainty: float = Field(default=0.7, ge=0.0, le=1.0)
+    min_impact: int = Field(default=5, ge=1, le=10)
+    max_age_days: Optional[int] = Field(default=30, ge=1)
+    recency_boost: bool = Field(default=True)
+
+class CIARFactExtraction(BaseModel):
+    """
+    Reasoning-First schema for fact extraction (RT-02 validated).
+    
+    CRITICAL: Field ordering matters for constrained decoding.
+    thought_process MUST generate before certainty_score.
+    """
+    thought_process: str = Field(
+        description="Step-by-step analysis of ambiguity, evidence quality, "
+        "and temporal context BEFORE assigning scores"
+    )
+    facts: List["CIARFact"]
+
+class CIARFact(BaseModel):
+    """Single fact with CIAR scoring (RT-02 + RT-05 validated)."""
+    content: str = Field(description="The atomic fact extracted")
+    evidence: str = Field(description="Direct quote or reference supporting the fact")
+    certainty_reasoning: str = Field(
+        description="Reasoning for certainty score - MUST precede certainty_score"
+    )
+    certainty_score: float = Field(ge=0.0, le=1.0, description="0.0-1.0 confidence")
+    impact_score: int = Field(ge=1, le=10, description="1-10 significance")
+    temporal_context: str = Field(description="Age analysis relative to conversation")
+
 @tool
 async def ciar_calculate(
     content: str,
@@ -750,8 +786,27 @@ async def ciar_calculate(
     
     Formula: CIAR = (Certainty × Impact) × exp(-0.0231×days) × (1 + 0.1×accesses)
     
-    Use to assess if information warrants storage or to understand
-    the significance of retrieved facts.
+    Research validation (RT-05): 18-48% improvement in agent decision quality.
+    """
+    ...
+
+@tool
+async def ciar_get_top_facts(
+    query: str,
+    filters: CIARFilters,
+    limit: int = 10
+) -> List[dict]:
+    """
+    Retrieve facts filtered by CIAR thresholds (RT-05 validated).
+    
+    Pipeline:
+    1. Semantic search (cosine similarity)
+    2. Impact filter (Zep "poignancy" pattern)
+    3. Age/validity check (temporal grounding)
+    4. Recency decay (exponential: e^(-λt))
+    5. Certainty threshold (confidence calibration)
+    
+    Research finding: 70-90% noise reduction with CIAR filtering.
     """
     ...
 
@@ -761,8 +816,12 @@ async def ciar_explain(fact_id: str) -> dict:
     Get detailed CIAR breakdown for an existing fact.
     
     Returns component scores (certainty, impact, age_decay, recency_boost)
-    with human-readable explanation. Enables transparent reasoning
-    about information quality.
+    with BOTH numeric values AND verbal explanations for transparency.
+    
+    Output format (RT-05 validated):
+    - Numeric: For system-level filtering and routing
+    - Categorical: For prompt-level reasoning (high/medium/low)
+    - Verbal: For user-facing explanations
     """
     ...
 ```
@@ -801,44 +860,102 @@ Multi-agent systems require careful memory isolation and sharing. Our namespace 
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-#### 5.6.2 Redis Key Patterns
+#### 5.6.2 Redis Key Patterns (Hash Tagged)
 
 ```python
 # src/memory/namespace.py
 class NamespaceManager:
-    """Manages namespaced keys for multi-agent memory isolation."""
+    """
+    Manages namespaced keys for multi-agent memory isolation.
     
-    # L1: Active Context (Session-scoped)
+    CRITICAL: All keys sharing atomic operations MUST use the same
+    Hash Tag to ensure Redis Cluster colocation.
+    """
+    
+    # L1: Active Context (Session-scoped with Hash Tag)
     @staticmethod
     def l1_turns(session_id: str) -> str:
-        return f"session:{session_id}:turns"
+        return f"{{session:{session_id}}}:turns"
     
     @staticmethod
     def l1_turn_metadata(session_id: str) -> str:
-        return f"session:{session_id}:turn_meta"
+        return f"{{session:{session_id}}}:turn_meta"
     
-    # Operating Memory: Personal State (Agent+Session-scoped)
+    # Operating Memory: Personal State (Agent+Session-scoped, same Hash Tag)
     @staticmethod
     def personal_state(agent_id: str, session_id: str) -> str:
-        return f"agent:{agent_id}:session:{session_id}:state"
+        return f"{{session:{session_id}}}:agent:{agent_id}:state"
     
     @staticmethod
     def agent_scratchpad(agent_id: str, session_id: str) -> str:
-        return f"agent:{agent_id}:session:{session_id}:scratchpad"
+        return f"{{session:{session_id}}}:agent:{agent_id}:scratchpad"
     
-    # Operating Memory: Shared Workspace (Session-scoped, multi-agent)
+    # Operating Memory: Shared Workspace (Session-scoped, same Hash Tag)
     @staticmethod
     def shared_workspace(session_id: str, workspace_id: str) -> str:
-        return f"session:{session_id}:workspace:{workspace_id}"
+        return f"{{session:{session_id}}}:workspace:{workspace_id}"
     
-    # Pub/Sub channels for real-time coordination
+    # Lifecycle Events (Redis Streams for durable coordination - RT-03)
     @staticmethod
-    def workspace_channel(session_id: str, workspace_id: str) -> str:
-        return f"channel:workspace:{session_id}:{workspace_id}"
+    def lifecycle_stream(session_id: str) -> str:
+        return f"{{session:{session_id}}}:lifecycle:events"
     
+    # Directory indexes for efficient lookups (RT-03 recommendation)
     @staticmethod
-    def agent_channel(agent_id: str) -> str:
-        return f"channel:agent:{agent_id}"
+    def session_agents_index(session_id: str) -> str:
+        return f"{{session:{session_id}}}:directory:agents"
+```
+
+#### 5.6.2.1 Lua Scripts for Atomic State Transitions (RT-03)
+
+> **Rejected Approach**: Client-side WATCH-based optimistic locking causes "retry storms" under concurrent agent load (90% failure rate observed in research).
+
+```lua
+-- lua/atomic_promotion.lua
+-- Atomic L1→L2 fact promotion with CIAR filtering
+local l1_key = KEYS[1]
+local l2_key = KEYS[2]
+local fact_json = ARGV[1]
+local ciar_threshold = tonumber(ARGV[2])
+
+local fact = cjson.decode(fact_json)
+if fact.ciar_score >= ciar_threshold then
+    redis.call('SADD', l2_key, fact_json)
+    redis.call('LREM', l1_key, 1, fact_json)
+    return 1  -- Promoted
+else
+    return 0  -- Filtered (below threshold)
+end
+```
+
+```lua
+-- lua/workspace_update.lua
+-- Atomic workspace update with version check
+local key = KEYS[1]
+local agent_id = ARGV[1]
+local update_json = ARGV[2]
+local expected_version = tonumber(ARGV[3])
+
+local raw = redis.call('GET', key)
+local state = {}
+if raw then
+    state = cjson.decode(raw)
+else
+    state = {version=0, updates={}}
+end
+
+-- Version check for optimistic concurrency
+if expected_version and state.version ~= expected_version then
+    return cjson.encode({success=false, error="VERSION_MISMATCH", current=state.version})
+end
+
+-- Append update (smart merge, not overwrite)
+table.insert(state.updates, {agent=agent_id, data=cjson.decode(update_json), ts=redis.call('TIME')[1]})
+state.version = state.version + 1
+state.last_updated_by = agent_id
+
+redis.call('SET', key, cjson.encode(state))
+return cjson.encode({success=true, version=state.version})
 ```
 
 #### 5.6.3 PostgreSQL Namespace (L2)
@@ -872,26 +989,44 @@ CREATE TABLE significant_facts (
 | Personal state (own) | Read/Write | - | - | Read/Write |
 | Shared workspace | Read/Write | - | - | Read |
 
-#### 5.6.5 Conflict Resolution Strategy
+#### 5.6.5 Conflict Resolution Strategy (Updated per RT-03)
 
 When multiple agents modify shared state:
 
-1. **Optimistic Locking**: Use version numbers on shared workspace
-2. **Last-Write-Wins**: For non-critical state (scratchpad)
-3. **Merge Strategy**: For accumulated data (facts append, not overwrite)
+1. **❌ ~~Optimistic Locking (WATCH)~~**: REJECTED - causes 90% retry rate under concurrency
+2. **✅ Lua Scripting (Server-Side Atomicity)**: Serializable execution, 0% conflict rate
+3. **✅ Smart Merge**: Append-only patterns for accumulated data (facts, updates)
+4. **✅ Redis Streams**: Durable event sourcing for lifecycle coordination
 
 ```python
 class SharedWorkspaceState(BaseModel):
     workspace_id: str
-    version: int = 0  # Optimistic locking
+    version: int = 0  # For optimistic checks in Lua script
     last_modified_by: str  # agent_id
     last_updated: datetime
+    updates: List[Dict[str, Any]] = []  # Append-only history
     
-    def increment_version(self, agent_id: str):
-        """Increment version for optimistic locking."""
-        self.version += 1
-        self.last_modified_by = agent_id
-        self.last_updated = datetime.now(timezone.utc)
+    # NOTE: Version increments happen atomically in Lua script,
+    # NOT via Python increment_version() method.
+```
+
+#### 5.6.6 Redis Streams for Lifecycle Coordination (RT-03)
+
+> **Rejected Approach**: Redis Pub/Sub is fire-and-forget (messages lost if consumer busy).
+
+```python
+# Producer: Promotion Engine publishes to stream
+await redis.xadd(
+    "{session:101}:lifecycle:events",
+    {"event": "fact_promoted", "fact_id": "abc123", "ciar_score": "0.72"}
+)
+
+# Consumer: Consolidation Engine reads as consumer group
+messages = await redis.xreadgroup(
+    groupname="consolidation_workers",
+    consumername="worker_1",
+    streams={"{session:101}:lifecycle:events": ">"}
+)
 ```
 
 ---
@@ -1114,39 +1249,72 @@ This section tracks decisions requiring team input and topics requiring deeper r
 
 **Recommendation**: Option B with degradation logging for observability.
 
-#### OQ-05: Context Block Template
+#### OQ-05: Context Block Template — RESOLVED ✅
 **Question**: What should the default context block template contain?
 
-**Proposed Template**:
+**Decision (RT-04 Validated)**: Use **Tool Message Injection** pattern to preserve prompt cache. Context Block injected at tail of message history, NOT in system prompt.
+
+**Implementation Pattern** (RT-04):
+```python
+# CORRECT: Tool Message injection preserves cache
+messages = [
+    SystemMessage(content=system_prompt),  # CACHED (static)
+    *conversation_history,                  # CACHED (grows slowly)
+    ToolMessage(                           # DYNAMIC (not cached)
+        content=context_block,
+        tool_call_id="context_injection"
+    ),
+    HumanMessage(content=user_query)       # DYNAMIC
+]
+```
+
+**Context Block Template** (with CIAR scores for transparent reasoning):
 ```xml
-<CONTEXT>
-  <RECENT_TURNS count="5">
-    <!-- L1: Last 5 conversation turns -->
-  </RECENT_TURNS>
-  <FACTS count="10" min_ciar="0.6">
-    <!-- L2: Top 10 facts by CIAR score -->
-    <FACT ciar="0.85" type="preference">User prefers async communication</FACT>
-  </FACTS>
-  <EPISODES count="3">
-    <!-- L3: 3 most relevant episodes -->
-  </EPISODES>
-  <KNOWLEDGE count="2">
-    <!-- L4: 2 most applicable knowledge items -->
-  </KNOWLEDGE>
+<CONTEXT injected_at="tool_message" ciar_filtered="true">
+  <L1_RECENT_TURNS count="5">
+    <!-- Immediate conversation context -->
+  </L1_RECENT_TURNS>
+  <L2_WORKING_MEMORY count="10" min_ciar="0.6">
+    <!-- CIAR-filtered facts only (not all L2) -->
+    <FACT ciar="0.85" certainty="high" impact="8" type="preference">
+      User prefers async communication
+    </FACT>
+  </L2_WORKING_MEMORY>
+  <L3_EPISODES count="3" retrieval="on_demand">
+    <!-- Retrieved via tool call, not auto-injected -->
+  </L3_EPISODES>
+  <L4_KNOWLEDGE count="2" retrieval="on_demand">
+    <!-- Retrieved via tool call, not auto-injected -->
+  </L4_KNOWLEDGE>
 </CONTEXT>
 ```
 
-**Decision Required**: Should CIAR scores be included in the template? (Recommendation: Yes, for agent reasoning)
+**Key Research Findings Applied**:
+1. ✅ CIAR scores included (RT-05: 18-48% decision quality improvement)
+2. ✅ L2 CIAR-filtered (RT-04: not all L2 facts, only ≥0.6 threshold)
+3. ✅ L3/L4 on-demand (RT-04: tool retrieval, not auto-injection)
+4. ✅ Tool Message position (RT-04: preserves prompt cache, 60-80% cost savings)
 
-### 10.3 Research Topics
+### 10.3 Research Topics — VALIDATED ✅
 
-These topics require validation before final design. See [Phase 3 Research Questions](spec-phase3-research-questions.md) for details:
+All five research topics have been validated. See [Research Validation README](../research/README.md) for critical analysis and detailed findings.
 
-1. **RT-01**: LangChain/LangGraph Tool Calling Patterns
-2. **RT-02**: Structured Outputs for Memory Updates
-3. **RT-03**: Multi-Agent State Coordination
-4. **RT-04**: Context Injection vs Tool-Based Retrieval
-5. **RT-05**: CIAR Exposure Impact on Agent Reasoning
+| Topic | Status | Key Finding | Impact |
+|-------|--------|-------------|--------|
+| **RT-01**: LangGraph Tool Integration | ✅ Validated | Hybrid architecture fully supported via StateGraph, InjectedState, sub-graphs | ADOPT as designed |
+| **RT-02**: Gemini Structured Output | ✅ Validated | >95% reliability with Reasoning-First schemas | ADOPT with schema modifications |
+| **RT-03**: Redis Namespace Strategy | ✅ Validated | **CRITICAL**: Hash Tags mandatory, Lua scripting required | MANDATORY namespace update |
+| **RT-04**: Context Injection vs Retrieval | ✅ Validated | Hybrid L2 auto-inject + L3/L4 tool retrieval optimal | ADOPT Tool Message injection |
+| **RT-05**: CIAR Decision-Making | ✅ Validated | 18-48% improvements observed (exceeds 10-20% hypothesis) | Strong validation for CIAR tools |
+
+**Critical Architecture Updates from Research:**
+
+1. **Namespace Strategy (RT-03)**: Use `{scope:id}:resource` Hash Tags for Redis Cluster compatibility
+2. **State Transitions (RT-03)**: Replace WATCH-based optimistic locking with Lua scripting
+3. **Coordination (RT-03)**: Use Redis Streams instead of Pub/Sub for durable event sourcing
+4. **Context Injection (RT-04)**: Use Tool Message injection pattern to preserve prompt cache
+5. **Schema Design (RT-02)**: Reasoning-First Pydantic schemas with certainty_reasoning before certainty_score
+6. **L2 Auto-Injection (RT-04)**: CIAR-filtered retrieval before injection (not all L2 facts)
 
 ### 10.4 Novel Research Contributions
 
