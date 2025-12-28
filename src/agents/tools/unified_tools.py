@@ -342,11 +342,15 @@ async def memory_store(
 
 
 # Export tools
+UNIFIED_TOOLS = [memory_query, get_context_block, memory_store]
+
 __all__ = [
     'memory_query',
     'get_context_block',
     'memory_store',
+    'UNIFIED_TOOLS',
     'MemoryQueryInput',
     'GetContextBlockInput',
     'MemoryStoreInput'
 ]
+
