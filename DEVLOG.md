@@ -16,6 +16,128 @@ Each entry should include:
 
 ## Log Entries
 
+### 2025-12-28 - Phase 3 Week 3: CIAR Tools + Tier Tools + Integration Infrastructure ✅
+
+**Status:** ✅ Complete  
+**Duration:** 1 day  
+**Branch:** `dev-mas`
+
+**Summary:**
+Implemented Week 3 deliverables: CIAR manipulation tools (calculate, filter, explain), tier-specific retrieval tools (L2 tsvector search, L3 template-based Cypher, L4 Typesense), knowledge synthesis tool, and live cluster integration test infrastructure. Applied migration 002 to PostgreSQL for tsvector full-text search. All 6 connectivity tests passing against 3-node research cluster.
+
+**✅ What's Complete:**
+
+1. **CIAR Tools** (`src/agents/tools/ciar_tools.py`, 350 lines):
+   - `ciar_calculate(content, certainty, impact, age_hours)`: Calculate CIAR score with component breakdown
+     - Returns: final_score, components dict, promotability verdict, threshold info
+     - Uses CIARScorer with configurable thresholds
+   - `ciar_filter(facts, min_ciar)`: Batch filter facts by CIAR threshold
+     - Returns: passed facts, filtered count, pass_rate percentage
+   - `ciar_explain(content, certainty, impact, age_hours)`: Human-readable score explanation
+     - Returns: detailed breakdown with formula explanations and tier recommendations
+   - All tools use Pydantic input schemas with validation
+   - 16 unit tests (schemas, metadata, functionality)
+
+2. **Tier-Specific Tools** (`src/agents/tools/tier_tools.py`, 460 lines):
+   - `l2_search_facts(query, session_id, min_ciar, limit)`: PostgreSQL tsvector full-text search
+     - Uses `plainto_tsquery('simple', ...)` for exact keyword matching
+     - Returns ranked results by ts_rank DESC, ciar_score DESC
+   - `l3_query_graph(template_name, parameters)`: Template-based Neo4j Cypher queries
+     - Validates against template registry, prevents SQL injection
+     - All templates enforce `WHERE r.factValidTo IS NULL` for temporal correctness
+   - `l3_search_episodes(query, session_id, limit)`: Placeholder for vector search (Week 4)
+   - `l4_search_knowledge(query, limit, knowledge_type)`: Wraps Typesense semantic search
+
+3. **Graph Query Templates** (`src/memory/graph_templates.py`, 450 lines):
+   - `GraphQueryTemplate` dataclass with validation
+   - 6 logistics-focused templates:
+     | Template | Purpose | Parameters |
+     |----------|---------|------------|
+     | `get_container_journey` | Track container movements | `container_id` |
+     | `get_shipment_parties` | Find all parties in shipment | `shipment_id` |
+     | `find_delay_causes` | Identify delay patterns | `shipment_id` |
+     | `get_document_flow` | Trace document relationships | `document_id` |
+     | `get_related_episodes` | Find episodes by entity | `entity_id`, `entity_type` |
+     | `get_entity_timeline` | Temporal history of entity | `entity_id`, `limit` |
+   - Template registry with `get_template()`, `list_templates()`, `validate_and_execute_template()`
+
+4. **Knowledge Synthesis Tool** (`src/agents/tools/synthesis_tools.py`, 140 lines):
+   - `synthesize_knowledge(query, sources, conflict_resolution)`: Wraps KnowledgeSynthesizer
+     - Returns: synthesized_text, sources list, conflicts detected, cache_hit status
+     - Graceful error handling for LLM failures
+
+5. **PostgreSQL tsvector Migration** (`migrations/002_l2_tsvector_index.sql`):
+   - Added `content_tsv` tsvector column to `working_memory` table
+   - Created GIN index `idx_working_memory_content_tsv` for fast full-text search
+   - Auto-update trigger using 'simple' language config (no stemming for exact SKU/container matching)
+   - Migration applied to live cluster (192.168.107.187)
+
+6. **Integration Test Infrastructure** (`tests/integration/`):
+   - **Schema Verification** (`verify_l2_schema` fixture):
+     - Fail-fast check for `content_tsv` column and GIN index
+     - Actionable error message with `psql` command if migration missing
+   - **Adapter Fixtures** (5 fixtures connecting to live cluster):
+     - `redis_adapter` → Node 1 (192.168.107.172:6379)
+     - `postgres_adapter` → Node 2 (192.168.107.187:5432)
+     - `neo4j_adapter` → Node 2 (192.168.107.187:7687)
+     - `qdrant_adapter` → Node 2 (192.168.107.187:6333)
+     - `typesense_adapter` → Node 2 (192.168.107.187:8108)
+   - **Cleanup Fixtures**: Surgical cleanup using `test_session_id` namespace isolation
+   - **Connectivity Tests** (`test_connectivity.py`, 6 tests):
+     - All tests passing, validating live cluster accessibility
+
+**Key Architectural Decisions:**
+
+1. **tsvector 'simple' config**: No stemming ensures exact matching for SKU numbers, container IDs, error codes in polyglot supply chain context
+2. **Template-based Cypher**: Prevents injection attacks, hard-codes temporal validity (`factValidTo IS NULL`) in all queries
+3. **Fail-fast schema verification**: Tests fail immediately with actionable error if migration not applied (no automatic migrations in tests)
+4. **Namespace isolation**: UUID-based `test_session_id` prevents test collisions on shared cluster
+5. **Real LLM calls for integration tests**: Use actual Groq/Gemini APIs, not mocks
+
+**Test Results:**
+```bash
+# Connectivity Tests
+tests/integration/test_connectivity.py::test_l2_schema_verification PASSED
+tests/integration/test_connectivity.py::test_redis_connectivity PASSED
+tests/integration/test_connectivity.py::test_postgres_connectivity PASSED
+tests/integration/test_connectivity.py::test_neo4j_connectivity PASSED
+tests/integration/test_connectivity.py::test_qdrant_connectivity PASSED
+tests/integration/test_connectivity.py::test_typesense_connectivity PASSED
+============================== 6 passed in 0.80s ===============================
+
+# CIAR Tool Unit Tests
+tests/agents/tools/test_ciar_tools.py .................. 16 passed
+```
+
+**Files Created/Modified:**
+```
+NEW: src/agents/tools/ciar_tools.py (350 lines)
+NEW: src/agents/tools/tier_tools.py (460 lines)
+NEW: src/agents/tools/synthesis_tools.py (140 lines)
+NEW: src/memory/graph_templates.py (450 lines)
+NEW: migrations/002_l2_tsvector_index.sql (40 lines)
+NEW: tests/integration/test_connectivity.py (80 lines)
+NEW: tests/agents/tools/test_ciar_tools.py (300 lines)
+MOD: src/agents/tools/__init__.py (added exports)
+MOD: src/memory/tiers/working_memory_tier.py (added search_facts method)
+MOD: tests/integration/conftest.py (real adapter fixtures)
+```
+
+**Infrastructure Validated:**
+- **3-Node Research Cluster**: All 5 storage backends confirmed functional
+  - Node 1 (DEV_NODE): Redis L1 Active Context
+  - Node 2 (DATA_NODE): PostgreSQL L2, Qdrant L3, Neo4j L3, Typesense L4
+  - Node 3 (CLOUD_NODE): MinIO, observability (not tested yet)
+- **Migration 002**: Applied to live PostgreSQL, schema verification passing
+
+**Next Steps (Phase 3 Week 4):**
+- BaseAgent interface with tool binding
+- MemoryAgent implementation (UC-01 full hybrid agent)
+- Complete `l3_search_episodes` with Qdrant vector search
+- Full lifecycle integration tests (L1→L2→L3→L4) with real LLM calls
+
+---
+
 ### 2025-12-28 - Phase 3 Week 2: UnifiedMemorySystem + Agent Tools Implementation ✅
 
 **Status:** ✅ Complete  

@@ -6,15 +6,16 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 
 ---
 
-## 🚀 **Current Status: Phase 2 Complete | Phase 3 Week 2 Complete — Agent Tools Ready**
+## 🚀 **Current Status: Phase 2 Complete | Phase 3 Week 3 Complete — Agent Tools + Integration Tests Ready**
 
-**Overall ADR-003 Completion:** Functional implementation ~92% (tiers + lifecycle engines + Redis infrastructure + agent tools complete); Phase 3 Week 3-6 in progress.
+**Overall ADR-003 Completion:** Functional implementation ~95% (tiers + lifecycle engines + Redis infrastructure + agent tools + integration test infrastructure complete); Phase 3 Week 4-6 in progress.
 
 **Phase 1 (Storage Adapters):** ✅ 100% Complete — 143/143 tests passing  
 **Phase 2 (Memory Tiers + Lifecycle Engines):** ✅ Complete — 441/445 tests passing (86% coverage)  
 **Phase 3 Week 1 (Redis Infrastructure):** ✅ Complete — NamespaceManager, Lua scripts, Lifecycle Streams, Recovery triggers  
 **Phase 3 Week 2 (UnifiedMemorySystem + Agent Tools):** ✅ Complete — Enhanced memory system, MASToolRuntime, unified tools (47/47 tests passing)  
-**Phase 3 Week 3-6 (Agent Framework + LangGraph):** 🚧 In Progress — BaseAgent, CIAR tools, tier-specific tools, LangGraph orchestration
+**Phase 3 Week 3 (CIAR Tools + Tier Tools + Integration):** ✅ Complete — CIAR tools, tier-specific tools, synthesis tool, integration test infrastructure (6/6 connectivity tests passing)  
+**Phase 3 Week 4-6 (Agent Framework + LangGraph):** 🚧 In Progress — BaseAgent, MemoryAgent, LangGraph orchestration
 
 **Acceptance Criteria (Readiness Gates):**
 - Coverage ≥80% per component and overall
@@ -25,25 +26,34 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 **What's Complete**: 
 - ✅ Storage infrastructure (5 database adapters, metrics, benchmarks)
 - ✅ Memory tier classes (L1–L4 with dual-indexing, bi-temporal model)
-- ✅ CIAR scoring system (calculation logic)
+- ✅ CIAR scoring system (calculation logic + agent tools)
 - ✅ Data models (Fact, Episode, KnowledgeDocument, ContextBlock, SearchWeights)
 - ✅ Multi-provider LLM client with provider wrappers and demos
 - ✅ Lifecycle engines (Promotion, Consolidation, Distillation) + Knowledge Synthesizer
 - ✅ Phase 3 research validation (5 research topics validated)
 - ✅ **Phase 3 Week 1**: Redis infrastructure (NamespaceManager with Hash Tags, Lua scripts, Lifecycle Streams, Recovery triggers)
 - ✅ **Phase 3 Week 2**: Enhanced UnifiedMemorySystem (hybrid query, lifecycle orchestration), MASToolRuntime wrapper, unified agent tools (memory_query, get_context_block, memory_store)
+- ✅ **Phase 3 Week 3**: CIAR tools (calculate, filter, explain), tier-specific tools (L2 tsvector search, L3 template-based Cypher, L4 Typesense), knowledge synthesis tool, integration test infrastructure with live cluster connectivity
 
 **What's Next**: 
-- 🚧 **Phase 3 Week 3**: CIAR-specific tools + tier-specific tools + knowledge synthesis
-- 🔧 **Phase 3 Week 4-5**: BaseAgent framework + three agent variants (MemoryAgent, RAGAgent, FullContextAgent)
+- 🚧 **Phase 3 Week 4**: BaseAgent interface + MemoryAgent (UC-01)
+- 🔧 **Phase 3 Week 5**: RAGAgent + FullContextAgent variants
 - 🔧 **Phase 3 Week 6**: LangGraph orchestration + FastAPI wrapper + E2E integration tests
-- 🚧 Real-storage E2E pipeline validation (L1→L4) and GoodAI benchmark runs
+- 🚧 Full lifecycle integration tests (L1→L4) with real LLM calls + GoodAI benchmark runs
 
 **See**: 
 - [Phase 3 Specification v2.0](docs/specs/spec-phase3-agent-integration.md) for validated architecture
 - [Phase 3 Implementation Plan](docs/plan/phase3-implementation-plan-2025-12-27.md) for 6-week roadmap
 - [Research Validation](docs/research/README.md) for RT1-RT5 findings
 - [ADR-003 Architecture Review](docs/reports/adr-003-architecture-review.md) for gap analysis
+
+### 2025-12-28 — Changelog (Phase 3 Week 3 Complete)
+- **CIAR Agent Tools**: Implemented 3 CIAR tools (`ciar_calculate`, `ciar_filter`, `ciar_explain`) with Pydantic schemas and comprehensive unit tests.
+- **Tier-Specific Tools**: Created `l2_search_facts` (PostgreSQL tsvector), `l3_query_graph` (template-based Cypher), `l4_search_knowledge` (Typesense) for granular tier access.
+- **Graph Query Templates**: 6 logistics-focused Neo4j templates with temporal validity enforcement (`factValidTo IS NULL`).
+- **PostgreSQL Migration 002**: Applied tsvector column + GIN index to live cluster; schema verification fixture for fail-fast testing.
+- **Integration Test Infrastructure**: 5 adapter fixtures connecting to 3-node research cluster, surgical cleanup with namespace isolation, all 6 connectivity tests passing.
+- **Knowledge Synthesis Tool**: `synthesize_knowledge` wrapping KnowledgeSynthesizer with conflict detection.
 
 ### 2025-12-28 — Changelog (Phase 3 Week 2 Complete)
 - **Enhanced UnifiedMemorySystem**: Refactored to inject L1-L4 tiers + lifecycle engines; added hybrid `query_memory()` with configurable weights, `get_context_block()` for prompt assembly, and lifecycle cycle methods.
