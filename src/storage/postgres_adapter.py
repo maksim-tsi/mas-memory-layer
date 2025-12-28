@@ -582,3 +582,66 @@ class PostgresAdapter(StorageAdapter):
         except psycopg.Error as e:
             logger.error(f"Count query failed: {e}", exc_info=True)
             raise StorageQueryError(f"Count failed: {e}") from e
+
+    async def insert(self, table: str, data: Dict[str, Any]) -> str:
+        """
+        Insert record into specified table (helper method for tiers).
+        
+        This is a convenience method used by memory tiers. It temporarily
+        switches the target table and calls store().
+        
+        Args:
+            table: Table name ('active_context' or 'working_memory')
+            data: Record data
+        
+        Returns:
+            Inserted record ID as string
+            
+        Raises:
+            StorageConnectionError: If not connected
+            StorageDataError: If data validation fails
+            StorageQueryError: If insert fails
+        """
+        original_table = self.table
+        try:
+            self.table = table
+            return await self.store(data)
+        finally:
+            self.table = original_table
+
+    async def query(
+        self, 
+        table: str, 
+        filters: Optional[Dict[str, Any]] = None,
+        limit: Optional[int] = None,
+        **kwargs
+    ) -> List[Dict[str, Any]]:
+        """
+        Query records from specified table (helper method for tiers).
+        
+        This is a convenience method used by memory tiers. It temporarily
+        switches the target table and calls search().
+        
+        Args:
+            table: Table name ('active_context' or 'working_memory')
+            filters: Filter conditions (converted to search parameters)
+            limit: Maximum number of results
+            **kwargs: Additional search parameters
+        
+        Returns:
+            List of matching records
+            
+        Raises:
+            StorageConnectionError: If not connected
+            StorageQueryError: If query fails
+        """
+        original_table = self.table
+        try:
+            self.table = table
+            query_params = filters.copy() if filters else {}
+            if limit:
+                query_params['limit'] = limit
+            query_params.update(kwargs)
+            return await self.search(query_params)
+        finally:
+            self.table = original_table

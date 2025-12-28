@@ -25,7 +25,7 @@ class GeminiProvider(BaseProvider):
         # Use thread to call blocking SDK functions
         from google.genai import types
 
-        model = model or "gemini-2.5-flash"
+        model = model or "gemini-3-flash-preview"
 
         def sync_call():
             response = self.client.models.generate_content(
@@ -86,7 +86,7 @@ class GeminiProvider(BaseProvider):
         def sync_call():
             # call a minimally expensive empty prompt (SDK may charge tokens; this is a pragmatic choice for health checks)
             return self.client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3-flash-preview",
                 contents="Ping",
                 config=types.GenerateContentConfig(temperature=0.0, max_output_tokens=1),
             )

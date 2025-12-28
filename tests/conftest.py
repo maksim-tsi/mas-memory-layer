@@ -29,6 +29,9 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "unit: mark test as a unit test"
     )
+    config.addinivalue_line(
+        "markers", "slow: mark test as slow-running (real LLM calls)"
+    )
 
 
 def pytest_collection_modifyitems(config, items):

@@ -66,10 +66,10 @@ class TopicSegmenter:
     
     Attributes:
         llm_client: Client for LLM interactions
-        model_name: Name of the LLM model to use (default: Gemini 2.5 Flash per ADR-006)
+        model_name: Name of the LLM model to use (default: Gemini 3 Flash Preview per ADR-006)
     """
 
-    DEFAULT_MODEL = "gemini-2.5-flash"
+    DEFAULT_MODEL = "gemini-3-flash-preview"
     DEFAULT_MIN_TURNS = 10
     DEFAULT_MAX_TURNS = 20
 
