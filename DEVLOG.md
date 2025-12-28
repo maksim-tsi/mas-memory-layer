@@ -16,6 +16,53 @@ Each entry should include:
 
 ## Log Entries
 
+### 2025-12-28 - Phase 3 Pre-Requisite: ADR-003 Batch Processing Alignment ✅
+
+**Status:** ✅ Complete  
+**Duration:** 1 day  
+**Branch:** `phase-3-prereq-batch-processing`
+
+**Summary:**
+Refactored `PromotionEngine` to align with ADR-003 (Revised Nov 2, 2025) specification for batch compression and topic segmentation. Replaced per-turn fact extraction with batch processing strategy. Installed Phase 3 dependencies (langgraph, langchain-core, fastapi, uvicorn).
+
+**Key Architectural Change:**
+- **Before**: L1 turns → FactExtractor (1 LLM call per turn) → Facts → CIAR filter → L2
+- **After**: L1 batch (10-20 turns) → TopicSegmenter (1 LLM call) → Topic Segments → CIAR filter → FactExtractor per segment → Facts with segment context → L2
+
+**✅ What's Complete:**
+1. **Dependencies**: Added langgraph, langchain-core, fastapi, uvicorn to requirements.txt
+2. **TopicSegmenter**: New component (`src/memory/engines/topic_segmenter.py`, 287 lines)
+   - Batch compression with configurable threshold (10-20 turns)
+   - Single LLM call per batch (Gemini 2.5 Flash per ADR-006)
+   - TopicSegment model with Pydantic validation
+   - Graceful LLM failure fallback
+3. **PromotionEngine**: Refactored for batch processing (`src/memory/engines/promotion_engine.py`)
+   - Batch threshold enforcement
+   - Segment-level CIAR scoring
+   - Facts inherit segment certainty/impact
+4. **Data Models**: Enhanced Fact model with `topic_segment_id` and `topic_label`
+5. **Tests**: 23 tests (14 for TopicSegmenter, 9 for PromotionEngine) - **All Passing** ✅
+
+**Benefits:**
+- 10-20× LLM call reduction (1 batch call vs. per-turn calls)
+- Noise compression before fact extraction
+- Contextual coherence (facts from coherent segments)
+- CIAR pre-filter saves LLM calls on low-scoring segments
+
+**Test Results:**
+```bash
+tests/memory/engines/test_topic_segmenter.py: 14 passed in 0.16s
+tests/memory/engines/test_promotion_engine.py: 9 passed in 1.43s
+```
+
+**Next Steps:**
+Phase 3 can now proceed with ADR-003 alignment complete:
+- Week 1: Namespace Manager + Lua Scripts
+- Week 2: Enhanced UnifiedMemorySystem + Unified Tools
+- Week 3-6: Agent variants + LangGraph orchestration + FastAPI wrapper
+
+---
+
 ### 2025-12-27 - Coverage Regeneration & Timezone Safety ✅
 
 **Status:** ✅ Complete

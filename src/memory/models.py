@@ -67,6 +67,10 @@ class Fact(BaseModel):
     source_uri: Optional[str] = None
     source_type: str = Field(default="extracted")
     
+    # Topic Segmentation (ADR-003: batch processing context)
+    topic_segment_id: Optional[str] = None  # Links to source TopicSegment
+    topic_label: Optional[str] = None       # Brief topic from segment
+    
     # Classification
     fact_type: Optional[FactType] = None
     fact_category: Optional[FactCategory] = None
@@ -138,6 +142,8 @@ class Fact(BaseModel):
             'recency_boost': self.recency_boost,
             'source_uri': self.source_uri,
             'source_type': self.source_type,
+            'topic_segment_id': self.topic_segment_id,
+            'topic_label': self.topic_label,
             'fact_type': self.fact_type.value if isinstance(self.fact_type, FactType) else self.fact_type,
             'fact_category': self.fact_category.value if isinstance(self.fact_category, FactCategory) else self.fact_category,
             'metadata': json.dumps(self.metadata) if self.metadata else '{}',
