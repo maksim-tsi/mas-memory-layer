@@ -20,11 +20,15 @@
 llm_providers:
   primary:
     name: groq
-    model: llama-3.3-70b-versatile
+    model: openai/gpt-oss-120b
     env_key: GROQ_API_KEY
   fallback:
     name: google
     model: gemini-3-flash-preview
+    env_key: GOOGLE_API_KEY
+  fallback_reasoning:
+    name: google
+    model: gemini-3-pro-preview
     env_key: GOOGLE_API_KEY
 
 # Throttle rate limiting for LLM API calls (seconds between calls)

@@ -275,6 +275,76 @@ Detailed implementation patterns are in `.github/instructions/`:
 
 **Note**: Additional AI assistant instructions are in `AGENTS.MD` and `.github/copilot-instructions.md`.
 
+## Gemini Structured Output (Validated 2025-12-29)
+
+### Working Implementation
+Gemini's native structured output using `types.Schema` format is validated and working. See `tests/utils/test_gemini_structured_output.py` and `examples/gemini_structured_output_test.md` for complete examples.
+
+**Key Requirements**:
+1. **Environment Variable**: Use `GOOGLE_API_KEY` from `.env` (not `GEMINI_API_KEY`)
+2. **Native Schema Format**: Use `genai.types.Schema` with `types.Type.OBJECT/ARRAY/STRING/NUMBER`
+3. **System Instructions**: Pass as list of `types.Part.from_text()` in `GenerateContentConfig`
+4. **Response Format**: Set `response_mime_type="application/json"` with `response_schema` parameter
+5. **Model**: Use `gemini-3-flash-preview` (64K output tokens) as default
+
+**Working Code Pattern**:
+```python
+from google import genai
+from google.genai import types
+import os
+
+client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
+
+# Define schema using native types
+response_schema = types.Schema(
+    type=types.Type.OBJECT,
+    required=["facts"],
+    properties={
+        "facts": types.Schema(
+            type=types.Type.ARRAY,
+            items=types.Schema(
+                type=types.Type.OBJECT,
+                required=["content", "type", "category", "certainty", "impact"],
+                properties={
+                    "content": types.Schema(type=types.Type.STRING),
+                    "type": types.Schema(
+                        type=types.Type.STRING,
+                        enum=["preference", "constraint", "entity", "mention", "relationship", "event"]
+                    ),
+                    # ... more properties
+                }
+            )
+        )
+    }
+)
+
+# System instruction as Parts
+system_instruction = [
+    types.Part.from_text(text="You are an expert fact extractor...")
+]
+
+# Configure with structured output
+config = types.GenerateContentConfig(
+    response_mime_type="application/json",
+    response_schema=response_schema,
+    system_instruction=system_instruction,
+    temperature=0.0
+)
+
+response = client.models.generate_content(
+    model="gemini-3-flash-preview",
+    contents=[types.Content(role="user", parts=[types.Part.from_text(text=prompt)])],
+    config=config
+)
+```
+
+**Important Notes**:
+- `ThinkingConfig` does NOT support `thinking_level` parameter (only `include_thoughts: bool`)
+- Pydantic models remain compatible for other providers (OpenAI, Groq)
+- Native `types.Schema` format is required for Gemini - do not use Pydantic's `model_json_schema()`
+- Test validates 9 facts extracted from supply chain conversation with proper schema adherence
+- See `tests/utils/test_gemini_structured_output.py` for complete working examples
+
 ## Security Rules
 
 **NEVER commit**:

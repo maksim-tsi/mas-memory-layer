@@ -53,8 +53,12 @@ You must assume the following technology stack is in use. All generated code, te
 * **Data Validation:** Pydantic v2  
 * **Testing:** Pytest, pytest-asyncio  
 * **Databases:** PostgreSQL, Redis, Qdrant, Neo4j, Typesense
+* **LLM Providers:** Google Gemini (gemini-3-flash-preview), Groq (openai/gpt-oss-120b), Mistral
+* **LLM SDK:** `google-genai` for Gemini structured output with native `types.Schema` format
 
 This stack is precise. For example, all data validation tasks must use Pydantic v2 models. This may present specific challenges, such as handling ValidationError exceptions during execution or mocking BaseModel objects in tests, which are common developer pain points.8 You must address these challenges using the protocols in this document.
+
+**CRITICAL LLM Environment Variable**: Use `GOOGLE_API_KEY` (sourced from `.env` in repository root) for all Gemini operations. Do NOT use `GEMINI_API_KEY` - this is incorrect. See `tests/utils/test_gemini_structured_output.py` for validated usage patterns.
 
 ### **2.3 Repository Manifest**
 

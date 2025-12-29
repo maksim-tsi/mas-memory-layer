@@ -122,7 +122,7 @@ def real_llm_client(test_settings: TestSettings) -> Tuple[Optional[LLMClient], s
     else:
         print(f"⚠️  {primary['env_key']} not set, falling back to {fallback['name']}")
     
-    # Try fallback provider (Gemini)
+    # Try fallback provider (Gemini Flash)
     gemini_key = os.getenv(fallback['env_key'])
     if gemini_key:
         try:
@@ -132,7 +132,16 @@ def real_llm_client(test_settings: TestSettings) -> Tuple[Optional[LLMClient], s
                 ProviderConfig(name=fallback['name'], priority=2, enabled=True)
             )
             provider_registered = True
-            print(f"✓ Registered {fallback['name']} provider with model {fallback['model']}")
+            print(f"✓ Registered {fallback['name']} Flash provider with model {fallback['model']}")
+            
+            # Also register Gemini Pro for reasoning tasks
+            if 'fallback_reasoning' in test_settings.llm_providers:
+                gemini_pro = GeminiProvider(api_key=gemini_key)
+                client.register_provider(
+                    gemini_pro,
+                    ProviderConfig(name='google-pro', priority=3, enabled=True)
+                )
+                print(f"✓ Registered {test_settings.llm_providers['fallback_reasoning']['name']} Pro provider with model {test_settings.llm_providers['fallback_reasoning']['model']}")
         except Exception as e:
             print(f"❌ {fallback['name']} provider failed: {e}")
     else:

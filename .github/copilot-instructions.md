@@ -39,8 +39,9 @@ This project is guided by five core principles. All new code and refactoring sho
 - **Data Models**: `Fact`, `Episode`, `KnowledgeDocument` in `src/memory/models.py` (Pydantic)
 - **CIAR Scorer**: Calculation logic in `src/memory/ciar_scorer.py` (Certainty × Impact × Age × Recency)
 - **Metrics System**: Comprehensive observability in `src/storage/metrics/` (timing, throughput, percentiles)
-- **LLM Connectivity**: 7 models tested (Gemini, Groq, Mistral) but not integrated
+- **LLM Connectivity**: 7 models tested (Gemini, Groq, Mistral) with structured output validated
 - **LLM Client**: `src/utils/llm_client.py` - multi-provider abstraction with fallback
+- **Gemini Structured Output**: Native `types.Schema` format validated with `gemini-3-flash-preview` (see `tests/utils/test_gemini_structured_output.py`)
 
 ## What's Missing ❌
 
@@ -125,7 +126,10 @@ Tests use `pytest` with `pytest-asyncio`. See `.github/instructions/testing.inst
 Copy `.env.example` to `.env` with:
 - PostgreSQL: `DATA_NODE_IP`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
 - Neo4j: `DATA_NODE_IP`, `NEO4J_USER`, `NEO4J_PASSWORD`
-- LLM APIs: `GOOGLE_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`
+- LLM APIs: **`GOOGLE_API_KEY`** (for Gemini - NOT `GEMINI_API_KEY`), `GROQ_API_KEY`, `MISTRAL_API_KEY`
+  - **CRITICAL**: All code and tests MUST use `GOOGLE_API_KEY` environment variable
+  - API keys are sourced from `.env` file in repository root
+  - See `tests/integration/test_llmclient_real.py` and `tests/utils/test_gemini_structured_output.py` for correct usage
 - Detailed host-detection and bootstrap steps live in `docs/environment-guide.md`; follow that guide before running commands.
 
 ## External Tool: Gemini CLI (Future Use)
