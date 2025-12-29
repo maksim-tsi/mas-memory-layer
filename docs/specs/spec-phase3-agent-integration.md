@@ -1,13 +1,15 @@
 # Phase 3 Specification: Agent Integration Layer
 
-**Document Version**: 2.0  
+**Document Version**: 2.1  
 **Date**: December 27, 2025  
-**Last Updated**: December 27, 2025  
-**Status**: Research Validated — Ready for Implementation  
-**Target Completion**: 6 weeks  
+**Last Updated**: December 29, 2025  
+**Status**: Week 3 Complete — Week 4 Ready  
+**Target Completion**: 6 weeks (Week 3 complete ahead of schedule)  
 **Branch**: `dev-mas`  
 **Prerequisites**: Phase 2 Complete (Lifecycle Engines)
 
+> **v2.1 Changes**: Updated to reflect Week 3 completion (Dec 28-29, 2025) including bonus Gemini native structured output implementation. All CIAR tools, tier tools, and integration infrastructure validated. Gemini 3 Flash now primary model with guaranteed structured output.
+> 
 > **v2.0 Changes**: Incorporates validated research findings from RT1-RT5. See [Research Validation](../research/README.md) for critical analysis. Key updates: Hash Tag namespaces (MANDATORY), Lua scripting for state transitions, Reasoning-First schemas, Tool Message injection pattern.
 
 ---
@@ -90,10 +92,18 @@ Phase 3 builds upon a substantial foundation. This section documents what has be
 
 **Objective**: Automate L1→L2 fact extraction with CIAR-based significance filtering.
 
-| Component | Location | Function |
-|-----------|----------|----------|
-| `FactExtractor` | `src/memory/engines/fact_extractor.py` | LLM-based fact extraction with circuit breaker fallback |
-| `PromotionEngine` | `src/memory/engines/promotion_engine.py` | Orchestrates L1→L2 pipeline |
+| Component | Location | Function | Status |
+|-----------|----------|----------|--------|
+| `FactExtractor` | `src/memory/engines/fact_extractor.py` | LLM-based fact extraction with native structured output | ✅ Enhanced (Week 3) |
+| `TopicSegmenter` | `src/memory/engines/topic_segmenter.py` | Batch topic segmentation with structured output | ✅ Enhanced (Week 3) |
+| `PromotionEngine` | `src/memory/engines/promotion_engine.py` | Orchestrates L1→L2 pipeline | ✅ Complete |
+
+**Week 3 Enhancement** (Dec 29, 2025):
+- **Native Gemini Structured Output**: Replaced string-based JSON parsing with `types.Schema` format
+- **System Instruction Separation**: Uses dedicated `system_instruction` parameter
+- **Model Routing**: Automatic provider selection (Gemini models → Google provider)
+- **Validation**: Tested with real supply chain document (7 facts extracted, zero parsing errors)
+- **Impact**: Eliminates JSON truncation from harmony-format models (openai/gpt-oss-120b)
 
 **CIAR Formula** (ADR-004):
 ```
@@ -155,6 +165,32 @@ CIAR = (Certainty × Impact) × exp(-λ×days) × (1 + α×access_count)
 | Code Coverage | 86% | ≥80% | ✅ |
 | LLM Connectivity | Gemini, Groq, Mistral | 3+ providers | ✅ |
 | Engine Tests | 44+ | Full coverage | ✅ |
+
+### 2.7 Phase 3 Week 3 Status (Dec 28-29, 2025)
+
+**Status**: ✅ COMPLETE + BONUS
+
+**Completed Deliverables**:
+
+| Component | Location | Tests | Status |
+|-----------|----------|-------|--------|
+| CIAR Tools | `src/agents/tools/ciar_tools.py` | 16 | ✅ Complete |
+| Tier Tools | `src/agents/tools/tier_tools.py` | Integration | ✅ Complete |
+| Graph Templates | `src/memory/graph_templates.py` | 6 templates | ✅ Complete |
+| Synthesis Tools | `src/agents/tools/synthesis_tools.py` | Integration | ✅ Complete |
+| Integration Tests | `tests/integration/test_connectivity.py` | 6 | ✅ All passing |
+| PostgreSQL Migration | `migrations/002_l2_tsvector_index.sql` | Applied | ✅ Production |
+| **Gemini Schemas** | `src/memory/schemas/` | Validated | ✅ **BONUS** |
+| **Model Routing** | `src/utils/llm_client.py` | Validated | ✅ **BONUS** |
+
+**Key Achievements**:
+- ✅ All CIAR manipulation tools (calculate, filter, explain)
+- ✅ Tier-specific retrieval (L2 tsvector, L3 Cypher, L4 Typesense)
+- ✅ Live 3-node cluster integration validated
+- ✅ **Native Gemini structured output eliminates JSON truncation**
+- ✅ **Model-to-provider routing prevents misrouting errors**
+
+**Week 4 Ready**: BaseAgent, MemoryAgent, tool binding, lifecycle tests
 
 ---
 

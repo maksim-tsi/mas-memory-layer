@@ -16,6 +16,90 @@ Each entry should include:
 
 ## Log Entries
 
+### 2025-12-29 - Gemini Native Structured Output Implementation ✅
+
+**Status:** ✅ Complete  
+**Duration:** 1 day  
+**Branch:** `dev-mas`
+
+**Summary:**
+Implemented native Gemini structured output using `types.Schema` format to eliminate JSON truncation errors from harmony-format models. Created schema definitions for fact extraction and topic segmentation, updated GeminiProvider to support `system_instruction` and `response_schema` parameters, and added model-to-provider routing in LLMClient. Validated with real supply chain document - extracted 7 high-quality facts with zero JSON parsing errors.
+
+**✅ What's Complete:**
+
+1. **Native Gemini Schema Definitions** (`src/memory/schemas/`):
+   - `fact_extraction.py`: Native `types.Schema` for fact extraction
+     - Schema enforces: content (string), type (enum), category (enum), certainty (number), impact (number)
+     - System instruction: Expert fact extractor with CIAR scoring guidelines
+   - `topic_segmentation.py`: Native `types.Schema` for topic segmentation
+     - Schema enforces: topic, summary, key_points, turn_indices, certainty, impact, participant_count, message_count, temporal_context
+     - System instruction: Supply chain conversation segmentation with noise compression
+   - Both use `types.Type.OBJECT/ARRAY/STRING/NUMBER` with enum constraints
+
+2. **GeminiProvider Enhancement** (`src/utils/providers.py`):
+   - Added `system_instruction` parameter support (passed as `list[types.Part.from_text()]`)
+   - Added `response_schema` parameter support (enables `response_mime_type="application/json"`)
+   - Build `types.Content` with proper role/parts structure
+   - Increased default `max_output_tokens` from 256 → 8192 for structured output
+
+3. **FactExtractor Refactor** (`src/memory/engines/fact_extractor.py`):
+   - **Removed**: Concatenated system+user prompts, markdown cleanup code
+   - **Added**: Native structured output via `response_schema=FACT_EXTRACTION_SCHEMA`
+   - **Added**: Separate `system_instruction=FACT_EXTRACTION_SYSTEM_INSTRUCTION`
+   - Set default model to `gemini-3-flash-preview` (per ADR-006)
+   - Direct JSON parsing - no markdown fence handling needed
+
+4. **TopicSegmenter Refactor** (`src/memory/engines/topic_segmenter.py`):
+   - **Removed**: `_build_system_prompt()` method, concatenated prompts, markdown cleanup
+   - **Added**: Native structured output via `response_schema=TOPIC_SEGMENTATION_SCHEMA`
+   - **Fixed**: `temporal_context` type from `Dict[str, Any]` → `str` (matches Gemini output)
+   - Temperature changed from 0.3 → 0.0 for deterministic structured output
+
+5. **LLMClient Model Routing** (`src/utils/llm_client.py`):
+   - Added `MODEL_ROUTING` map: `{"gemini-3-flash-preview": ["google", "gemini"], ...}`
+   - Automatic provider selection based on model name (prevents routing Gemini models to Groq)
+   - Fallback to priority-based order if no routing match
+   - **Critical fix**: Eliminates 404 errors from sending Gemini models to Groq provider
+
+**Test Results:**
+```bash
+# Real document fact extraction
+tests/test_fact_extraction_with_real_data.py
+✅ Successfully extracted 7 facts from supply chain optimization document
+✅ No JSON truncation errors (harmony format issue eliminated)
+✅ Proper fact classification: relationship, entity, constraint, mention
+✅ Impact scoring: 0.50-0.80 (high-impact facts correctly identified)
+✅ Model routing: gemini-3-flash-preview → google provider (automatic)
+```
+
+**Extracted Facts (Sample):**
+1. Hub-and-spoke configurations enable economies of scale but create potential single points of failure (constraint, operational, impact=0.70)
+2. Disruptions at tier-two suppliers can propagate forward through the supply chain (relationship, operational, impact=0.80)
+3. Supply chain network optimization requires balancing cost minimization, service level maximization, and environmental objectives (constraint, business, impact=0.80)
+
+**Key Architectural Decisions:**
+
+1. **Native types.Schema over Pydantic JSON schema**: Gemini's native format provides guaranteed valid JSON without markdown fences
+2. **Separate system_instruction parameter**: Cleaner prompt engineering, aligned with Google AI Studio best practices
+3. **Model-to-provider routing**: Eliminates provider mismatch errors (Gemini models must go to Google provider, not Groq)
+4. **CIAR calculation split**: LLM provides certainty/impact, CIARScorer calculates age_decay/recency_boost/final_score
+5. **Temperature=0.0 for structured output**: Deterministic generation ensures consistent schema compliance
+
+**Documentation Updated:**
+- `examples/gemini_structured_output_test.md`: Working code patterns with native types.Schema
+- `GEMINI.MD`: Comprehensive structured output section
+- `AGENTS.MD`: Critical GOOGLE_API_KEY note (NOT GEMINI_API_KEY)
+- `.github/copilot-instructions.md`: Bold GOOGLE_API_KEY emphasis
+- `docs/ADR/006-free-tier-llm-strategy.md`: Added 2025-12-29 decision log for Gemini 3 transition
+
+**Impact:**
+- ✅ Eliminates JSON truncation errors from harmony-format models (openai/gpt-oss-120b)
+- ✅ Zero markdown cleanup code - native JSON guarantee
+- ✅ Gemini 3 Flash now primary model (validated structured output)
+- ✅ Foundation for Phase 2B-2D lifecycle engines
+
+---
+
 ### 2025-12-28 - Phase 3 Week 3: CIAR Tools + Tier Tools + Integration Infrastructure ✅
 
 **Status:** ✅ Complete  

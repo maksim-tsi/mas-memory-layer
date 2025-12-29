@@ -480,7 +480,8 @@ async def memory_query(
 
 **Objective**: Implement CIAR-aware tools, tier-specific retrieval tools, and integration test infrastructure.
 
-**Status**: ✅ Complete (Dec 28, 2025)
+**Status**: ✅ Complete (Dec 28-29, 2025)  
+**Bonus**: Gemini native structured output implementation
 
 ### W3.1: CIAR Feature Tools (P0 — COMPLETE ✅)
 
@@ -599,13 +600,16 @@ tests/integration/test_connectivity.py::test_typesense_connectivity PASSED
 
 ### W3 Summary
 
-**Total Implementation**:
-- **New Files**: 8 (tools + templates + migration + tests)
-- **Modified Files**: 3 (conftest, __init__.py, WorkingMemoryTier)
-- **Lines of Code**: ~1,400 (production) + ~500 (tests)
-- **Test Coverage**: All connectivity tests passing (6/6)
+**Completion Date**: December 28-29, 2025  
+**Status**: ✅ COMPLETE + BONUS
 
-**Key Achievements**:
+**Total Implementation**:
+- **New Files**: 12 (8 planned + 4 bonus schemas/engines)
+- **Modified Files**: 8 (3 planned + 5 bonus LLM/engine updates)
+- **Lines of Code**: ~2,600 (production) + ~600 (tests)
+- **Test Coverage**: All connectivity tests passing (6/6) + fact extraction validated
+
+**Key Achievements (Planned)**:
 1. Full CIAR tool suite for score manipulation and explanation
 2. Tier-specific retrieval tools for L2/L3/L4
 3. Template-based Cypher queries with temporal safety
@@ -613,12 +617,30 @@ tests/integration/test_connectivity.py::test_typesense_connectivity PASSED
 5. Live cluster integration test infrastructure
 6. Migration 002 deployed to production PostgreSQL
 
+**Bonus Achievements (Unplanned)**:
+7. **Gemini Native Structured Output** — Eliminated JSON truncation errors
+   - Created `src/memory/schemas/` with native `types.Schema` definitions
+   - Enhanced `GeminiProvider` with `system_instruction` + `response_schema` support
+   - Refactored `FactExtractor` and `TopicSegmenter` to use structured output
+   - Added model-to-provider routing in `LLMClient` (prevents Gemini→Groq misrouting)
+   - Validated with real supply chain document (7 facts extracted, zero errors)
+   - **Impact**: Resolves critical blocker for Phase 2B-2D lifecycle engines
+
 **Architectural Validation**:
 - ✅ tsvector 'simple' config for exact matching (no stemming)
 - ✅ Template-based Cypher prevents injection attacks
 - ✅ Fail-fast schema verification pattern
 - ✅ Namespace isolation for safe integration testing
 - ✅ All 5 storage adapters confirmed functional
+- ✅ **Native structured output eliminates JSON parsing failures**
+- ✅ **Model routing ensures correct provider selection**
+
+**Documentation Updated**:
+- DEVLOG.md (2025-12-29 entry)
+- docs/lessons-learned.md (LL-20251229-01)
+- examples/gemini_structured_output_test.md
+- GEMINI.MD, AGENTS.MD, .github/copilot-instructions.md
+- docs/ADR/006-free-tier-llm-strategy.md
 
 **Next Steps (Week 4)**:
 - BaseAgent interface with tool binding
