@@ -70,6 +70,16 @@ class BaseProvider:
 class LLMClient:
     """Multi-provider orchestrator with fallback support and health diagnostics."""
 
+    # Model-to-provider routing map
+    MODEL_ROUTING = {
+        "gemini-3-flash-preview": ["google", "gemini"],  # Try both possible names
+        "gemini-3-pro-preview": ["google-pro", "google", "gemini"],
+        "gemini-2.5-flash": ["google", "gemini"],
+        "gemini-embedding-001": ["google", "gemini"],
+        "openai/gpt-oss-120b": ["groq"],
+        "mistral-large": ["mistral"],
+    }
+
     def __init__(self, provider_configs: Optional[Iterable[ProviderConfig]] = None) -> None:
         self._providers: Dict[str, BaseProvider] = {}
         self._configs: Dict[str, ProviderConfig] = {}
@@ -102,6 +112,20 @@ class LLMClient:
         **kwargs: Any,
     ) -> LLMResponse:
         """Attempt generation with the preferred provider order and fallback if necessary."""
+
+        # Route to correct provider based on model name if not explicitly specified
+        if model and not provider_order:
+            # Check if model requires specific provider
+            for model_pattern, provider_names in self.MODEL_ROUTING.items():
+                if model == model_pattern or model.startswith(model_pattern):
+                    # Find first available provider from the routing list
+                    for provider_name in provider_names:
+                        if provider_name in self._providers:
+                            provider_order = [provider_name]
+                            logger.debug(f"Routing model '{model}' to provider '{provider_name}'")
+                            break
+                    if provider_order:
+                        break
 
         order = self._resolve_order(provider_order)
         last_exc: Optional[Exception] = None

@@ -28,13 +28,39 @@ class GeminiProvider(BaseProvider):
         model = model or "gemini-3-flash-preview"
 
         def sync_call():
+            # Build content
+            contents = [
+                types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=prompt)],
+                )
+            ]
+            
+            # Build config parameters
+            config_params = {
+                "temperature": kwargs.get("temperature", 0.0),
+                "max_output_tokens": kwargs.get("max_output_tokens", 8192),
+            }
+            
+            # Add system instruction if provided
+            system_instruction = kwargs.get("system_instruction")
+            if system_instruction:
+                config_params["system_instruction"] = [
+                    types.Part.from_text(text=system_instruction)
+                ]
+            
+            # Add structured output if response_schema provided
+            response_schema = kwargs.get("response_schema")
+            if response_schema:
+                config_params["response_mime_type"] = "application/json"
+                config_params["response_schema"] = response_schema
+            
+            config = types.GenerateContentConfig(**config_params)
+            
             response = self.client.models.generate_content(
                 model=model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=kwargs.get("temperature", 0.0),
-                    max_output_tokens=kwargs.get("max_output_tokens", 256),
-                ),
+                contents=contents,
+                config=config,
             )
             return response
 

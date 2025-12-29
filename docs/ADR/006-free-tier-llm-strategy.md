@@ -755,6 +755,7 @@ If free tiers are exhausted and we need to upgrade to paid tier:
 | 2025-11-02 | Use Gemini 2.5 Flash-Lite for speed-critical tasks | Fastest model, ideal for CIAR certainty scoring and simple classification |
 | 2025-11-02 | Implement circuit breaker pattern | Resilience against LLM failures, graceful degradation to rule-based extraction |
 | 2025-11-02 | Plan for paid tier at ~$50-100/month | Budget for potential upgrade if free tier insufficient for production |
+| **2025-12-29** | **Transition to Gemini 3 family** | **Adopt `gemini-3-flash-preview` (64K output tokens) and `gemini-3-pro-preview` as primary models. These support native structured output with `types.Schema` format, validated with fact extraction tests (see `tests/utils/test_gemini_structured_output.py`). Previous models (gemini-2.0-flash-exp, gemini-2.5-flash) deprecated. Groq's llama-3.3-70b-versatile excluded due to output reliability issues (truncated JSON, harmony format incompatibility). Also integrated Groq's `openai/gpt-oss-120b` reasoning model as fallback.** |
 
 ---
 

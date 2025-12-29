@@ -1,0 +1,65 @@
+[
+  {
+    "fact_id": "359ea457-0bcb-4422-984e-3699a309bccb",
+    "content": "Modern supply chain management relies on network analysis to optimize the flow of goods from manufacturers to consumers.",
+    "type": "relationship",
+    "category": "business",
+    "certainty": 1.0,
+    "impact": 0.6,
+    "ciar_score": 0.0
+  },
+  {
+    "fact_id": "ad229590-50a9-4e05-9c1f-b97b3ffd52b7",
+    "content": "Supply chain networks are modeled as complex adaptive systems where nodes represent facilities and edges represent transportation links or business relationships.",
+    "type": "entity",
+    "category": "technical",
+    "certainty": 1.0,
+    "impact": 0.5,
+    "ciar_score": 0.0
+  },
+  {
+    "fact_id": "c1a25eac-5f46-4842-b72e-552d455d3e0d",
+    "content": "Hub-and-spoke configurations enable economies of scale but create potential single points of failure.",
+    "type": "constraint",
+    "category": "operational",
+    "certainty": 1.0,
+    "impact": 0.7,
+    "ciar_score": 0.0
+  },
+  {
+    "fact_id": "24410775-d1a8-4849-85f7-56704be6509d",
+    "content": "Direct shipping networks offer greater flexibility and resilience but result in higher per-unit transportation costs.",
+    "type": "constraint",
+    "category": "operational",
+    "certainty": 1.0,
+    "impact": 0.6,
+    "ciar_score": 0.0
+  },
+  {
+    "fact_id": "3a1eb509-357a-4d64-a871-32dbce8e596f",
+    "content": "Disruptions at tier-two suppliers can propagate forward through the supply chain to affect multiple downstream manufacturers.",
+    "type": "relationship",
+    "category": "operational",
+    "certainty": 1.0,
+    "impact": 0.8,
+    "ciar_score": 0.0
+  },
+  {
+    "fact_id": "6b2cb563-21d3-4a06-98e0-44b1d9ff5655",
+    "content": "Network mapping and visualization tools are used to gain visibility into extended supply networks beyond direct suppliers.",
+    "type": "mention",
+    "category": "technical",
+    "certainty": 1.0,
+    "impact": 0.7,
+    "ciar_score": 0.0
+  },
+  {
+    "fact_id": "4b40d564-a9c3-4fcb-9377-f71e1a86fb43",
+    "content": "Supply chain network optimization requires balancing cost minimization, service level maximization, and environmental objectives.",
+    "type": "constraint",
+    "category": "business",
+    "certainty": 1.0,
+    "impact": 0.8,
+    "ciar_score": 0.0
+  }
+]

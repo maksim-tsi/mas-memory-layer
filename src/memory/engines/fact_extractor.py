@@ -15,6 +15,10 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from src.memory.models import Fact, FactType, FactCategory
+from src.memory.schemas.fact_extraction import (
+    FACT_EXTRACTION_SYSTEM_INSTRUCTION,
+    FACT_EXTRACTION_SCHEMA,
+)
 from src.utils.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -36,15 +40,7 @@ class FactExtractor:
 
     def __init__(self, llm_client: LLMClient, model_name: Optional[str] = None):
         self.llm_client = llm_client
-        self.model_name = model_name
-        self._system_prompt = (
-            "You are an expert fact extractor for a supply chain memory system. "
-            "Extract significant facts from the user's input. "
-            "Return a JSON object with a key 'facts' containing a list of facts. "
-            "Each fact must have: 'content', 'type', 'category', 'certainty' (0.0-1.0), 'impact' (0.0-1.0). "
-            "Valid types: preference, constraint, entity, mention, relationship, event. "
-            "Valid categories: personal, business, technical, operational."
-        )
+        self.model_name = model_name or "gemini-3-flash-preview"
 
     async def extract_facts(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> List[Fact]:
         """
@@ -67,23 +63,21 @@ class FactExtractor:
             return self._extract_with_rules(text, metadata)
 
     async def _extract_with_llm(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> List[Fact]:
-        """Extract facts using LLM."""
-        prompt = f"Input: {text}\nOutput JSON:"
+        """Extract facts using LLM with native structured output."""
+        prompt = f"Extract significant facts from the following conversation:\n\n{text}"
         
         response = await self.llm_client.generate(
-            prompt=f"{self._system_prompt}\n\n{prompt}",
-            model=self.model_name
+            prompt=prompt,
+            model=self.model_name,
+            system_instruction=FACT_EXTRACTION_SYSTEM_INSTRUCTION,
+            response_schema=FACT_EXTRACTION_SCHEMA,
+            temperature=0.0,
+            max_output_tokens=8192,
         )
 
         try:
-            # Clean markdown code blocks if present
-            content = response.text.strip()
-            if content.startswith("```json"):
-                content = content[7:]
-            if content.endswith("```"):
-                content = content[:-3]
-            
-            data = json.loads(content.strip())
+            # Parse JSON response (no markdown cleanup needed with structured output)
+            data = json.loads(response.text)
             raw_facts = data.get("facts", [])
             
             facts = []

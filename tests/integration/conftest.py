@@ -88,11 +88,11 @@ def test_user_id() -> str:
 
 @pytest.fixture(scope="function")
 def real_llm_client(test_settings: TestSettings) -> Tuple[Optional[LLMClient], str]:
-    """Create LLM client with Groq → Gemini fallback.
+    """Create LLM client with Google Gemini → Groq fallback.
     
     Returns:
-        Tuple of (llm_client, provider_name) where provider_name is 'groq', 
-        'google', or 'none' if both failed.
+        Tuple of (llm_client, provider_name) where provider_name is 'google', 
+        'groq', or 'none' if both failed.
         
     Raises:
         pytest.skip if no provider is available.
@@ -106,33 +106,17 @@ def real_llm_client(test_settings: TestSettings) -> Tuple[Optional[LLMClient], s
     client = LLMClient()
     provider_registered = False
     
-    # Try primary provider (Groq)
-    groq_key = os.getenv(primary['env_key'])
-    if groq_key:
-        try:
-            groq = GroqProvider(api_key=groq_key)
-            client.register_provider(
-                groq, 
-                ProviderConfig(name=primary['name'], priority=1, enabled=True)
-            )
-            provider_registered = True
-            print(f"✓ Registered {primary['name']} provider with model {primary['model']}")
-        except Exception as e:
-            print(f"⚠️  {primary['name']} provider failed: {e}, falling back to {fallback['name']}")
-    else:
-        print(f"⚠️  {primary['env_key']} not set, falling back to {fallback['name']}")
-    
-    # Try fallback provider (Gemini Flash)
-    gemini_key = os.getenv(fallback['env_key'])
+    # Try primary provider (Google Gemini)
+    gemini_key = os.getenv(primary['env_key'])
     if gemini_key:
         try:
             gemini = GeminiProvider(api_key=gemini_key)
             client.register_provider(
-                gemini,
-                ProviderConfig(name=fallback['name'], priority=2, enabled=True)
+                gemini, 
+                ProviderConfig(name=primary['name'], priority=1, enabled=True)
             )
             provider_registered = True
-            print(f"✓ Registered {fallback['name']} Flash provider with model {fallback['model']}")
+            print(f"✓ Registered {primary['name']} provider with model {primary['model']}")
             
             # Also register Gemini Pro for reasoning tasks
             if 'fallback_reasoning' in test_settings.llm_providers:
@@ -143,16 +127,32 @@ def real_llm_client(test_settings: TestSettings) -> Tuple[Optional[LLMClient], s
                 )
                 print(f"✓ Registered {test_settings.llm_providers['fallback_reasoning']['name']} Pro provider with model {test_settings.llm_providers['fallback_reasoning']['model']}")
         except Exception as e:
+            print(f"⚠️  {primary['name']} provider failed: {e}, falling back to {fallback['name']}")
+    else:
+        print(f"⚠️  {primary['env_key']} not set, falling back to {fallback['name']}")
+    
+    # Try fallback provider (Groq)
+    groq_key = os.getenv(fallback['env_key'])
+    if groq_key:
+        try:
+            groq = GroqProvider(api_key=groq_key)
+            client.register_provider(
+                groq,
+                ProviderConfig(name=fallback['name'], priority=2, enabled=True)
+            )
+            provider_registered = True
+            print(f"✓ Registered {fallback['name']} provider with model {fallback['model']}")
+        except Exception as e:
             print(f"❌ {fallback['name']} provider failed: {e}")
     else:
         print(f"❌ {fallback['env_key']} not set")
     
     # Check if at least one provider was registered
     if not provider_registered:
-        pytest.skip("No LLM provider available (GROQ_API_KEY and GOOGLE_API_KEY both missing/failed)")
+        pytest.skip("No LLM provider available (GOOGLE_API_KEY and GROQ_API_KEY both missing/failed)")
     
     # Return client with provider name (prefer primary)
-    provider_name = primary['name'] if groq_key else fallback['name']
+    provider_name = primary['name'] if gemini_key else fallback['name']
     return (client, provider_name)
 
 

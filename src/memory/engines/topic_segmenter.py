@@ -14,6 +14,10 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, ValidationError
 
+from src.memory.schemas.topic_segmentation import (
+    TOPIC_SEGMENTATION_SYSTEM_INSTRUCTION,
+    TOPIC_SEGMENTATION_SCHEMA,
+)
 from src.utils.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -50,7 +54,7 @@ class TopicSegment(BaseModel):
     impact: float = Field(default=0.5, ge=0.0, le=1.0)
     participant_count: int = Field(default=0, ge=0)
     message_count: int = Field(default=0, ge=0)
-    temporal_context: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    temporal_context: Optional[str] = Field(default="", description="Temporal markers like dates, times, deadlines")
 
 
 class TopicSegmenter:
@@ -84,37 +88,6 @@ class TopicSegmenter:
         self.model_name = model_name or self.DEFAULT_MODEL
         self.min_turns = min_turns
         self.max_turns = max_turns
-        self._system_prompt = self._build_system_prompt()
-
-    def _build_system_prompt(self) -> str:
-        """Build the system prompt for topic segmentation."""
-        return """You are an expert at analyzing supply chain and logistics conversations.
-
-Your task: Segment a batch of conversation turns into coherent topics.
-
-Instructions:
-1. Identify distinct topics or themes discussed in the conversation
-2. Group related turns into segments
-3. For each segment, extract:
-   - topic: Brief descriptive label (3-50 words)
-   - summary: Concise narrative of what was discussed (50-500 words)
-   - key_points: List of 3-10 significant points from the segment
-   - turn_indices: Indices (0-based) of turns belonging to this segment
-   - certainty: Your confidence in this segmentation (0.0-1.0)
-   - impact: Estimated importance/urgency of this topic (0.0-1.0)
-   - participant_count: Number of distinct speakers
-   - message_count: Number of messages in segment
-   - temporal_context: Any dates, times, deadlines mentioned
-
-Guidelines:
-- Compress noise: Skip greetings, acknowledgments, filler
-- Merge related sub-topics into one segment
-- Assign high impact (0.7-1.0) to: urgent requests, critical alerts, decisions, commitments
-- Assign medium impact (0.4-0.7) to: informational queries, status updates
-- Assign low impact (0.0-0.4) to: casual discussion, small talk
-- Certainty based on: clarity of topic, coherence of discussion
-
-Return JSON: {"segments": [list of segment objects]}"""
 
     async def segment_turns(
         self,
@@ -158,36 +131,25 @@ Return JSON: {"segments": [list of segment objects]}"""
         turns: List[Dict[str, Any]],
         metadata: Optional[Dict[str, Any]] = None
     ) -> List[TopicSegment]:
-        """Segment turns using LLM."""
+        """Segment turns using LLM with native structured output."""
         # Format conversation for LLM
         formatted = self._format_conversation(turns)
         
-        prompt = f"""Conversation to segment:
+        prompt = f"Segment the following conversation into coherent topics:\n\n{formatted}"
 
-{formatted}
-
-Now segment this conversation into coherent topics. Return JSON only."""
-
-        # Make LLM call
+        # Make LLM call with structured output
         response = await self.llm_client.generate(
-            prompt=f"{self._system_prompt}\n\n{prompt}",
+            prompt=prompt,
             model=self.model_name,
-            temperature=0.3  # Lower temperature for consistent structured output
+            system_instruction=TOPIC_SEGMENTATION_SYSTEM_INSTRUCTION,
+            response_schema=TOPIC_SEGMENTATION_SCHEMA,
+            temperature=0.0,
+            max_output_tokens=8192,
         )
 
-        # Parse response
+        # Parse response (no markdown cleanup needed with structured output)
         try:
-            content = response.text.strip()
-            
-            # Clean markdown code blocks
-            if content.startswith("```json"):
-                content = content[7:]
-            if content.startswith("```"):
-                content = content[3:]
-            if content.endswith("```"):
-                content = content[:-3]
-            
-            data = json.loads(content.strip())
+            data = json.loads(response.text)
             raw_segments = data.get("segments", [])
             
             if not raw_segments:
@@ -207,7 +169,7 @@ Now segment this conversation into coherent topics. Return JSON only."""
                         impact=float(rs.get("impact", 0.5)),
                         participant_count=int(rs.get("participant_count", 0)),
                         message_count=int(rs.get("message_count", 0)),
-                        temporal_context=rs.get("temporal_context", {})
+                        temporal_context=rs.get("temporal_context", "")
                     )
                     segments.append(segment)
                 except ValidationError as ve:

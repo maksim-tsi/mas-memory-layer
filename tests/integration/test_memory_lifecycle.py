@@ -75,11 +75,11 @@ class TestMemoryLifecycleFlow:
         # 3. Create promotion engine with real LLM
         # Determine correct model name based on active provider
         if provider_name == 'groq':
-            model_name = test_settings.llm_providers['primary']['model']  # openai/gpt-oss-120b
+            model_name = test_settings.llm_providers['fallback']['model']  # openai/gpt-oss-120b (now fallback)
         elif provider_name == 'google-pro':
             model_name = test_settings.llm_providers['fallback_reasoning']['model']  # gemini-3-pro-preview
-        else:  # google/gemini (flash)
-            model_name = test_settings.llm_providers['fallback']['model']  # gemini-3-flash-preview
+        else:  # google/gemini (flash) - now primary
+            model_name = test_settings.llm_providers['primary']['model']  # gemini-3-flash-preview
         
         topic_segmenter = TopicSegmenter(llm_client, model_name=model_name)
         fact_extractor = FactExtractor(llm_client, model_name=model_name)

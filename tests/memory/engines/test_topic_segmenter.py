@@ -212,13 +212,13 @@ class TestTopicSegmenter:
         """Test TopicSegmenter initialization."""
         segmenter = TopicSegmenter(
             llm_client=mock_llm_client,
-            model_name="gemini-2.5-flash",
+            model_name="gemini-3-flash-preview",
             min_turns=5,
             max_turns=15
         )
         
         assert segmenter.llm_client == mock_llm_client
-        assert segmenter.model_name == "gemini-2.5-flash"
+        assert segmenter.model_name == "gemini-3-flash-preview"
         assert segmenter.min_turns == 5
         assert segmenter.max_turns == 15
     
@@ -296,7 +296,7 @@ class TestTopicSegmenter:
         # Verify LLM was called
         mock_llm_client.generate.assert_called_once()
         call_args = mock_llm_client.generate.call_args
-        assert call_args.kwargs["model"] == "gemini-2.5-flash"
+        assert call_args.kwargs["model"] == "gemini-3-flash-preview"
         assert call_args.kwargs["temperature"] == 0.3
     
     @pytest.mark.asyncio

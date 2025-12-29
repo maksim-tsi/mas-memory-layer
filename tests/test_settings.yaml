@@ -16,23 +16,23 @@
 #   pytest tests/integration/ -m "integration and slow"
 
 # LLM Provider Configuration
-# Groq is primary, Gemini is fallback
+# Google Gemini is primary (validated structured output), Groq is fallback
 llm_providers:
   primary:
-    name: groq
-    model: openai/gpt-oss-120b
-    env_key: GROQ_API_KEY
-  fallback:
     name: google
     model: gemini-3-flash-preview
     env_key: GOOGLE_API_KEY
+  fallback:
+    name: groq
+    model: openai/gpt-oss-120b
+    env_key: GROQ_API_KEY
   fallback_reasoning:
     name: google
     model: gemini-3-pro-preview
     env_key: GOOGLE_API_KEY
 
 # Throttle rate limiting for LLM API calls (seconds between calls)
-# Groq has 30 RPM free tier, so 2s = 30 calls/min
+# Gemini has higher RPM, 2s is conservative for free tier
 llm_throttle_seconds: 2
 
 # Batch sizes for lifecycle tests
