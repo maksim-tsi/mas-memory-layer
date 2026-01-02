@@ -7,7 +7,6 @@ output API with thinking_config and response_schema.
 import os
 import json
 import pytest
-from typing import Dict, Any
 
 # Skip all tests if GOOGLE_API_KEY not available
 pytestmark = pytest.mark.skipif(
@@ -240,7 +239,7 @@ async def test_gemini_structured_output_compatibility():
     
     print("\n✓ Pydantic schema is compatible with Gemini native format")
     print(f"✓ Schema has {len(items_props)} properties per fact")
-    print(f"✓ Required fields: content, type, category, certainty, impact")
+    print("✓ Required fields: content, type, category, certainty, impact")
 
 
 if __name__ == "__main__":

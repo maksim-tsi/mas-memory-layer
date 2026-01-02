@@ -11,7 +11,7 @@ Tools:
 - ciar_explain: Get human-readable explanation of CIAR score breakdown
 """
 
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, TYPE_CHECKING
 from pydantic import BaseModel, Field
 from datetime import datetime
 import json
@@ -238,6 +238,7 @@ async def ciar_explain(
     """
     try:
         mas_runtime = MASToolRuntime(runtime)
+        await mas_runtime.stream_status(f"Explaining CIAR score for: {content[:50]}...")
         
         # Initialize scorer
         scorer = CIARScorer()
@@ -266,23 +267,23 @@ async def ciar_explain(
         
         # Component explanations
         explanation.append(f"1. Certainty (C): {components['certainty']:.4f}")
-        explanation.append(f"   → Confidence in fact accuracy")
+        explanation.append("   → Confidence in fact accuracy")
         explanation.append(f"   → Input value: {certainty} (explicit)")
         explanation.append("")
         
         explanation.append(f"2. Impact (I): {components['impact']:.4f}")
-        explanation.append(f"   → Importance/relevance of fact")
+        explanation.append("   → Importance/relevance of fact")
         explanation.append(f"   → Input value: {impact} (fact_type: {fact_type})")
         explanation.append("")
         
         explanation.append(f"3. Age Decay (AD): {components['age_decay']:.4f}")
-        explanation.append(f"   → Time-based decay factor")
+        explanation.append("   → Time-based decay factor")
         explanation.append(f"   → Age: {days_old} days old")
         explanation.append(f"   → Formula: exp(-λ × days) where λ={scorer.age_decay_lambda}")
         explanation.append("")
         
         explanation.append(f"4. Recency Boost (RB): {components['recency_boost']:.4f}")
-        explanation.append(f"   → Access frequency reward")
+        explanation.append("   → Access frequency reward")
         explanation.append(f"   → Access count: {access_count}")
         explanation.append(f"   → Formula: 1 + (α × log(1 + count)) where α={scorer.recency_boost_factor}")
         explanation.append("")
@@ -301,11 +302,11 @@ async def ciar_explain(
         explanation.append("Verdict:")
         explanation.append("-" * 70)
         if is_promotable:
-            explanation.append(f"✅ PROMOTE to L2 Working Memory")
+            explanation.append("✅ PROMOTE to L2 Working Memory")
             explanation.append(f"   Score {components['final_score']:.4f} exceeds threshold {threshold}")
         else:
             margin = threshold - components['final_score']
-            explanation.append(f"❌ REJECT (Stay in L1 or discard)")
+            explanation.append("❌ REJECT (Stay in L1 or discard)")
             explanation.append(f"   Score {components['final_score']:.4f} below threshold {threshold}")
             explanation.append(f"   Needs +{margin:.4f} to qualify")
         

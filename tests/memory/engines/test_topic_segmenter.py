@@ -6,14 +6,11 @@ per ADR-003 requirements.
 """
 
 import pytest
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
-from uuid import uuid4
 
 from src.memory.engines.topic_segmenter import (
     TopicSegmenter,
-    TopicSegment,
-    TopicSegmentationError
+    TopicSegment
 )
 from src.utils.llm_client import LLMClient
 

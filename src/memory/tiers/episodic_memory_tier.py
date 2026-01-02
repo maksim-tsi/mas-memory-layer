@@ -482,7 +482,7 @@ class EpisodicMemoryTier(BaseTier):
         RETURN e.episodeId as id
         """
         
-        result = await self.neo4j.execute_query(
+        await self.neo4j.execute_query(
             create_episode,
             {
                 'episode_id': episode.episode_id,

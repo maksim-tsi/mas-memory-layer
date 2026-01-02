@@ -17,7 +17,6 @@ import pytest
 import asyncio
 import time
 from datetime import datetime, timezone, timedelta
-from unittest.mock import Mock, AsyncMock, patch
 from src.memory.tiers.active_context_tier import ActiveContextTier
 from src.memory.tiers.working_memory_tier import WorkingMemoryTier
 from src.memory.tiers.episodic_memory_tier import EpisodicMemoryTier
@@ -332,7 +331,7 @@ class TestMemoryLifecycleFlow:
         )
         
         print(f"✅ Distilled {len(knowledge_docs)} knowledge documents from {len(episodes)} episodes using {provider_name}")
-        print(f"📊 Provenance verified for all documents")
+        print("📊 Provenance verified for all documents")
     
     @pytest.mark.asyncio
     @pytest.mark.slow

@@ -268,7 +268,6 @@ class PostgresAdapter(StorageAdapter):
             data['ttl_expires_at'] = datetime.now(timezone.utc) + timedelta(days=7)
         
         # Prepare metadata and arrays
-        metadata = json.dumps(data.get('metadata', {}))
         source_turn_ids = data.get('source_turn_ids', [])
         
         query = sql.SQL("""

@@ -3,7 +3,7 @@ Tests for MASToolRuntime wrapper.
 """
 
 import pytest
-from unittest.mock import Mock, AsyncMock, MagicMock
+from unittest.mock import Mock, AsyncMock
 from dataclasses import dataclass
 from typing import Any, Optional
 

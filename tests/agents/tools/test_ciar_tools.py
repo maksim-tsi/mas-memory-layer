@@ -7,8 +7,8 @@ CIARScorer dependency.
 
 import pytest
 import json
-from unittest.mock import Mock, AsyncMock, patch
-from datetime import datetime, timezone, timedelta
+from unittest.mock import Mock, AsyncMock
+from datetime import datetime, timezone
 
 from src.agents.tools.ciar_tools import (
     ciar_calculate,

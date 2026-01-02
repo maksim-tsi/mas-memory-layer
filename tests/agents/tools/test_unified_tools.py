@@ -3,8 +3,6 @@ Tests for unified memory tools.
 """
 
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
-from datetime import datetime, timezone
 
 from src.agents.tools.unified_tools import (
     memory_query,
@@ -14,7 +12,6 @@ from src.agents.tools.unified_tools import (
     GetContextBlockInput,
     MemoryStoreInput
 )
-from src.memory.models import Fact, Episode, KnowledgeDocument, ContextBlock, SearchWeights
 
 
 class TestToolInputSchemas:

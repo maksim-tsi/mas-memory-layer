@@ -29,7 +29,7 @@ Usage:
 """
 
 import redis.asyncio as redis
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from pathlib import Path
 import logging
 

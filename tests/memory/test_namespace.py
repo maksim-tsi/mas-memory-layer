@@ -15,7 +15,6 @@ import redis.asyncio as redis
 import os
 import uuid
 import json
-from datetime import datetime, timezone
 
 from src.memory.namespace import NamespaceManager
 

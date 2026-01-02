@@ -659,7 +659,7 @@ class TestQdrantAdapterFilterEdgeCases:
             result_id = await adapter.store(data)
             assert result_id is not None
             # Verify upsert was called with all fields in payload
-            call_args = mock_qdrant_client.upsert.call_args
+            _ = mock_qdrant_client.upsert.call_args
             await adapter.disconnect()
     
     async def test_vector_dimension_validation(self, mock_qdrant_client):

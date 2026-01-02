@@ -17,7 +17,6 @@ from src.memory.engines.fact_extractor import FactExtractor
 from src.memory.tiers.active_context_tier import ActiveContextTier
 from src.memory.tiers.working_memory_tier import WorkingMemoryTier
 from src.memory.ciar_scorer import CIARScorer
-from src.memory.models import Fact
 
 logger = logging.getLogger(__name__)
 

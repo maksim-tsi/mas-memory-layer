@@ -6,7 +6,7 @@ over the four-tier architecture. All tools use ToolRuntime for
 context injection (session_id, user_id) per ADR-007.
 """
 
-from typing import Optional, List, Dict, Any, TYPE_CHECKING
+from typing import Optional, Dict, Any, TYPE_CHECKING
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 
@@ -330,7 +330,7 @@ async def memory_store(
                     "metadata": {**(metadata or {}), "store_request": True}
                 }
                 await memory_system.l1_tier.store(session_id, turn_data)
-                return f"Queued for L2 storage (will be promoted via next cycle)"
+                return "Queued for L2 storage (will be promoted via next cycle)"
             else:
                 return "Error: L1 tier not available for L2 promotion queue"
         

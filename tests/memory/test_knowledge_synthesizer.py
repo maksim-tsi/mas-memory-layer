@@ -3,7 +3,6 @@ Tests for KnowledgeSynthesizer (Query-Time Knowledge Retrieval)
 """
 
 import pytest
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 from src.memory.engines.knowledge_synthesizer import KnowledgeSynthesizer

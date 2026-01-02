@@ -18,7 +18,7 @@ Tools:
 - l4_search_knowledge: Typesense full-text knowledge search
 """
 
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING
 from pydantic import BaseModel, Field
 import json
 
@@ -33,7 +33,7 @@ else:
         ToolRuntime = Any
 
 from src.agents.runtime import MASToolRuntime
-from src.memory.graph_templates import get_template, list_templates, validate_and_execute_template
+from src.memory.graph_templates import get_template, validate_and_execute_template
 
 
 # ============================================================================
@@ -306,6 +306,7 @@ async def l3_search_episodes(
             'error': 'Episode embedding search not yet implemented',
             'message': 'This tool requires LLM embedding generation which will be added in Phase 3 Week 4',
             'query': query,
+            'session_id': session_id,
             'workaround': 'Use l3_query_graph with get_related_episodes template for now'
         }, indent=2)
         

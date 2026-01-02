@@ -10,9 +10,8 @@ import json
 import uuid
 import yaml
 import pytest
-import asyncio
 from datetime import datetime, timezone
-from typing import List, AsyncGenerator, Dict, Any, Optional, Tuple
+from typing import AsyncGenerator, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 import pytest_asyncio
 from src.storage.redis_adapter import RedisAdapter
