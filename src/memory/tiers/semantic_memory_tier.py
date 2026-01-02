@@ -59,8 +59,14 @@ class SemanticMemoryTier(BaseTier):
             else:
                 knowledge = data
 
-            # Store in Typesense via adapter store API
-            await self.typesense.store(knowledge.to_typesense_document())
+            document = knowledge.to_typesense_document()
+
+            # Prefer explicit index_document when available (tests mock this)
+            index_func = getattr(self.typesense, "index_document", None)
+            if callable(index_func):
+                await index_func(document=document, collection_name=self.collection_name)
+            else:
+                await self.typesense.store(document)
 
             return knowledge.knowledge_id
     

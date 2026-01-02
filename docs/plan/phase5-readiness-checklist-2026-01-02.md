@@ -3,6 +3,11 @@
 **Date:** 2026-01-02  
 **Purpose:** Provide a structured, graded readiness framework for Phase 5, aligned to the four-tier cognitive memory architecture and lifecycle engines. Grades: Green (meets bar), Amber (minor gaps), Red (blocking gaps). Each item lists required evidence and project-specific improvement guidance.
 
+## 2026-01-03 Status Update
+- See daily report [docs/reports/lifecycle-status-2026-01-03.md](../reports/lifecycle-status-2026-01-03.md) and log entry in [DEVLOG.md](../../DEVLOG.md).
+- Current gap: end-to-end lifecycle test still fails due to zero L4 knowledge documents; distillation now forces processing with rule-based fallback but episode retrieval remains sparse in integration flow.
+- Next action: verify episodic retrieval and Typesense writes during distillation, then rerun full lifecycle test and update grading outcomes.
+
 ## 1. Architecture & ADR Alignment
 - **Tier responsibilities and flow (L1–L4)** — Evidence: [docs/ADR/003-four-layers-memory.md](../ADR/003-four-layers-memory.md), [AGENTS.MD](../../AGENTS.MD), [docs/reports/adr-003-architecture-review.md](../reports/adr-003-architecture-review.md). Improvement: ensure diagrams and text reflect current engine code paths and dual-index commitments.
 - **CIAR policy compliance** — Evidence: [docs/ADR/004-ciar-scoring-formula.md](../ADR/004-ciar-scoring-formula.md), [config/ciar_config.yaml](../../config/ciar_config.yaml), [src/memory/ciar_scorer.py](../../src/memory/ciar_scorer.py). Improvement: verify decay/recency parameters match ADR defaults per domain; record rationale in config comments.

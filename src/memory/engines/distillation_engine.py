@@ -13,8 +13,8 @@ Architecture:
 """
 
 import logging
+import uuid
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timezone
 import time
 import yaml
 from pathlib import Path
@@ -240,7 +240,12 @@ class DistillationEngine(BaseEngine):
         **kwargs
     ) -> Dict[str, Any]:
         """Backwards-compatible alias for process()."""
-        return await self.process(session_id=session_id, track_provenance=track_provenance, **kwargs)
+        return await self.process(
+            session_id=session_id,
+            track_provenance=track_provenance,
+            force_process=True,
+            **kwargs
+        )
     
     async def _count_episodes(
         self,
@@ -326,10 +331,8 @@ class DistillationEngine(BaseEngine):
             KnowledgeDocument or None if synthesis fails
         """
         try:
-            # Build prompt for LLM
             llm_instruction = type_config.get("llm_instruction", "Synthesize knowledge from these episodes.")
-            
-            # Concatenate episode summaries for context
+
             episode_context = "\n\n".join([
                 f"Episode {i+1} (ID: {ep.episode_id}):\n"
                 f"Summary: {ep.summary}\n"
@@ -337,7 +340,7 @@ class DistillationEngine(BaseEngine):
                 f"Entities: {', '.join([str(e.get('name', e)) for e in ep.entities[:5]])}"  # First 5 entities
                 for i, ep in enumerate(episodes)
             ])
-            
+
             prompt = f"""{llm_instruction}
 
 Context from {len(episodes)} episode(s):
@@ -349,39 +352,64 @@ Provide a structured response with the following fields:
 - title: A concise title (max 100 characters)
 - key_points: List of 3-5 key points (as bullet points)
 """
-            
-            # Call LLM for synthesis
+
             response = await self.llm_client.generate(
                 prompt=prompt,
-                temperature=0.3  # Lower temperature for factual synthesis
+                temperature=0.3
             )
-            
-            # Parse LLM response
-            content, title, key_points = self._parse_llm_response(response.text, knowledge_type)
-            
-            # Extract metadata from episodes
+
+            try:
+                content, title, key_points = self._parse_llm_response(response.text, knowledge_type)
+            except Exception as parse_error:
+                logger.warning(
+                    "LLM parse failed for knowledge_type=%s: %s. Falling back to rule-based synthesis.",
+                    knowledge_type,
+                    parse_error
+                )
+                return self._create_rule_based_document(episodes, knowledge_type, session_id)
+
             metadata = self._extract_metadata(episodes)
-            
-            # Build source episode references
             source_episodes = [ep.episode_id for ep in episodes]
-            
-            # Create KnowledgeDocument
+
             doc = KnowledgeDocument(
-                knowledge_id=f"know_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{knowledge_type}",
+                knowledge_id=str(uuid.uuid4()),
                 session_id=session_id or (episodes[0].session_id if episodes else None),
                 knowledge_type=knowledge_type,
                 content=content,
                 title=title,
-                metadata={**metadata, "key_points": key_points},  # Store key_points in metadata
+                metadata={**metadata, "key_points": key_points},
                 source_episode_ids=source_episodes,
                 episode_count=len(source_episodes)
             )
-            
+
             return doc
-            
+
         except Exception as e:
             logger.error(f"Failed to create knowledge document: {e}")
             return None
+
+    def _create_rule_based_document(
+        self,
+        episodes: List[Episode],
+        knowledge_type: str,
+        session_id: Optional[str]
+    ) -> KnowledgeDocument:
+        """Fallback synthesis when LLM output cannot be parsed."""
+        summaries = [ep.summary for ep in episodes if getattr(ep, "summary", "")]
+        content = " \n".join(summaries) or "Distilled knowledge from episodes"
+        title = f"{knowledge_type.title()} summary"[:100]
+        return KnowledgeDocument(
+            knowledge_id=str(uuid.uuid4()),
+            session_id=session_id or (episodes[0].session_id if episodes else None),
+            title=title,
+            content=content,
+            knowledge_type=knowledge_type,
+            confidence_score=0.5,
+            source_episode_ids=[ep.episode_id for ep in episodes],
+            episode_count=len(episodes),
+            tags=[knowledge_type],
+            domain=self.domain_config.get("domain", {}).get("name"),
+        )
     
     def _parse_llm_response(
         self,

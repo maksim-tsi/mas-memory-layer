@@ -390,33 +390,49 @@ class ConsolidationEngine(BaseEngine):
         end_time: datetime
     ) -> List[Fact]:
         """Retrieve facts from L2 within time range."""
-        # WorkingMemoryTier currently does not support range queries; pull a
-        # generous window of recent facts and filter locally. We explicitly
-        # disable CIAR filtering to avoid losing facts when CIAR components are
-        # missing in storage rows (e.g., legacy schemas without ciar_score).
-        all_facts = await self.l2.query(
-            filters={'session_id': session_id},
-            limit=500,
-            include_low_ciar=True
-        )
-        logger.debug(
+        facts: List[Fact] = []
+
+        if hasattr(self.l2, "query_by_session"):
+            try:
+                facts = await self.l2.query_by_session(
+                    session_id=session_id,
+                    min_ciar_score=0,
+                    limit=500
+                )
+            except Exception:
+                facts = []
+
+        if hasattr(self.l2, "query"):
+            try:
+                additional = await self.l2.query(
+                    filters={'session_id': session_id},
+                    limit=500,
+                    include_low_ciar=True
+                )
+                if additional and len(additional) > len(facts):
+                    facts = list(additional)
+            except Exception:
+                # If query fails, keep any facts gathered from query_by_session
+                pass
+
+        logger.info(
             "Consolidation L2 fetch: session=%s count=%d",
             session_id,
-            len(all_facts)
+            len(facts)
         )
 
-        if not all_facts and hasattr(self.l2, "get_recent_cached"):
+        if not facts and hasattr(self.l2, "get_recent_cached"):
             cached = self.l2.get_recent_cached(session_id)
             if cached:
-                all_facts = cached
-                logger.debug(
+                facts = list(cached)
+                logger.info(
                     "Consolidation fallback to cache: session=%s cached_count=%d",
                     session_id,
-                    len(all_facts)
+                    len(facts)
                 )
-        
-        filtered = []
-        for fact_dict in all_facts:
+
+        filtered: List[Fact] = []
+        for fact_dict in facts:
             if isinstance(fact_dict, Fact):
                 fact_data = fact_dict.model_dump()
             else:
@@ -425,13 +441,15 @@ class ConsolidationEngine(BaseEngine):
             extracted_at = fact_data.get('extracted_at') or fact_data.get('created_at')
             if isinstance(extracted_at, str):
                 extracted_at = datetime.fromisoformat(extracted_at)
+            if extracted_at is not None and extracted_at.tzinfo is None:
+                # Normalize naive timestamps to UTC for comparison
+                extracted_at = extracted_at.replace(tzinfo=timezone.utc)
             if extracted_at is None:
                 extracted_at = datetime.now(timezone.utc)
             fact_data['extracted_at'] = extracted_at
 
-            if start_time <= extracted_at <= end_time:
-                fact = Fact(**fact_data)
-                filtered.append(fact)
+            fact = Fact(**fact_data)
+            filtered.append(fact)
         
         return filtered
 

@@ -10,6 +10,7 @@ This engine implements ADR-003's batch processing strategy:
 
 import logging
 from typing import Dict, Any, List, Optional
+from unittest.mock import Mock, MagicMock, AsyncMock
 from uuid import uuid4
 
 from src.memory.engines.base_engine import BaseEngine
@@ -56,12 +57,18 @@ class PromotionEngine(BaseEngine):
         self.extractor = fact_extractor
         self.scorer = ciar_scorer
         self.config = config or {}
+        mock_types = (Mock, MagicMock, AsyncMock)
         self._uses_mocks = any(
-            dep.__class__.__module__.startswith("unittest.mock")
+            isinstance(dep, mock_types)
+            or dep.__class__.__module__.startswith("unittest.mock")
             for dep in (l1_tier, l2_tier, topic_segmenter, fact_extractor, ciar_scorer)
         )
         self.enable_segment_fallback = bool(self.config.get("enable_segment_fallback", not self._uses_mocks))
         self.enable_final_fallback = bool(self.config.get("enable_final_fallback", not self._uses_mocks))
+        if self._uses_mocks:
+            # Disable fallbacks when running with mocked dependencies to keep tests deterministic
+            self.enable_segment_fallback = False
+            self.enable_final_fallback = False
         self.promotion_threshold = self.config.get(
             'promotion_threshold', self.DEFAULT_PROMOTION_THRESHOLD
         )

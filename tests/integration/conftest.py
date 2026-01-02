@@ -10,6 +10,7 @@ import json
 import uuid
 import yaml
 import pytest
+import logging
 from datetime import datetime, timezone
 from typing import AsyncGenerator, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
@@ -83,6 +84,18 @@ def test_session_id() -> str:
 def test_user_id() -> str:
     """Generate unique user ID for test isolation (overrides root conftest)."""
     return f"user-{uuid.uuid4().hex[:8]}"
+
+
+@pytest.fixture(scope="function", autouse=True)
+def consolidation_logger_info():
+    """Ensure consolidation engine logs INFO for diagnostics during tests."""
+    logger = logging.getLogger("src.memory.engines.consolidation_engine")
+    previous = logger.level
+    logger.setLevel(logging.INFO)
+    try:
+        yield
+    finally:
+        logger.setLevel(previous)
 
 
 @pytest.fixture(scope="function")

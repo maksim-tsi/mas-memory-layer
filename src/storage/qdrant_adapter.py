@@ -1,21 +1,12 @@
 """
-Qdrant vector storage adapter for semantic memory (L3).
-
-This adapter provides vector similarity search for distilled knowledge
-and semantic relationships.
-
-Features:
-- Vector storage and retrieval
-- Similarity search with score thresholds
-- Metadata filtering
-- Collection auto-management
+Qdrant storage adapter for episodic memory vectors.
 """
 
 import uuid
 from typing import Dict, Any, List, Optional
 import logging
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.models import PointStruct, VectorParams, Distance, Filter, FieldCondition, MatchValue
+from qdrant_client.models import PointStruct, VectorParams, Distance, Filter, FieldCondition, MatchValue, PointIdsList
 
 from .base import (
     StorageAdapter,
@@ -350,6 +341,37 @@ class QdrantAdapter(StorageAdapter):
             except Exception as e:
                 logger.error(f"Qdrant search failed: {e}", exc_info=True)
                 raise StorageQueryError(f"Failed to search Qdrant: {e}") from e
+
+    async def delete(self, id: str) -> bool:
+        """
+        Delete a single vector by ID.
+
+        Returns True if the point was removed, False if it was not found.
+        """
+        async with OperationTimer(self.metrics, 'delete'):
+            if not self._connected or not self.client:
+                raise StorageConnectionError("Not connected to Qdrant")
+
+            try:
+                result = await self.client.delete(
+                    collection_name=self.collection_name,
+                    points_selector=PointIdsList(points=[str(id)])
+                )
+
+                status = getattr(result, 'status', None)
+                if status == "completed":
+                    logger.debug(f"Deleted point {id}")
+                    return True
+                if status == "not_found":
+                    logger.debug(f"Point {id} not found for deletion")
+                    return False
+
+                logger.debug(f"Delete returned status {status} for point {id}")
+                return False
+
+            except Exception as e:
+                logger.error(f"Qdrant delete failed: {e}", exc_info=True)
+                raise StorageQueryError(f"Failed to delete from Qdrant: {e}") from e
     
     def _build_qdrant_filter(self, filter_dict: Dict[str, Any]) -> Optional[Filter]:
         """
@@ -368,18 +390,16 @@ class QdrantAdapter(StorageAdapter):
         """
         if not filter_dict:
             return None
-            
+
         # Handle complex filter structure first
         if isinstance(filter_dict, dict) and any(key in filter_dict for key in ['must', 'should', 'must_not']):
             must_conditions = []
             should_conditions = []
             must_not_conditions = []
-            
-            # Process must conditions
+
             if 'must' in filter_dict:
                 for condition in filter_dict['must']:
                     if isinstance(condition, dict) and 'key' in condition and 'match' in condition:
-                        # Simple field condition
                         must_conditions.append(
                             FieldCondition(
                                 key=condition['key'],
@@ -387,7 +407,6 @@ class QdrantAdapter(StorageAdapter):
                             )
                         )
                     elif isinstance(condition, dict):
-                        # Handle nested structures in must conditions
                         for key, value in condition.items():
                             if key not in ['must', 'should', 'must_not']:
                                 must_conditions.append(
@@ -396,8 +415,7 @@ class QdrantAdapter(StorageAdapter):
                                         match=MatchValue(value=value)
                                     )
                                 )
-            
-            # Process should conditions
+
             if 'should' in filter_dict:
                 for condition in filter_dict['should']:
                     if isinstance(condition, dict) and 'key' in condition and 'match' in condition:
@@ -408,7 +426,6 @@ class QdrantAdapter(StorageAdapter):
                             )
                         )
                     elif isinstance(condition, dict):
-                        # Handle nested structures in should conditions
                         for key, value in condition.items():
                             if key not in ['must', 'should', 'must_not']:
                                 should_conditions.append(
@@ -417,8 +434,7 @@ class QdrantAdapter(StorageAdapter):
                                         match=MatchValue(value=value)
                                     )
                                 )
-            
-            # Process must_not conditions
+
             if 'must_not' in filter_dict:
                 for condition in filter_dict['must_not']:
                     if isinstance(condition, dict) and 'key' in condition and 'match' in condition:
@@ -429,7 +445,6 @@ class QdrantAdapter(StorageAdapter):
                             )
                         )
                     elif isinstance(condition, dict):
-                        # Handle nested structures in must_not conditions
                         for key, value in condition.items():
                             if key not in ['must', 'should', 'must_not']:
                                 must_not_conditions.append(
@@ -438,69 +453,66 @@ class QdrantAdapter(StorageAdapter):
                                         match=MatchValue(value=value)
                                     )
                                 )
-            
-            # Create filter with available conditions
+
             if must_conditions or should_conditions or must_not_conditions:
                 return Filter(
-                    must=must_conditions if must_conditions else None,
-                    should=should_conditions if should_conditions else None,
-                    must_not=must_not_conditions if must_not_conditions else None
+                    must=must_conditions or None,
+                    should=should_conditions or None,
+                    must_not=must_not_conditions or None
                 )
-            
+
             return None
-            
-        # Handle simple key-value filters (backward compatibility)
+
+        # Handle simple key-value filters (including session_id duplication)
         if isinstance(filter_dict, dict):
+            if 'session_id' in filter_dict and len(filter_dict) == 1:
+                value = filter_dict['session_id']
+                return Filter(should=[
+                    FieldCondition(
+                        key='session_id',
+                        match=MatchValue(value=value)
+                    ),
+                    FieldCondition(
+                        key='metadata.session_id',
+                        match=MatchValue(value=value)
+                    )
+                ])
+
             must_conditions = []
-            for field, value in filter_dict.items():
-                if not isinstance(value, (dict, list)):
-                    must_conditions.append(
+            should_conditions = []
+
+            for key, value in filter_dict.items():
+                if isinstance(value, (dict, list)):
+                    continue
+
+                if key == 'session_id':
+                    should_conditions.append(
                         FieldCondition(
-                            key=field,
+                            key='session_id',
                             match=MatchValue(value=value)
                         )
                     )
-            if must_conditions:
-                return Filter(must=must_conditions)
-        
-        return None
-    
-    async def delete(self, id: str) -> bool:
-        """
-        Delete vector by ID.
-        
-        Args:
-            id: Point identifier
-        
-        Returns:
-            True if deleted, False if not found
-        
-        Raises:
-            StorageConnectionError: If not connected
-            StorageQueryError: If delete operation fails
-        """
-        async with OperationTimer(self.metrics, 'delete'):
-            if not self._connected or not self.client:
-                raise StorageConnectionError("Not connected to Qdrant")
-            
-            try:
-                # Delete point
-                result = await self.client.delete(
-                    collection_name=self.collection_name,
-                    points_selector=[id]
-                )
-                
-                deleted = result.status == "completed"
-                if deleted:
-                    logger.debug(f"Deleted point {id}")
+                    should_conditions.append(
+                        FieldCondition(
+                            key='metadata.session_id',
+                            match=MatchValue(value=value)
+                        )
+                    )
                 else:
-                    logger.debug(f"Point {id} not found for deletion")
-                
-                return deleted
-                
-            except Exception as e:
-                logger.error(f"Qdrant delete failed: {e}", exc_info=True)
-                raise StorageQueryError(f"Failed to delete from Qdrant: {e}") from e
+                    must_conditions.append(
+                        FieldCondition(
+                            key=key,
+                            match=MatchValue(value=value)
+                        )
+                    )
+
+            if must_conditions or should_conditions:
+                return Filter(
+                    must=must_conditions or None,
+                    should=should_conditions or None
+                )
+
+        return None
     
     # Batch operations (optimized for Qdrant)
     
@@ -814,23 +826,16 @@ class QdrantAdapter(StorageAdapter):
             raise StorageConnectionError("Not connected to Qdrant")
         
         try:
-            # Check if collection already exists and verify vector size; recreate on mismatch
             try:
-                existing = await self.client.get_collection(name)
-                existing_vectors = existing.config.params.vectors
-                if hasattr(existing_vectors, "size") and existing_vectors.size != self.vector_size:
-                    await self.client.delete_collection(name)
-                else:
-                    return False
+                await self.client.get_collection(name)
+                return False
             except Exception:
                 # Collection doesn't exist, proceed with creation
                 pass
-            
-            # Prepare vector configuration
+
             if config and 'vectors' in config:
                 vectors_config = config['vectors']
             else:
-                # Use default configuration based on adapter settings
                 distance_map = {
                     'Cosine': Distance.COSINE,
                     'Euclid': Distance.EUCLID,
@@ -840,16 +845,15 @@ class QdrantAdapter(StorageAdapter):
                     size=self.vector_size,
                     distance=distance_map.get(self.distance, Distance.COSINE)
                 )
-            
-            # Create collection
+
             await self.client.create_collection(
                 collection_name=name,
                 vectors_config=vectors_config
             )
-            
+
             logger.info(f"Created Qdrant collection: {name}")
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to create collection {name}: {e}", exc_info=True)
             raise StorageQueryError(f"Failed to create collection {name}: {e}") from e
