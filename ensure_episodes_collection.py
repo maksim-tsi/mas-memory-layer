@@ -1,12 +1,13 @@
 import asyncio
+import os
 from src.storage.qdrant_adapter import QdrantAdapter
 
 
 async def main() -> None:
     adapter = QdrantAdapter({
-        "url": "http://192.168.107.187:6333",
-        "collection_name": "episodes",
-        "vector_size": 768,
+        "url": os.getenv("QDRANT_URL", "http://192.168.107.187:6333"),
+        "collection_name": os.getenv("QDRANT_COLLECTION", "episodes"),
+        "vector_size": int(os.getenv("QDRANT_VECTOR_SIZE", 768)),
     })
     await adapter.connect()
     created = await adapter.create_collection("episodes")

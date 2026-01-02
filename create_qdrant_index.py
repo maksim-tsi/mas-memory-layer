@@ -1,12 +1,13 @@
 import asyncio
+import os
 from qdrant_client.http import models
 from src.storage.qdrant_adapter import QdrantAdapter
 
 
 async def main() -> None:
     adapter = QdrantAdapter({
-        "url": "http://192.168.107.187:6333",
-        "collection_name": "episodes",
+        "url": os.getenv("QDRANT_URL", "http://192.168.107.187:6333"),
+        "collection_name": os.getenv("QDRANT_COLLECTION", "episodes"),
     })
     await adapter.connect()
     await adapter.client.create_payload_index(

@@ -390,9 +390,20 @@ class ConsolidationEngine(BaseEngine):
         end_time: datetime
     ) -> List[Fact]:
         """Retrieve facts from L2 within time range."""
-        # WorkingMemoryTier needs a method to query by time range
-        # For now, get all facts and filter
-        all_facts = await self.l2.query_by_session(session_id)
+        # WorkingMemoryTier currently does not support range queries; pull a
+        # generous window of recent facts and filter locally. We explicitly
+        # disable CIAR filtering to avoid losing facts when CIAR components are
+        # missing in storage rows (e.g., legacy schemas without ciar_score).
+        all_facts = await self.l2.query(
+            filters={'session_id': session_id},
+            limit=500,
+            include_low_ciar=True
+        )
+
+        if not all_facts and hasattr(self.l2, "get_recent_cached"):
+            cached = self.l2.get_recent_cached(session_id)
+            if cached:
+                all_facts = cached
         
         filtered = []
         for fact_dict in all_facts:

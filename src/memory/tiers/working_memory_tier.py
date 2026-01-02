@@ -14,6 +14,7 @@ Key Features:
 """
 
 from typing import Dict, Any, List, Optional
+from collections import deque
 from datetime import datetime, timedelta, timezone
 import json
 import logging
@@ -101,6 +102,8 @@ class WorkingMemoryTier(BaseTier):
         self.ttl_days = config.get('ttl_days', self.DEFAULT_TTL_DAYS) if config else self.DEFAULT_TTL_DAYS
         self.recency_boost_alpha = config.get('recency_boost_alpha', self.RECENCY_BOOST_ALPHA) if config else self.RECENCY_BOOST_ALPHA
         self.age_decay_lambda = config.get('age_decay_lambda', self.AGE_DECAY_LAMBDA) if config else self.AGE_DECAY_LAMBDA
+        self.cache_limit = config.get('cache_limit', 200) if config else 200
+        self._recent_cache: Dict[str, deque[Fact]] = {}
         
         logger.info(
             f"L2 WorkingMemoryTier initialized: ciar_threshold={self.ciar_threshold}, "
@@ -159,6 +162,7 @@ class WorkingMemoryTier(BaseTier):
                     fact.to_db_dict()
                 )
                 
+                self._cache_fact(fact)
                 logger.debug(f"Fact {fact.fact_id} stored successfully in L2")
                 return fact.fact_id
                 
@@ -168,6 +172,18 @@ class WorkingMemoryTier(BaseTier):
             except Exception as e:
                 logger.error(f"Failed to store fact in L2: {e}")
                 raise TierOperationError(f"Failed to store fact: {e}") from e
+
+    def _cache_fact(self, fact: Fact) -> None:
+        """Keep a small recent fact buffer per session for fast retrieval."""
+        cache = self._recent_cache.setdefault(
+            fact.session_id,
+            deque(maxlen=self.cache_limit)
+        )
+        cache.append(fact)
+
+    def get_recent_cached(self, session_id: str) -> List[Fact]:
+        """Return recently stored facts for a session (in-process cache)."""
+        return list(self._recent_cache.get(session_id, []))
     
     async def retrieve(self, fact_id: str) -> Optional[Fact]:
         """

@@ -1,4 +1,5 @@
 import asyncio
+import os
 from datetime import datetime, timezone, timedelta
 
 from src.storage.postgres_adapter import PostgresAdapter
@@ -8,7 +9,7 @@ from src.memory.tiers.working_memory_tier import WorkingMemoryTier
 async def main() -> None:
     session_id = "l2-roundtrip"
     adapter = PostgresAdapter({
-        "url": "postgresql://pgadmin:password@192.168.107.187:5432/mas_memory",
+        "url": os.getenv("POSTGRES_URL", "postgresql://pgadmin:password@192.168.107.187:5432/mas_memory"),
     })
     await adapter.connect()
     tier = WorkingMemoryTier(adapter)
