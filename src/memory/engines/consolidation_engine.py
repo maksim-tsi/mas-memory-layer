@@ -3,18 +3,29 @@ Consolidation Engine (L2 -> L3).
 
 This engine is responsible for consolidating facts from Working Memory (L2)
 into episodes stored in Episodic Memory (L3).
+
+Recovery Triggers (No Cron):
+1. Wake-Up Sweep: On startup, process all unconsolidated facts
+2. Pressure Valve: Auto-trigger when unconsolidated count >= threshold
+3. Session End Signal: Force consolidation on session_status="concluded" event
+
+References:
+- docs/research/consolidation-hooks-and-signals.md
+- docs/research/redis-global-local-stream.md
 """
 
 import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
+import asyncio
 
 from src.memory.engines.base_engine import BaseEngine
 from src.memory.tiers.working_memory_tier import WorkingMemoryTier
 from src.memory.tiers.episodic_memory_tier import EpisodicMemoryTier
 from src.memory.models import Episode, Fact
 from src.utils.providers import GeminiProvider
+from src.memory.lifecycle_stream import LifecycleStreamConsumer
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +45,22 @@ class ConsolidationEngine(BaseEngine):
     DEFAULT_TIME_WINDOW_HOURS = 24
     DEFAULT_EMBEDDING_MODEL = "gemini-embedding-001"
     DEFAULT_SUMMARY_MODEL = "gemini-2.5-flash"
+    DEFAULT_PRESSURE_VALVE_THRESHOLD = 50  # Trigger batch consolidation at 50 facts
+    DEFAULT_BATCH_SIZE = 100  # Max facts to process in one sweep
 
     def __init__(
         self,
         l2_tier: WorkingMemoryTier,
         l3_tier: EpisodicMemoryTier,
         gemini_provider: GeminiProvider,
+        stream_consumer: Optional[LifecycleStreamConsumer] = None,
         config: Optional[Dict[str, Any]] = None
     ):
         super().__init__()
         self.l2 = l2_tier
         self.l3 = l3_tier
         self.gemini = gemini_provider
+        self.stream_consumer = stream_consumer
         self.config = config or {}
         self.time_window_hours = self.config.get(
             'time_window_hours', self.DEFAULT_TIME_WINDOW_HOURS
@@ -56,6 +71,224 @@ class ConsolidationEngine(BaseEngine):
         self.summary_model = self.config.get(
             'summary_model', self.DEFAULT_SUMMARY_MODEL
         )
+        self.pressure_valve_threshold = self.config.get(
+            'pressure_valve_threshold', self.DEFAULT_PRESSURE_VALVE_THRESHOLD
+        )
+        self.batch_size = self.config.get(
+            'batch_size', self.DEFAULT_BATCH_SIZE
+        )
+        self._running = False
+        self._buffer: List[Fact] = []
+
+    async def start(self) -> None:
+        """
+        Start the consolidation engine with recovery triggers.
+        
+        Triggers:
+        1. Wake-Up Sweep: Process all unconsolidated facts on startup
+        2. Stream Listener: Process lifecycle events in real-time
+        3. Pressure Valve: Auto-trigger when buffer exceeds threshold
+        
+        This method should be called during system initialization.
+        """
+        self._running = True
+        logger.info("ConsolidationEngine starting with recovery triggers...")
+        
+        # TRIGGER 1: Wake-Up Sweep
+        logger.info("Executing Wake-Up Sweep for missed consolidations...")
+        await self.run_recovery_sweep()
+        
+        # TRIGGER 2: Start stream listener (if configured)
+        if self.stream_consumer:
+            # Register handlers for lifecycle events
+            self.stream_consumer.register_handler(
+                "promotion", self._handle_promotion_event
+            )
+            self.stream_consumer.register_handler(
+                "session_end", self._handle_session_end_event
+            )
+            
+            # Start consuming in background
+            asyncio.create_task(self.stream_consumer.start())
+            logger.info("Lifecycle stream listener started")
+        
+        logger.info("ConsolidationEngine started successfully")
+    
+    async def stop(self) -> None:
+        """Stop the consolidation engine and stream listener."""
+        self._running = False
+        if self.stream_consumer:
+            await self.stream_consumer.stop()
+        logger.info("ConsolidationEngine stopped")
+    
+    async def run_recovery_sweep(self) -> Dict[str, Any]:
+        """
+        Wake-Up Sweep: Scan L2 for unconsolidated facts and process them.
+        
+        This runs on every system boot to catch facts missed while the
+        system was offline. Provides eventual consistency for facts that
+        couldn't be consolidated in real-time.
+        
+        Returns:
+            Stats: sessions_processed, facts_consolidated, episodes_created
+        """
+        stats = {
+            "sessions_processed": 0,
+            "facts_consolidated": 0,
+            "episodes_created": 0,
+            "errors": 0
+        }
+        
+        try:
+            # Query L2 for all unconsolidated facts
+            # (Requires L2 tier to track consolidation status)
+            unconsolidated = await self._get_unconsolidated_facts()
+            
+            if not unconsolidated:
+                logger.info("Wake-Up Sweep: No unconsolidated facts found")
+                return stats
+            
+            logger.info(f"Wake-Up Sweep: Found {len(unconsolidated)} unconsolidated facts")
+            
+            # Group facts by session
+            sessions = {}
+            for fact in unconsolidated:
+                session_id = fact.session_id
+                if session_id not in sessions:
+                    sessions[session_id] = []
+                sessions[session_id].append(fact)
+            
+            # Process each session
+            for session_id, facts in sessions.items():
+                try:
+                    result = await self._consolidate_facts(session_id, facts)
+                    stats["sessions_processed"] += 1
+                    stats["facts_consolidated"] += len(facts)
+                    stats["episodes_created"] += result.get("episodes_created", 0)
+                except Exception as e:
+                    logger.error(f"Wake-Up Sweep error for session {session_id}: {e}")
+                    stats["errors"] += 1
+            
+            logger.info(f"Wake-Up Sweep completed: {stats}")
+            return stats
+        
+        except Exception as e:
+            logger.error(f"Wake-Up Sweep failed: {e}")
+            stats["errors"] += 1
+            return stats
+    
+    async def _handle_promotion_event(self, event: Dict[str, Any]) -> None:
+        """
+        Handle promotion events from lifecycle stream.
+        
+        Adds promoted facts to buffer and checks pressure valve threshold.
+        """
+        session_id = event.get("session_id")
+        import json
+        data = json.loads(event.get("data", "{}"))
+        fact_count = data.get("fact_count", 0)
+        
+        logger.debug(f"Promotion event: {fact_count} facts for session {session_id}")
+        
+        # Check pressure valve (if buffer grows too large)
+        current_count = await self._get_unconsolidated_count()
+        
+        # TRIGGER 3: Pressure Valve
+        if current_count >= self.pressure_valve_threshold:
+            logger.warning(
+                f"Pressure Valve triggered: {current_count} unconsolidated facts "
+                f"(threshold: {self.pressure_valve_threshold})"
+            )
+            await self._trigger_batch_consolidation()
+    
+    async def _handle_session_end_event(self, event: Dict[str, Any]) -> None:
+        """
+        Handle session_end events from lifecycle stream.
+        
+        Forces immediate consolidation for the session regardless of buffer size.
+        """
+        session_id = event.get("session_id")
+        logger.info(f"Session end event: Forcing consolidation for {session_id}")
+        
+        # Force consolidation for this session
+        try:
+            stats = await self.process_session(session_id)
+            logger.info(f"Session end consolidation completed: {stats}")
+        except Exception as e:
+            logger.error(f"Session end consolidation failed for {session_id}: {e}")
+    
+    async def _trigger_batch_consolidation(self) -> None:
+        """
+        Pressure Valve: Process a batch of unconsolidated facts immediately.
+        """
+        try:
+            await self.run_recovery_sweep()
+        except Exception as e:
+            logger.error(f"Batch consolidation failed: {e}")
+    
+    async def _get_unconsolidated_facts(self) -> List[Fact]:
+        """
+        Query L2 for all facts where consolidated=False.
+        
+        Returns up to batch_size facts, ordered by extraction time.
+        """
+        # This requires WorkingMemoryTier to track consolidation status
+        # For now, return empty list (will be implemented in WorkingMemoryTier)
+        # TODO: Add query_unconsolidated() method to WorkingMemoryTier
+        logger.warning("_get_unconsolidated_facts not yet implemented in L2 tier")
+        return []
+    
+    async def _get_unconsolidated_count(self) -> int:
+        """
+        Get count of unconsolidated facts in L2.
+        
+        Used for pressure valve threshold check.
+        """
+        # This requires WorkingMemoryTier to track consolidation status
+        # For now, return 0 (will be implemented in WorkingMemoryTier)
+        # TODO: Add count_unconsolidated() method to WorkingMemoryTier
+        return 0
+    
+    async def _consolidate_facts(
+        self, 
+        session_id: str, 
+        facts: List[Fact]
+    ) -> Dict[str, Any]:
+        """
+        Consolidate a list of facts into episodes.
+        
+        Args:
+            session_id: Session ID
+            facts: List of facts to consolidate
+            
+        Returns:
+            Stats: episodes_created, errors
+        """
+        stats = {"episodes_created": 0, "errors": 0}
+        
+        # Cluster facts by time windows
+        clusters = self._cluster_facts_by_time(facts)
+        
+        # Create episodes from clusters
+        for cluster in clusters:
+            try:
+                episode = await self._create_episode_from_facts(session_id, cluster)
+                embedding = await self._generate_embedding(episode)
+                
+                await self.l3.store({
+                    'episode': episode,
+                    'embedding': embedding,
+                    'entities': [],
+                    'relationships': []
+                })
+                
+                stats["episodes_created"] += 1
+            
+            except Exception as e:
+                logger.error(f"Error consolidating fact cluster: {e}")
+                stats["errors"] += 1
+        
+        return stats
 
     async def process(self, session_id: Optional[str] = None) -> Dict[str, Any]:
         """

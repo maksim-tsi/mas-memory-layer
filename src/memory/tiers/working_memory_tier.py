@@ -336,6 +336,92 @@ class WorkingMemoryTier(BaseTier):
         
         return await self.query(filters=filters, limit=limit)
     
+    async def search_facts(
+        self,
+        query: str,
+        session_id: str,
+        min_ciar: Optional[float] = None,
+        limit: int = 20
+    ) -> List[Fact]:
+        """
+        Full-text search for facts using PostgreSQL tsvector.
+        
+        Uses 'simple' language config (no stemming) for exact keyword/entity
+        matching, ideal for SKUs, container IDs, error codes, and polyglot content.
+        
+        This is L2's lightweight alternative to vector search - fast keyword
+        lookup for working memory without external API calls or embeddings.
+        
+        Args:
+            query: Search query string (e.g., "MAEU1234567", "Port of Los Angeles")
+            session_id: Session identifier to scope search
+            min_ciar: Minimum CIAR score threshold (default: tier threshold)
+            limit: Maximum results (default: 20)
+        
+        Returns:
+            List of matching facts ordered by relevance (ts_rank) DESC, then CIAR DESC
+        
+        Example:
+            ```python
+            # Search for container ID in current session
+            facts = await tier.search_facts(
+                query="MAEU1234567",
+                session_id="session-123",
+                min_ciar=0.6,
+                limit=10
+            )
+            ```
+        """
+        async with OperationTimer(self.metrics, 'l2_search_facts'):
+            try:
+                min_ciar_threshold = min_ciar if min_ciar is not None else self.ciar_threshold
+                
+                # Build PostgreSQL full-text search query
+                # Using plainto_tsquery for simple natural language queries
+                sql = """
+                    SELECT *,
+                           ts_rank(content_tsv, plainto_tsquery('simple', $1)) as rank
+                    FROM working_memory
+                    WHERE session_id = $2
+                      AND ciar_score >= $3
+                      AND (ttl_expires_at IS NULL OR ttl_expires_at > NOW())
+                      AND content_tsv @@ plainto_tsquery('simple', $1)
+                    ORDER BY rank DESC, ciar_score DESC, last_accessed DESC
+                    LIMIT $4
+                """
+                
+                results = await self.postgres.execute(
+                    sql,
+                    query,
+                    session_id,
+                    min_ciar_threshold,
+                    limit
+                )
+                
+                facts = []
+                for row in results:
+                    # Remove the 'rank' field before creating Fact model
+                    fact_data = dict(row)
+                    fact_data.pop('rank', None)
+                    fact_data.pop('content_tsv', None)  # Remove tsvector field
+                    
+                    # Parse metadata if it's a string
+                    if isinstance(fact_data.get('metadata'), str):
+                        fact_data['metadata'] = json.loads(fact_data['metadata'])
+                    
+                    facts.append(Fact(**fact_data))
+                
+                logger.info(
+                    f"L2 search found {len(facts)} facts for query '{query}' "
+                    f"(session={session_id}, min_ciar={min_ciar_threshold})"
+                )
+                
+                return facts
+                
+            except Exception as e:
+                logger.error(f"Failed to search facts in L2: {e}")
+                raise TierOperationError(f"Failed to search facts: {e}") from e
+    
     async def update_ciar_score(
         self,
         fact_id: str,
