@@ -824,7 +824,11 @@ class TestQdrantAdvancedFilters:
             await adapter.disconnect()
     
     async def test_backward_compatibility_simple_filters(self, mock_qdrant_client):
-        """Test that simple filters still work (backward compatibility)."""
+        """Test that simple filters still work (backward compatibility).
+        
+        Note: session_id is handled specially - it uses 'should' to match either
+        session_id OR metadata.session_id for flexibility. Other fields use 'must'.
+        """
         with patch('src.storage.qdrant_adapter.AsyncQdrantClient', return_value=mock_qdrant_client):
             config = {
                 'url': 'http://localhost:6333',
@@ -849,7 +853,10 @@ class TestQdrantAdvancedFilters:
             call_args = mock_qdrant_client.search.call_args
             query_filter = call_args[1]['query_filter']
             assert query_filter is not None
-            assert len(query_filter.must) == 2
+            # session_id goes to 'should' (OR between session_id and metadata.session_id)
+            # type goes to 'must'
+            assert len(query_filter.should) == 2  # session_id OR metadata.session_id
+            assert len(query_filter.must) == 1    # type only
             await adapter.disconnect()
 
 
