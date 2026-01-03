@@ -127,6 +127,14 @@ class Fact(BaseModel):
             (self.certainty * self.impact) * self.age_decay * self.recency_boost,
             4
         )
+
+    # Provide lightweight dict-style access for compatibility with callers that
+    # expect mapping semantics from Fact instances.
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)
     
     def to_db_dict(self) -> Dict[str, Any]:
         """Convert to database-compatible dictionary."""
@@ -246,7 +254,10 @@ class Episode(BaseModel):
             'importanceScore': self.importance_score,
             'vectorId': self.vector_id,
             'consolidatedAt': self.consolidated_at.isoformat(),
-            'consolidationMethod': self.consolidation_method
+            'consolidationMethod': self.consolidation_method,
+            # Duplicate snake_case properties for compatibility with legacy queries
+            'session_id': self.session_id,
+            'episode_id': self.episode_id
         }
 
 
@@ -259,6 +270,7 @@ class KnowledgeDocument(BaseModel):
     """
     
     knowledge_id: str
+    session_id: Optional[str] = None
     
     # Content
     title: str = Field(..., min_length=5, max_length=500)
@@ -294,6 +306,7 @@ class KnowledgeDocument(BaseModel):
         """Convert to Typesense document format."""
         return {
             'id': self.knowledge_id,
+            'session_id': self.session_id or '',
             'title': self.title,
             'content': self.content,
             'knowledge_type': self.knowledge_type,

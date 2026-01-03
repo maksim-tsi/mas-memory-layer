@@ -7,8 +7,8 @@ CIARScorer dependency.
 
 import pytest
 import json
-from unittest.mock import Mock, AsyncMock, patch
-from datetime import datetime, timezone, timedelta
+from unittest.mock import Mock, AsyncMock
+from datetime import datetime, timezone
 
 from src.agents.tools.ciar_tools import (
     ciar_calculate,
@@ -101,8 +101,7 @@ class TestCIARCalculateTool:
     async def test_ciar_calculate_high_score(self):
         """Test CIAR calculation for high-scoring fact."""
         # Mock runtime
-        mock_runtime = Mock()
-        mock_runtime.stream_status = AsyncMock()
+        mock_runtime = AsyncMock()
         
         result = await ciar_calculate.coroutine(
             content="Critical: Port closure announced",
@@ -124,8 +123,7 @@ class TestCIARCalculateTool:
     @pytest.mark.asyncio
     async def test_ciar_calculate_low_score(self):
         """Test CIAR calculation for low-scoring fact."""
-        mock_runtime = Mock()
-        mock_runtime.stream_status = AsyncMock()
+        mock_runtime = AsyncMock()
         
         result = await ciar_calculate.coroutine(
             content="Minor: Status check",
@@ -146,8 +144,7 @@ class TestCIARCalculateTool:
     @pytest.mark.asyncio
     async def test_ciar_calculate_with_age_decay(self):
         """Test CIAR calculation with age decay applied."""
-        mock_runtime = Mock()
-        mock_runtime.stream_status = AsyncMock()
+        mock_runtime = AsyncMock()
         
         result = await ciar_calculate.coroutine(
             content="Old event",
@@ -166,8 +163,7 @@ class TestCIARCalculateTool:
     @pytest.mark.asyncio
     async def test_ciar_calculate_with_recency_boost(self):
         """Test CIAR calculation with recency boost."""
-        mock_runtime = Mock()
-        mock_runtime.stream_status = AsyncMock()
+        mock_runtime = AsyncMock()
         
         result = await ciar_calculate.coroutine(
             content="Frequently accessed fact",
@@ -190,8 +186,7 @@ class TestCIARFilterTool:
     @pytest.mark.asyncio
     async def test_ciar_filter_mixed_scores(self):
         """Test filtering with mixed high/low CIAR scores."""
-        mock_runtime = Mock()
-        mock_runtime.stream_status = AsyncMock()
+        mock_runtime = AsyncMock()
         
         now = datetime.now(timezone.utc)
         facts = [
@@ -220,8 +215,7 @@ class TestCIARFilterTool:
     @pytest.mark.asyncio
     async def test_ciar_filter_all_pass(self):
         """Test filtering where all facts pass threshold."""
-        mock_runtime = Mock()
-        mock_runtime.stream_status = AsyncMock()
+        mock_runtime = AsyncMock()
         
         now = datetime.now(timezone.utc)
         facts = [

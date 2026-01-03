@@ -38,17 +38,37 @@ class FakeClient:
 
 def register_fake_genai(fake_client, monkeypatch):
     """Helper to inject a fake google.genai module with Client returning fake_client."""
-    # Create a fake google package with genai submodule
-    # include a fake 'types' module with the small GenerateContentConfig API used by provider
+    # Create minimal classes to satisfy provider expectations
+    class FakePart:
+        def __init__(self, text: str):
+            self.text = text
+
+        @classmethod
+        def from_text(cls, text: str):
+            return cls(text)
+
+    class FakeContent:
+        def __init__(self, role: str, parts: list):
+            self.role = role
+            self.parts = parts
+
     class FakeGenerateContentConfig:
-        def __init__(self, temperature=0.0, max_output_tokens=256, system_instruction=None):
+        def __init__(self, temperature=0.0, max_output_tokens=256, system_instruction=None, response_mime_type=None, response_schema=None):
             self.temperature = temperature
             self.max_output_tokens = max_output_tokens
             self.system_instruction = system_instruction
+            self.response_mime_type = response_mime_type
+            self.response_schema = response_schema
+
+    fake_types = types.SimpleNamespace(
+        GenerateContentConfig=FakeGenerateContentConfig,
+        Content=FakeContent,
+        Part=FakePart,
+    )
 
     fake_genai_mod = types.SimpleNamespace(
         Client=lambda api_key: fake_client,
-        types=types.SimpleNamespace(GenerateContentConfig=FakeGenerateContentConfig),
+        types=fake_types,
     )
     fake_google_mod = types.ModuleType("google")
     fake_google_mod.genai = fake_genai_mod
@@ -68,7 +88,7 @@ async def test_gemini_generate_success(monkeypatch):
     assert isinstance(resp, LLMResponse)
     assert resp.text == "2+2 equals 4"
     assert resp.provider == "gemini"
-    assert resp.model == "gemini-2.5-flash"
+    assert resp.model == "gemini-3-flash-preview"
     assert resp.usage["prompt_tokens"] == 10
 
 

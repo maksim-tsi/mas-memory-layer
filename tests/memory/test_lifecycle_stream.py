@@ -18,7 +18,6 @@ import os
 import uuid
 import json
 import asyncio
-from datetime import datetime, timezone
 
 from src.memory.lifecycle_stream import (
     LifecycleStreamConsumer,
@@ -94,7 +93,7 @@ async def cleanup_stream(redis_client):
     stream_key = NamespaceManager.lifecycle_stream()
     try:
         await redis_client.delete(stream_key)
-    except:
+    except Exception:
         pass
 
 
@@ -464,7 +463,6 @@ class TestConcurrentConsumers:
         """Stress test with 50 concurrent consumers."""
         num_consumers = 50
         consumers = []
-        all_events = []
         
         # Create consumer group
         consumer_group = f"stress-test-{uuid.uuid4()}"

@@ -3,11 +3,10 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, ValidationError
-from datetime import datetime, timezone
+from datetime import datetime
 import uuid
 import redis
 import json
-import asyncio
 
 # Import tier classes
 from src.memory.tiers import (

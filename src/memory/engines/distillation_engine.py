@@ -13,8 +13,8 @@ Architecture:
 """
 
 import logging
+import uuid
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timezone
 import time
 import yaml
 from pathlib import Path
@@ -46,12 +46,16 @@ class DistillationEngine(BaseEngine):
     
     def __init__(
         self,
-        episodic_tier: EpisodicMemoryTier,
-        semantic_tier: SemanticMemoryTier,
-        llm_provider: BaseProvider,
+        episodic_tier: Optional[EpisodicMemoryTier] = None,
+        semantic_tier: Optional[SemanticMemoryTier] = None,
+        llm_provider: Optional[BaseProvider] = None,
         domain_config_path: Optional[str] = None,
         episode_threshold: int = 5,
-        metrics_enabled: bool = True
+        metrics_enabled: bool = True,
+        config: Optional[Dict[str, Any]] = None,
+        l3_tier: Optional[EpisodicMemoryTier] = None,
+        l4_tier: Optional[SemanticMemoryTier] = None,
+        **_: Any
     ):
         """
         Initialize the Distillation Engine.
@@ -64,14 +68,23 @@ class DistillationEngine(BaseEngine):
             episode_threshold: Minimum episodes before triggering distillation
             metrics_enabled: Enable metrics collection
         """
-        metrics_config = {"enabled": metrics_enabled}
+        self.config = config or {}
+        resolved_episode_threshold = self.config.get("distillation_threshold", episode_threshold)
+        resolved_metrics_enabled = self.config.get("metrics_enabled", metrics_enabled)
+        metrics_config = {"enabled": resolved_metrics_enabled}
         collector = MetricsCollector(config=metrics_config)
         super().__init__(metrics_collector=collector)
-        self.episodic_tier = episodic_tier
-        self.semantic_tier = semantic_tier
-        self.llm_client = LLMClient()
-        self.llm_client.register_provider(llm_provider)
-        self.episode_threshold = episode_threshold
+        self.episodic_tier = episodic_tier or l3_tier
+        self.semantic_tier = semantic_tier or l4_tier
+        if self.episodic_tier is None or self.semantic_tier is None or llm_provider is None:
+            raise ValueError("episodic_tier/l3_tier, semantic_tier/l4_tier, and llm_provider are required")
+        # Accept either a provider or a fully-configured LLMClient
+        if isinstance(llm_provider, LLMClient):
+            self.llm_client = llm_provider
+        else:
+            self.llm_client = LLMClient()
+            self.llm_client.register_provider(llm_provider)
+        self.episode_threshold = resolved_episode_threshold
         
         # Load domain configuration
         self.domain_config = self._load_domain_config(domain_config_path)
@@ -207,6 +220,7 @@ class DistillationEngine(BaseEngine):
                     "status": "success",
                     "processed_episodes": len(episodes),
                     "created_documents": len(created_docs),
+                    "knowledge_documents_created": len(created_docs),
                     "documents": created_docs,
                     "elapsed_ms": elapsed_ms
                 }
@@ -218,6 +232,20 @@ class DistillationEngine(BaseEngine):
                     "status": "error",
                     "error": str(e)
                 }
+
+    async def distill(
+        self,
+        session_id: Optional[str] = None,
+        track_provenance: bool = True,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """Backwards-compatible alias for process()."""
+        return await self.process(
+            session_id=session_id,
+            track_provenance=track_provenance,
+            force_process=True,
+            **kwargs
+        )
     
     async def _count_episodes(
         self,
@@ -263,22 +291,29 @@ class DistillationEngine(BaseEngine):
         try:
             if time_range:
                 start_time, end_time = time_range
-                episodes = await self.episodic_tier.query_temporal(
-                    start_time=start_time,
-                    end_time=end_time,
+                episodes = await self.episodic_tier.query(
+                    filters=None,
                     limit=limit
                 )
             else:
-                # Retrieve all recent episodes
-                # Use semantic search with empty query to get recent episodes
                 episodes = await self.episodic_tier.query(
-                    query_text="",
+                    filters={'session_id': session_id} if session_id else None,
                     limit=limit
                 )
+            
+            pre_filter_count = len(episodes)
             
             # Filter by session_id if provided
             if session_id:
                 episodes = [ep for ep in episodes if ep.session_id == session_id]
+            
+            logger.info(
+                "Distillation episode retrieval: session=%s, pre_filter=%d, post_filter=%d, limit=%d",
+                session_id,
+                pre_filter_count,
+                len(episodes),
+                limit
+            )
             
             return episodes
             
@@ -306,10 +341,8 @@ class DistillationEngine(BaseEngine):
             KnowledgeDocument or None if synthesis fails
         """
         try:
-            # Build prompt for LLM
             llm_instruction = type_config.get("llm_instruction", "Synthesize knowledge from these episodes.")
-            
-            # Concatenate episode summaries for context
+
             episode_context = "\n\n".join([
                 f"Episode {i+1} (ID: {ep.episode_id}):\n"
                 f"Summary: {ep.summary}\n"
@@ -317,7 +350,7 @@ class DistillationEngine(BaseEngine):
                 f"Entities: {', '.join([str(e.get('name', e)) for e in ep.entities[:5]])}"  # First 5 entities
                 for i, ep in enumerate(episodes)
             ])
-            
+
             prompt = f"""{llm_instruction}
 
 Context from {len(episodes)} episode(s):
@@ -329,38 +362,64 @@ Provide a structured response with the following fields:
 - title: A concise title (max 100 characters)
 - key_points: List of 3-5 key points (as bullet points)
 """
-            
-            # Call LLM for synthesis
+
             response = await self.llm_client.generate(
                 prompt=prompt,
-                temperature=0.3  # Lower temperature for factual synthesis
+                temperature=0.3
             )
-            
-            # Parse LLM response
-            content, title, key_points = self._parse_llm_response(response.text, knowledge_type)
-            
-            # Extract metadata from episodes
+
+            try:
+                content, title, key_points = self._parse_llm_response(response.text, knowledge_type)
+            except Exception as parse_error:
+                logger.warning(
+                    "LLM parse failed for knowledge_type=%s: %s. Falling back to rule-based synthesis.",
+                    knowledge_type,
+                    parse_error
+                )
+                return self._create_rule_based_document(episodes, knowledge_type, session_id)
+
             metadata = self._extract_metadata(episodes)
-            
-            # Build source episode references
             source_episodes = [ep.episode_id for ep in episodes]
-            
-            # Create KnowledgeDocument
+
             doc = KnowledgeDocument(
-                knowledge_id=f"know_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}_{knowledge_type}",
+                knowledge_id=str(uuid.uuid4()),
+                session_id=session_id or (episodes[0].session_id if episodes else None),
                 knowledge_type=knowledge_type,
                 content=content,
                 title=title,
-                metadata={**metadata, "key_points": key_points},  # Store key_points in metadata
+                metadata={**metadata, "key_points": key_points},
                 source_episode_ids=source_episodes,
                 episode_count=len(source_episodes)
             )
-            
+
             return doc
-            
+
         except Exception as e:
             logger.error(f"Failed to create knowledge document: {e}")
             return None
+
+    def _create_rule_based_document(
+        self,
+        episodes: List[Episode],
+        knowledge_type: str,
+        session_id: Optional[str]
+    ) -> KnowledgeDocument:
+        """Fallback synthesis when LLM output cannot be parsed."""
+        summaries = [ep.summary for ep in episodes if getattr(ep, "summary", "")]
+        content = " \n".join(summaries) or "Distilled knowledge from episodes"
+        title = f"{knowledge_type.title()} summary"[:100]
+        return KnowledgeDocument(
+            knowledge_id=str(uuid.uuid4()),
+            session_id=session_id or (episodes[0].session_id if episodes else None),
+            title=title,
+            content=content,
+            knowledge_type=knowledge_type,
+            confidence_score=0.5,
+            source_episode_ids=[ep.episode_id for ep in episodes],
+            episode_count=len(episodes),
+            tags=[knowledge_type],
+            domain=self.domain_config.get("domain", {}).get("name"),
+        )
     
     def _parse_llm_response(
         self,

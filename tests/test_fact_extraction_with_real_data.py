@@ -5,11 +5,14 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
+
 from src.utils.llm_client import LLMClient, ProviderConfig
 from src.utils.providers import GeminiProvider
 from src.memory.engines.fact_extractor import FactExtractor
 
 
+@pytest.mark.asyncio
 async def test_fact_extraction_from_document():
     """Extract facts from supply chain optimization document."""
     

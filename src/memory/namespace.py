@@ -31,6 +31,7 @@ References:
 - docs/research/consolidation-hooks-and-signals.md
 """
 
+import binascii
 import redis.asyncio as redis
 from typing import Dict, Any, Optional
 import json
@@ -157,6 +158,11 @@ class NamespaceManager:
             redis_client: Async Redis client (required for publish_lifecycle_event)
         """
         self.redis = redis_client
+
+    @staticmethod
+    def compute_slot(key: str) -> int:
+        """Compute Redis Cluster slot for a key using CRC16 (XMODEM)."""
+        return binascii.crc_hqx(key.encode(), 0) % 16384
     
     async def publish_lifecycle_event(
         self,

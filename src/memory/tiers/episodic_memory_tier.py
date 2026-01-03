@@ -12,6 +12,7 @@ This enables both "find similar experiences" (Qdrant) and
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import json
+import uuid
 
 from src.memory.tiers.base_tier import BaseTier
 from src.storage.qdrant_adapter import QdrantAdapter
@@ -32,7 +33,7 @@ class EpisodicMemoryTier(BaseTier):
     """
     
     COLLECTION_NAME = "episodes"
-    VECTOR_SIZE = 1536  # OpenAI ada-002 embedding size
+    VECTOR_SIZE = 768  # Gemini text-embedding-004 default dimension
     
     def __init__(
         self,
@@ -50,7 +51,13 @@ class EpisodicMemoryTier(BaseTier):
         self.qdrant = qdrant_adapter
         self.neo4j = neo4j_adapter
         self.collection_name = config.get('collection_name', self.COLLECTION_NAME) if config else self.COLLECTION_NAME
-        self.vector_size = config.get('vector_size', self.VECTOR_SIZE) if config else self.VECTOR_SIZE
+        # Align vector size to Qdrant collection configuration when available
+        adapter_vector_size = getattr(qdrant_adapter, 'vector_size', self.VECTOR_SIZE)
+        self.config_vector_size = config.get('vector_size') if config else None
+        self.vector_size = self.config_vector_size or adapter_vector_size
+        # Ensure adapter uses the episodic collection name and vector size for all operations
+        setattr(self.qdrant, 'collection_name', self.collection_name)
+        setattr(self.qdrant, 'vector_size', self.vector_size)
     
     async def initialize(self) -> None:
         """Initialize Qdrant collection and Neo4j constraints."""
@@ -59,12 +66,9 @@ class EpisodicMemoryTier(BaseTier):
         
         # Create collection if needed
         try:
-            await self.qdrant.create_collection(
-                collection_name=self.collection_name,
-                vector_size=self.vector_size
-            )
+            await self.qdrant.create_collection(self.collection_name)
         except Exception as e:
-            # Collection might already exist
+            # Collection might already exist or require recreation; bubble up unexpected errors
             if "already exists" not in str(e).lower():
                 raise
     
@@ -92,11 +96,30 @@ class EpisodicMemoryTier(BaseTier):
             entities = data.get('entities', [])
             relationships = data.get('relationships', [])
             
-            # Validate
-            if not embedding or len(embedding) != self.vector_size:
+            # Validate and align embedding length
+            if embedding is None or len(embedding) == 0:
                 raise ValueError(
                     f"Embedding required with size {self.vector_size}"
                 )
+
+            if self.config_vector_size is not None:
+                if len(embedding) != self.vector_size:
+                    raise ValueError(
+                        f"Embedding required with size {self.vector_size}"
+                    )
+            elif len(embedding) != self.vector_size:
+                if len(embedding) > self.vector_size:
+                    embedding = embedding[:self.vector_size]
+                else:
+                    embedding = embedding + [0.0] * (self.vector_size - len(embedding))
+
+            # Ensure the collection exists before storing
+            try:
+                await self.qdrant.create_collection(self.collection_name)
+            except Exception as e:
+                # Ignore if already exists; bubble up unexpected issues
+                if "already exists" not in str(e).lower():
+                    raise
             
             # 1. Store in Qdrant (vector index)
             vector_id = await self._store_in_qdrant(episode, embedding)
@@ -455,16 +478,21 @@ class EpisodicMemoryTier(BaseTier):
         embedding: List[float]
     ) -> str:
         """Store episode vector in Qdrant."""
-        point_id = episode.episode_id
+        point_id = str(uuid.uuid4())
+
+        payload = {
+            'id': point_id,
+            'vector': embedding,
+            'content': episode.summary,
+            'session_id': episode.session_id,
+            'episode_id': episode.episode_id,
+            'metadata': episode.to_qdrant_payload()
+        }
         
-        await self.qdrant.upsert(
-            collection_name=self.collection_name,
-            points=[{
-                'id': point_id,
-                'vector': embedding,
-                'payload': episode.to_qdrant_payload()
-            }]
-        )
+        if hasattr(self.qdrant, 'upsert'):
+            await self.qdrant.upsert(payload)
+        else:
+            await self.qdrant.store(payload)
         
         return point_id
     
@@ -482,7 +510,7 @@ class EpisodicMemoryTier(BaseTier):
         RETURN e.episodeId as id
         """
         
-        result = await self.neo4j.execute_query(
+        await self.neo4j.execute_query(
             create_episode,
             {
                 'episode_id': episode.episode_id,

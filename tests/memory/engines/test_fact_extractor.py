@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from src.memory.engines.fact_extractor import FactExtractor, FactExtractionError
+from src.memory.engines.fact_extractor import FactExtractor
 from src.utils.llm_client import LLMClient, LLMResponse
-from src.memory.models import Fact, FactType, FactCategory
+from src.memory.models import FactType, FactCategory
 
 @pytest.fixture
 def mock_llm_client():

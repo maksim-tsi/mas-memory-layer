@@ -7,6 +7,7 @@ the LangChain ToolRuntime pattern (ADR-007).
 
 from typing import Optional, Any, Dict, TYPE_CHECKING
 from dataclasses import dataclass
+import inspect
 
 if TYPE_CHECKING:
     # For type hints only
@@ -186,6 +187,29 @@ class MASToolRuntime:
             List of messages (typically LangChain message objects)
         """
         return self._runtime.state.get('messages', [])
+
+    # --- Status Streaming ---
+
+    async def stream_status(self, status: str) -> None:
+        """Proxy status updates to the underlying runtime when available."""
+        status_handler = getattr(self._runtime, 'stream_status', None)
+        if status_handler:
+            try:
+                result = status_handler(status)
+                if inspect.isawaitable(result):
+                    await result
+                return
+            except TypeError:
+                # Non-awaitable mocks may raise when awaited; treat as best-effort
+                return
+        # Fallback to stream_writer when stream_status is unavailable
+        if hasattr(self._runtime, 'stream_writer') and self._runtime.stream_writer is not None:
+            try:
+                result = self._runtime.stream_writer({"status": status})
+                if inspect.isawaitable(result):
+                    await result
+            except TypeError:
+                return
     
     # --- Store Access Methods ---
     
@@ -229,15 +253,6 @@ class MASToolRuntime:
         """
         if hasattr(self._runtime, 'stream_writer') and self._runtime.stream_writer is not None:
             await self._runtime.stream_writer(update)
-    
-    async def stream_status(self, status: str) -> None:
-        """
-        Stream status message to client.
-        
-        Args:
-            status: Status message string
-        """
-        await self.stream_update({"status": status})
     
     # --- Utility Methods ---
     

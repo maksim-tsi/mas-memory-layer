@@ -14,6 +14,7 @@ Key Features:
 """
 
 from typing import Dict, Any, List, Optional
+from collections import deque
 from datetime import datetime, timedelta, timezone
 import json
 import logging
@@ -95,10 +96,14 @@ class WorkingMemoryTier(BaseTier):
         super().__init__(storage_adapters, metrics_collector, config)
         
         self.postgres = postgres_adapter
+        # Ensure adapter targets the working_memory table for all operations
+        setattr(self.postgres, 'table', 'working_memory')
         self.ciar_threshold = config.get('ciar_threshold', self.DEFAULT_CIAR_THRESHOLD) if config else self.DEFAULT_CIAR_THRESHOLD
         self.ttl_days = config.get('ttl_days', self.DEFAULT_TTL_DAYS) if config else self.DEFAULT_TTL_DAYS
         self.recency_boost_alpha = config.get('recency_boost_alpha', self.RECENCY_BOOST_ALPHA) if config else self.RECENCY_BOOST_ALPHA
         self.age_decay_lambda = config.get('age_decay_lambda', self.AGE_DECAY_LAMBDA) if config else self.AGE_DECAY_LAMBDA
+        self.cache_limit = config.get('cache_limit', 200) if config else 200
+        self._recent_cache: Dict[str, deque[Fact]] = {}
         
         logger.info(
             f"L2 WorkingMemoryTier initialized: ciar_threshold={self.ciar_threshold}, "
@@ -157,6 +162,7 @@ class WorkingMemoryTier(BaseTier):
                     fact.to_db_dict()
                 )
                 
+                self._cache_fact(fact)
                 logger.debug(f"Fact {fact.fact_id} stored successfully in L2")
                 return fact.fact_id
                 
@@ -166,6 +172,18 @@ class WorkingMemoryTier(BaseTier):
             except Exception as e:
                 logger.error(f"Failed to store fact in L2: {e}")
                 raise TierOperationError(f"Failed to store fact: {e}") from e
+
+    def _cache_fact(self, fact: Fact) -> None:
+        """Keep a small recent fact buffer per session for fast retrieval."""
+        cache = self._recent_cache.setdefault(
+            fact.session_id,
+            deque(maxlen=self.cache_limit)
+        )
+        cache.append(fact)
+
+    def get_recent_cached(self, session_id: str) -> List[Fact]:
+        """Return recently stored facts for a session (in-process cache)."""
+        return list(self._recent_cache.get(session_id, []))
     
     async def retrieve(self, fact_id: str) -> Optional[Fact]:
         """
@@ -270,8 +288,17 @@ class WorkingMemoryTier(BaseTier):
                     # Parse metadata if it's a string
                     if isinstance(row.get('metadata'), str):
                         row['metadata'] = json.loads(row['metadata'])
+
+                    # Backfill fact_id when underlying storage returns generic id
+                    if 'fact_id' not in row and 'id' in row:
+                        row['fact_id'] = str(row['id'])
                     
                     fact = Fact(**row)
+
+                    # Some storage adapters omit CIAR components; ensure we don't
+                    # filter out facts purely due to missing scores.
+                    if row.get('ciar_score') is None:
+                        fact.ciar_score = max(fact.ciar_score, self.ciar_threshold)
                     
                     # Apply CIAR filter
                     if not kwargs.get('include_low_ciar', False):
@@ -294,7 +321,7 @@ class WorkingMemoryTier(BaseTier):
         self,
         session_id: str,
         min_ciar_score: Optional[float] = None,
-        limit: int = 10
+        limit: int = 100
     ) -> List[Fact]:
         """
         Query facts for a specific session.
@@ -302,7 +329,7 @@ class WorkingMemoryTier(BaseTier):
         Args:
             session_id: Session identifier
             min_ciar_score: Minimum CIAR threshold (default: tier threshold)
-            limit: Maximum results
+            limit: Maximum results (default: 100 to support consolidation)
         
         Returns:
             List of facts ordered by CIAR score descending
@@ -317,7 +344,7 @@ class WorkingMemoryTier(BaseTier):
         self,
         fact_type: FactType,
         session_id: Optional[str] = None,
-        limit: int = 10
+        limit: int = 100
     ) -> List[Fact]:
         """
         Query facts by type.
@@ -325,7 +352,7 @@ class WorkingMemoryTier(BaseTier):
         Args:
             fact_type: Type of fact to retrieve
             session_id: Optional session filter
-            limit: Maximum results
+            limit: Maximum results (default: 100)
         
         Returns:
             List of matching facts

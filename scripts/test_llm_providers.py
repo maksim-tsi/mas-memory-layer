@@ -15,19 +15,19 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-
-from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
 # Import individual test modules
-import test_gemini
-import test_groq
-import test_mistral
+import test_gemini  # noqa: E402
+import test_groq  # noqa: E402
+import test_mistral  # noqa: E402
 
 
 def print_header():

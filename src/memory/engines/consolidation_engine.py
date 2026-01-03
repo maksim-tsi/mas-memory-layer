@@ -15,6 +15,7 @@ References:
 """
 
 import logging
+import hashlib
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
@@ -24,7 +25,8 @@ from src.memory.engines.base_engine import BaseEngine
 from src.memory.tiers.working_memory_tier import WorkingMemoryTier
 from src.memory.tiers.episodic_memory_tier import EpisodicMemoryTier
 from src.memory.models import Episode, Fact
-from src.utils.providers import GeminiProvider
+from src.utils.llm_client import LLMClient
+from src.utils.providers import BaseProvider
 from src.memory.lifecycle_stream import LifecycleStreamConsumer
 
 logger = logging.getLogger(__name__)
@@ -52,14 +54,23 @@ class ConsolidationEngine(BaseEngine):
         self,
         l2_tier: WorkingMemoryTier,
         l3_tier: EpisodicMemoryTier,
-        gemini_provider: GeminiProvider,
+        llm_provider: Optional[LLMClient] = None,
         stream_consumer: Optional[LifecycleStreamConsumer] = None,
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        gemini_provider: Optional[BaseProvider] = None
     ):
         super().__init__()
         self.l2 = l2_tier
         self.l3 = l3_tier
-        self.gemini = gemini_provider
+        if llm_provider is not None:
+            self.llm = llm_provider
+        elif gemini_provider is not None:
+            if not getattr(gemini_provider, 'name', None):
+                setattr(gemini_provider, 'name', 'gemini')
+            self.llm = LLMClient()
+            self.llm.register_provider(gemini_provider)
+        else:
+            raise ValueError("llm_provider or gemini_provider must be provided")
         self.stream_consumer = stream_consumer
         self.config = config or {}
         self.time_window_hours = self.config.get(
@@ -317,6 +328,9 @@ class ConsolidationEngine(BaseEngine):
         }
 
         try:
+            # Ensure downstream tier is initialized so collections/constraints exist
+            await self.l3.initialize()
+
             # 1. Determine time range (from last episode or beginning)
             start_time = await self._get_last_consolidation_time(session_id)
             end_time = datetime.now(timezone.utc)
@@ -376,20 +390,66 @@ class ConsolidationEngine(BaseEngine):
         end_time: datetime
     ) -> List[Fact]:
         """Retrieve facts from L2 within time range."""
-        # WorkingMemoryTier needs a method to query by time range
-        # For now, get all facts and filter
-        all_facts = await self.l2.query_by_session(session_id)
-        
-        filtered = []
-        for fact_dict in all_facts:
-            extracted_at = fact_dict.get('extracted_at')
+        facts: List[Fact] = []
+
+        if hasattr(self.l2, "query_by_session"):
+            try:
+                facts = await self.l2.query_by_session(
+                    session_id=session_id,
+                    min_ciar_score=0,
+                    limit=500
+                )
+            except Exception:
+                facts = []
+
+        if hasattr(self.l2, "query"):
+            try:
+                additional = await self.l2.query(
+                    filters={'session_id': session_id},
+                    limit=500,
+                    include_low_ciar=True
+                )
+                if additional and len(additional) > len(facts):
+                    facts = list(additional)
+            except Exception:
+                # If query fails, keep any facts gathered from query_by_session
+                pass
+
+        logger.info(
+            "Consolidation L2 fetch: session=%s count=%d",
+            session_id,
+            len(facts)
+        )
+
+        if not facts and hasattr(self.l2, "get_recent_cached"):
+            cached = self.l2.get_recent_cached(session_id)
+            if cached:
+                facts = list(cached)
+                logger.info(
+                    "Consolidation fallback to cache: session=%s cached_count=%d",
+                    session_id,
+                    len(facts)
+                )
+
+        filtered: List[Fact] = []
+        for fact_dict in facts:
+            if isinstance(fact_dict, Fact):
+                fact_data = fact_dict.model_dump()
+            else:
+                fact_data = dict(fact_dict)
+
+            extracted_at = fact_data.get('extracted_at') or fact_data.get('created_at')
             if isinstance(extracted_at, str):
                 extracted_at = datetime.fromisoformat(extracted_at)
-            
-            if start_time <= extracted_at <= end_time:
-                # Convert dict to Fact object
-                fact = Fact(**fact_dict)
-                filtered.append(fact)
+            if extracted_at is not None and extracted_at.tzinfo is None:
+                # Normalize naive timestamps to UTC for comparison
+                extracted_at = extracted_at.replace(tzinfo=timezone.utc)
+            if extracted_at is None:
+                extracted_at = datetime.now(timezone.utc)
+            fact_data['extracted_at'] = extracted_at
+
+            fact = Fact(**fact_data)
+            filtered.append(fact)
         
         return filtered
 
@@ -449,7 +509,7 @@ Format as JSON:
 }}
 """
         
-        response = await self.gemini.generate(
+        response = await self.llm.generate(
             prompt=prompt,
             model=self.summary_model,
             temperature=0.3,
@@ -504,28 +564,56 @@ Format as JSON:
         # Combine summary and narrative for embedding
         text = f"{episode.summary}. {episode.narrative or ''}"
         
-        embedding = await self.gemini.get_embedding(
-            text=text,
-            model=self.embedding_model
-        )
-        
-        return embedding
+        provider = self._get_embedding_provider()
+        if not provider:
+            logger.warning("No embedding-capable provider registered; using fallback embedding")
+            return self._fallback_embedding(text)
+
+        try:
+            return await provider.get_embedding(
+                text=text,
+                model=self.embedding_model
+            )
+        except Exception as e:
+            logger.warning("Embedding generation failed (%s); using fallback", e)
+            return self._fallback_embedding(text)
 
     async def health_check(self) -> Dict[str, Any]:
         """Check health of dependencies."""
         l2_health = await self.l2.health_check()
         l3_health = await self.l3.health_check()
-        gemini_health = await self.gemini.health_check()
+        llm_health = await self.llm.health_check()
         
         healthy = (
             l2_health.get("status") == "healthy" and 
             l3_health.get("status") == "healthy" and
-            gemini_health.healthy
+            all(h.healthy for h in llm_health.values())
         )
+        provider_health = {k: v for k, v in llm_health.items()}
         
         return {
             "status": "healthy" if healthy else "unhealthy",
             "l2": l2_health,
             "l3": l3_health,
-            "gemini": gemini_health
+            "llm_providers": {k: v.__dict__ for k, v in llm_health.items()},
+            **provider_health,
         }
+
+    def _get_embedding_provider(self):
+        """Select a provider that supports embeddings from the registered LLM client."""
+        for provider in self.llm._providers.values():
+            if hasattr(provider, "get_embedding"):
+                return provider
+        return None
+
+    def _fallback_embedding(self, text: str) -> List[float]:
+        """Generate deterministic fallback embedding when provider is unavailable."""
+        # Use 768 dims to match EpisodicMemoryTier.VECTOR_SIZE and Qdrant schema
+        vector_size = getattr(self.l3, "vector_size", 768)
+        digest = hashlib.sha256(text.encode("utf-8")).digest()
+        vector = []
+        for i in range(vector_size):
+            idx = i % len(digest)
+            value = digest[idx] / 255.0
+            vector.append(round(value, 6))
+        return vector

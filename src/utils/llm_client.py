@@ -8,16 +8,93 @@ tiers.
 The implementation keeps the core logic simple while still exposing enough APIs
 for Phase 2A/2B controllers to scale: configurable provider order, timeout
 control, and health checks.
+
+Phoenix/OpenTelemetry Instrumentation:
+    If PHOENIX_COLLECTOR_ENDPOINT is set, auto-instrumentors are activated
+    at module load time for LLM call observability. This enables embedding
+    dimension verification and latency debugging in the Arize Phoenix UI.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence, cast
 
 logger = logging.getLogger(__name__)
+
+
+# Phoenix configuration constants
+PHOENIX_DEFAULT_PROJECT = "mlm-mas-dev"
+PHOENIX_SERVICE_NAME = "mas-memory-layer"
+
+
+# Phoenix/OpenTelemetry auto-instrumentation (optional)
+def _init_phoenix_instrumentation() -> None:
+    """Initialize Phoenix/OpenTelemetry instrumentation if configured.
+    
+    Environment Variables:
+        PHOENIX_COLLECTOR_ENDPOINT: OTLP collector URL (e.g., http://192.168.107.172:6006/v1/traces)
+        PHOENIX_PROJECT_NAME: Project name for trace grouping (default: mlm-mas-dev)
+    
+    Project Naming Convention:
+        - mlm-mas-dev: Development environment
+        - mlm-mas-test: Testing/CI environment  
+        - mlm-mas-prod: Production environment
+    """
+    endpoint = os.environ.get("PHOENIX_COLLECTOR_ENDPOINT")
+    if not endpoint:
+        logger.debug(
+            "PHOENIX_COLLECTOR_ENDPOINT not set; Phoenix instrumentation disabled. "
+            "Set to http://<host>:6006/v1/traces to enable."
+        )
+        return
+    
+    project_name = os.environ.get("PHOENIX_PROJECT_NAME", PHOENIX_DEFAULT_PROJECT)
+    
+    try:
+        from phoenix.otel import register
+        
+        # Register tracer provider with Phoenix collector
+        tracer_provider = register(
+            project_name=project_name,
+            endpoint=endpoint,
+            auto_instrument=True,  # Auto-detect and instrument installed packages
+        )
+        
+        logger.info(
+            "Phoenix instrumentation enabled: project=%s, endpoint=%s",
+            project_name,
+            endpoint
+        )
+        
+        # Explicitly instrument Google GenAI if auto_instrument missed it
+        try:
+            from openinference.instrumentation.google_genai import GoogleGenAIInstrumentor
+            instrumentor = GoogleGenAIInstrumentor()
+            if not getattr(instrumentor, '_is_instrumented_by_opentelemetry', False):
+                instrumentor.instrument(tracer_provider=tracer_provider)
+                logger.info("Google GenAI instrumentation enabled (explicit)")
+        except ImportError:
+            logger.debug(
+                "openinference-instrumentation-google-genai not installed; "
+                "Google GenAI calls will not be traced"
+            )
+        except Exception as e:
+            logger.warning("Failed to instrument Google GenAI: %s", e)
+        
+    except ImportError:
+        logger.debug(
+            "arize-phoenix not installed; run 'pip install arize-phoenix' to enable tracing"
+        )
+    except Exception as e:
+        logger.warning("Failed to initialize Phoenix instrumentation: %s", e)
+
+
+# Initialize at module load time (idempotent)
+_init_phoenix_instrumentation()
 
 
 @dataclass(frozen=True)
@@ -81,6 +158,7 @@ class LLMClient:
     }
 
     def __init__(self, provider_configs: Optional[Iterable[ProviderConfig]] = None) -> None:
+        self.name = "llm-client"
         self._providers: Dict[str, BaseProvider] = {}
         self._configs: Dict[str, ProviderConfig] = {}
         if provider_configs:

@@ -250,6 +250,8 @@ class PostgresAdapter(StorageAdapter):
                     )
                 )
                 result = await cur.fetchone()
+                # Explicit commit to persist insert; pool connections default to non-autocommit
+                await conn.commit()
                 if result:
                     record_id = str(result[0])
                 else:
@@ -268,7 +270,6 @@ class PostgresAdapter(StorageAdapter):
             data['ttl_expires_at'] = datetime.now(timezone.utc) + timedelta(days=7)
         
         # Prepare metadata and arrays
-        metadata = json.dumps(data.get('metadata', {}))
         source_turn_ids = data.get('source_turn_ids', [])
         
         query = sql.SQL("""
@@ -295,6 +296,8 @@ class PostgresAdapter(StorageAdapter):
                     )
                 )
                 result = await cur.fetchone()
+                # Explicit commit to persist insert; pool connections default to non-autocommit
+                await conn.commit()
                 if result:
                     record_id = str(result[0])
                 else:
@@ -499,6 +502,7 @@ class PostgresAdapter(StorageAdapter):
             async with self.pool.connection() as conn:  # type: ignore
                 async with conn.cursor() as cur:
                     await cur.execute(query, (int(id),))
+                    await conn.commit()
                     deleted = cur.rowcount > 0
             
             if deleted:
@@ -531,6 +535,7 @@ class PostgresAdapter(StorageAdapter):
             async with self.pool.connection() as conn:  # type: ignore
                 async with conn.cursor() as cur:
                     await cur.execute(query)
+                    await conn.commit()
                     count = cur.rowcount
             
             if count > 0:

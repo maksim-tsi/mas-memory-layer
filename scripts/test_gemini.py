@@ -14,13 +14,13 @@ import os
 import sys
 from pathlib import Path
 
-# Add project root to path
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+
+# Add project root to path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 # Load environment variables
 load_dotenv()

@@ -77,26 +77,43 @@ class GeminiProvider(BaseProvider):
 
         return LLMResponse(text=getattr(response, "text", ""), provider=self.name, model=model, usage=usage_dict)
 
-    async def get_embedding(self, text: str, model: Optional[str] = None) -> List[float]:
+    async def get_embedding(
+        self,
+        text: str,
+        model: Optional[str] = None,
+        output_dimensionality: int = 768
+    ) -> List[float]:
         """Generate embedding using Gemini embedding model.
         
         Args:
             text: Text to embed.
             model: Embedding model name (default: gemini-embedding-001).
+            output_dimensionality: Output vector dimension (default: 768).
+                Gemini supports 128-3072; recommended: 768, 1536, 3072.
             
         Returns:
             List of floats representing the embedding vector.
         """
+        from google.genai import types
+        
         model = model or "gemini-embedding-001"
 
         def sync_call():
             response = self.client.models.embed_content(
                 model=model,
                 contents=text,
+                config=types.EmbedContentConfig(
+                    output_dimensionality=output_dimensionality
+                ),
             )
             return response
 
         response = await asyncio.to_thread(sync_call)
+        logger.debug(
+            "Gemini embedding generated: model=%s, dim=%d",
+            model,
+            len(response.embeddings[0].values)
+        )
         # Response structure: response.embeddings[0].values
         return list(response.embeddings[0].values)
 

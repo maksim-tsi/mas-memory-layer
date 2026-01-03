@@ -137,6 +137,11 @@ This section outlines the "inner loop" of development that you must emulate. Thi
   4. You *must not* modify the test code (in /tests/) unless the user's prompt *explicitly* and *unambiguously* directs you to "update the tests," "fix a broken test," or "write new tests".16  
   5. When fixing failing tests, you must be specific.17 State your hypothesis for the failure *before* editing the code (see Protocol 7.1). This includes debugging complex test failures, such as those involving mock objects or Pydantic models.18
 
+**Marker scope and real-provider runs:**
+- Unit/mocked scope: `-m "not integration and not llm_real"`
+- Integration scope: `-m "integration"`
+- Real LLM/provider scope: `-m "llm_real"` (requires `GOOGLE_API_KEY` from `.env`; no `GEMINI_API_KEY` is used). Use the grading script `scripts/grade_phase5_readiness.sh --mode full` to include real-provider checks; add `--skip-llm` to suppress them even when the key is present.
+
 ### **4.3 Building**
 
 * **Command:** `make build > /tmp/copilot.out 2>&1; cat /tmp/copilot.out` (Modify as appropriate for the project)  

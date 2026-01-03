@@ -33,11 +33,9 @@ References:
 """
 
 import redis.asyncio as redis
-from typing import Dict, Any, List, Optional, Callable, Awaitable
-import json
+from typing import Dict, Any, Callable, Awaitable
 import logging
 import asyncio
-from datetime import datetime, timezone
 
 from .namespace import NamespaceManager
 
@@ -204,14 +202,13 @@ class LifecycleStreamConsumer:
         acknowledged (e.g., due to consumer crash).
         """
         try:
-            # Get pending messages for this consumer
+            # Get pending messages for the consumer group (any consumer)
             pending = await self.redis.xpending_range(
                 name=self.stream_key,
                 groupname=self.consumer_group,
                 min="-",
                 max="+",
                 count=100,
-                consumername=self.consumer_name,
             )
             
             if pending:
@@ -221,16 +218,16 @@ class LifecycleStreamConsumer:
                 
                 for msg in pending:
                     message_id = msg["message_id"]
-                    
-                    # Re-read the message
-                    messages = await self.redis.xrange(
+                    # Claim the message for this consumer to avoid duplicate work
+                    claimed = await self.redis.xclaim(
                         name=self.stream_key,
-                        min=message_id,
-                        max=message_id,
+                        groupname=self.consumer_group,
+                        consumername=self.consumer_name,
+                        min_idle_time=0,
+                        message_ids=[message_id],
                     )
-                    
-                    if messages:
-                        _, fields = messages[0]
+
+                    for _, fields in claimed:
                         await self._process_message(message_id, fields)
         
         except redis.RedisError as e:
@@ -298,36 +295,48 @@ class LifecycleStreamConsumer:
             Health check result with consumer and stream metrics
         """
         try:
-            # Get stream info
-            stream_info = await self.redis.xinfo_stream(self.stream_key)
-            
+            # Get stream info; if stream missing, treat as empty but healthy
+            try:
+                stream_info = await self.redis.xinfo_stream(self.stream_key)
+            except redis.ResponseError:
+                stream_info = {"length": 0}
+
             # Get consumer group info
-            groups_info = await self.redis.xinfo_groups(self.stream_key)
+            try:
+                groups_info = await self.redis.xinfo_groups(self.stream_key)
+            except redis.ResponseError:
+                groups_info = []
             
             # Find our group
             our_group = None
             for group in groups_info:
-                if group["name"].decode() == self.consumer_group:
+                name = group.get("name")
+                decoded = name.decode() if hasattr(name, "decode") else name
+                if decoded == self.consumer_group:
                     our_group = group
                     break
             
             # Get pending count
-            pending = await self.redis.xpending(
-                self.stream_key,
-                self.consumer_group,
-            )
+            try:
+                pending = await self.redis.xpending(
+                    self.stream_key,
+                    self.consumer_group,
+                )
+                pending_count = pending["pending"]
+            except redis.ResponseError:
+                pending_count = 0
             
             return {
                 "status": "healthy",
                 "running": self._running,
                 "consumer_name": self.consumer_name,
                 "consumer_group": self.consumer_group,
-                "stream_length": stream_info["length"],
-                "pending_messages": pending["pending"],
+                "stream_length": stream_info.get("length", 0),
+                "pending_messages": pending_count,
                 "registered_handlers": list(self._handlers.keys()),
                 "group_info": {
-                    "pending": our_group["pending"] if our_group else 0,
-                    "consumers": our_group["consumers"] if our_group else 0,
+                    "pending": our_group.get("pending", 0) if our_group else 0,
+                    "consumers": our_group.get("consumers", 0) if our_group else 0,
                 } if our_group else None,
             }
         

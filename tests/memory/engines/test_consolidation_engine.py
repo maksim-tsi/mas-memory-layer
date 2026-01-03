@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timezone, timedelta
 from src.memory.engines.consolidation_engine import ConsolidationEngine
 from src.memory.tiers.working_memory_tier import WorkingMemoryTier

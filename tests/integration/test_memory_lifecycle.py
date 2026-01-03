@@ -16,8 +16,9 @@ Each test uses unique session_id for namespace isolation and surgical cleanup.
 import pytest
 import asyncio
 import time
+import hashlib
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
-from unittest.mock import Mock, AsyncMock, patch
 from src.memory.tiers.active_context_tier import ActiveContextTier
 from src.memory.tiers.working_memory_tier import WorkingMemoryTier
 from src.memory.tiers.episodic_memory_tier import EpisodicMemoryTier
@@ -106,7 +107,7 @@ class TestMemoryLifecycleFlow:
         await asyncio.sleep(test_settings.llm_throttle_seconds)
         
         # 5. Verify facts promoted to L2
-        promoted_facts = await l2_tier.retrieve(test_session_id)
+        promoted_facts = await l2_tier.query_by_session(test_session_id)
         
         # Assert at least some facts were promoted
         assert len(promoted_facts) > 0, f"No facts promoted from {stats['turns_retrieved']} turns"
@@ -182,25 +183,95 @@ class TestMemoryLifecycleFlow:
         # Apply throttle
         await asyncio.sleep(test_settings.llm_throttle_seconds)
         
+        # STEP 0: Get point count BEFORE consolidation
+        points_before = 0
+        if hasattr(qdrant_adapter, 'client') and qdrant_adapter.client:
+            try:
+                info_before = await qdrant_adapter.client.get_collection('episodes')
+                points_before = info_before.points_count
+                print(f"DEBUG STEP0: Points BEFORE consolidation = {points_before}")
+            except Exception as e:
+                print(f"DEBUG STEP0: Failed: {e}")
+        
         # 4. Execute consolidation
         start_consolidation = time.perf_counter()
-        stats = await consolidation_engine.consolidate_facts(test_session_id)
+        stats = await consolidation_engine.process_session(test_session_id)
         latencies['consolidation_ms'] = (time.perf_counter() - start_consolidation) * 1000
         
         await asyncio.sleep(test_settings.llm_throttle_seconds)
+
+        print(f"DEBUG: Consolidation stats={stats}")
+        assert stats.get('episodes_created', 0) > 0, f"Consolidation produced no episodes: {stats}"
         
         # 5. Verify dual indexing
-        # Query Qdrant with session_id filter
-        qdrant_results = await qdrant_adapter.search(
-            query_vector=[0.1] * 384,  # Dummy vector for search
-            filter={'session_id': test_session_id},
-            limit=10
-        )
+        # STEP 1: Check adapter identity
+        test_qdrant_id = id(qdrant_adapter)
+        l3_qdrant_id = id(l3_tier.qdrant)
+        test_qdrant_url = getattr(qdrant_adapter, 'url', getattr(qdrant_adapter, '_url', 'UNKNOWN'))
+        l3_qdrant_url = getattr(l3_tier.qdrant, 'url', getattr(l3_tier.qdrant, '_url', 'UNKNOWN'))
+        print(f"DEBUG STEP1: test_qdrant_adapter id={test_qdrant_id}, url={test_qdrant_url}")
+        print(f"DEBUG STEP1: l3_tier.qdrant id={l3_qdrant_id}, url={l3_qdrant_url}")
+        print(f"DEBUG STEP1: SAME_ADAPTER={test_qdrant_id == l3_qdrant_id}")
         
-        # Query Neo4j for episodes
+        # STEP 2: Get collection info via scroll (no vector needed)
+        if hasattr(qdrant_adapter, 'client') and qdrant_adapter.client:
+            try:
+                collection_info = await qdrant_adapter.client.get_collection('episodes')
+                print(f"DEBUG STEP2: Collection 'episodes' points_count={collection_info.points_count} (was {points_before} before)")
+                print(f"DEBUG STEP2: Points ADDED = {collection_info.points_count - points_before}")
+            except Exception as e:
+                print(f"DEBUG STEP2: Failed to get collection info: {e}")
+        
+        # STEP 4: Use scroll to list ALL points (no vector similarity)
+        if hasattr(qdrant_adapter, 'client') and qdrant_adapter.client:
+            try:
+                scroll_result = await qdrant_adapter.client.scroll(
+                    collection_name='episodes',
+                    limit=20,
+                    with_payload=True
+                )
+                points, next_offset = scroll_result
+                print(f"DEBUG STEP4: Scroll found {len(points)} points")
+                found_our_session = False
+                for i, p in enumerate(points):
+                    p_session = p.payload.get('session_id', 'NONE') if p.payload else 'NO_PAYLOAD'
+                    marker = " <-- OUR SESSION" if p_session == test_session_id else ""
+                    if p_session == test_session_id:
+                        found_our_session = True
+                    print(f"DEBUG STEP4: Point[{i}] id={p.id}, session_id={p_session}{marker}")
+                print(f"DEBUG STEP4: Found our session ({test_session_id}): {found_our_session}")
+            except Exception as e:
+                print(f"DEBUG STEP4: Scroll failed: {e}")
+        
+        # Now do the original search tests
+        # First, check if ANY data exists in Qdrant (no filter)
+        all_results = await qdrant_adapter.search({
+            'vector': [0.1] * l3_tier.vector_size,
+            'limit': 10,
+            'collection_name': l3_tier.collection_name,
+        })
+        print(f"DEBUG: Qdrant ALL results (no filter)={len(all_results)}")
+        if all_results:
+            for i, r in enumerate(all_results[:3]):
+                print(f"DEBUG: Result[{i}] session_id={r.get('session_id')}, score={r.get('score')}")
+        
+        # Query Qdrant with session_id filter using SCROLL (no vector similarity needed)
+        # This is the correct approach - scroll retrieves by filter, search requires vector similarity
+        print(f"DEBUG: Scrolling Qdrant - session={test_session_id}, collection={l3_tier.collection_name}")
+        qdrant_results = await qdrant_adapter.scroll(
+            filter_dict={'session_id': test_session_id},
+            limit=10,
+            collection_name=l3_tier.collection_name,
+        )
+        print(f"DEBUG: Qdrant scroll results={len(qdrant_results)}")
+        if qdrant_results:
+            for i, r in enumerate(qdrant_results[:3]):
+                print(f"DEBUG: ScrollResult[{i}] session_id={r.get('session_id')}, episode_id={r.get('episode_id')}")
+
+        # Query Neo4j for episodes (use sessionId which is the stored property name)
         neo4j_query = """
-        MATCH (e:Episode {session_id: $session_id})
-        RETURN e.episode_id as episode_id, e.summary as summary
+        MATCH (e:Episode {sessionId: $session_id})
+        RETURN e.episodeId as episode_id, e.summary as summary
         LIMIT 10
         """
         neo4j_results = await neo4j_adapter.execute_query(neo4j_query, {'session_id': test_session_id})
@@ -269,7 +340,12 @@ class TestMemoryLifecycleFlow:
         episodes = create_test_episodes(test_session_id, test_user_id, count=5)
         start_store = time.perf_counter()
         for episode in episodes:
-            await l3_tier.store(episode)
+            await l3_tier.store({
+                'episode': {k: v for k, v in episode.items() if k != 'embedding'},
+                'embedding': episode['embedding'],
+                'entities': [],
+                'relationships': []
+            })
         latencies['l3_store_ms'] = (time.perf_counter() - start_store) * 1000
         
         # 3. Create distillation engine
@@ -332,7 +408,7 @@ class TestMemoryLifecycleFlow:
         )
         
         print(f"✅ Distilled {len(knowledge_docs)} knowledge documents from {len(episodes)} episodes using {provider_name}")
-        print(f"📊 Provenance verified for all documents")
+        print("📊 Provenance verified for all documents")
     
     @pytest.mark.asyncio
     @pytest.mark.slow
@@ -396,7 +472,7 @@ class TestMemoryLifecycleFlow:
         
         # Phase 3: L2→L3 consolidation
         start_consolidation = time.perf_counter()
-        consolidation_stats = await consolidation_engine.consolidate_facts(test_session_id)
+        consolidation_stats = await consolidation_engine.process_session(test_session_id)
         latencies['consolidation_ms'] = (time.perf_counter() - start_consolidation) * 1000
         
         await asyncio.sleep(test_settings.llm_throttle_seconds)
@@ -407,7 +483,7 @@ class TestMemoryLifecycleFlow:
         latencies['distillation_ms'] = (time.perf_counter() - start_distillation) * 1000
         
         # Verify data flow
-        l2_facts = await l2_tier.retrieve(test_session_id)
+        l2_facts = await l2_tier.query_by_session(test_session_id)
         
         # Query L3 episodes
         neo4j_query = "MATCH (e:Episode {session_id: $sid}) RETURN count(e) as count"
@@ -564,16 +640,72 @@ class TestNetworkLatencyValidation:
 # Placeholder Test Data Factories
 # ============================================================================
 
+# Rich supply chain conversation content for LLM fact extraction
+SUPPLY_CHAIN_CONVERSATION_TEMPLATES = [
+    # User reports shipment issues
+    ("user", "I need to check on shipment MAEU{idx:07d}. It was supposed to arrive at the Port of Los Angeles yesterday but I haven't received any updates."),
+    ("assistant", "I've located shipment MAEU{idx:07d}. It's currently delayed at customs due to incomplete documentation. The expected clearance time is 48-72 hours."),
+    
+    # User asks about safety stock
+    ("user", "Our safety stock levels for SKU-{idx:05d} are critically low. We're down to 15 days of supply and lead time from the supplier is 30 days."),
+    ("assistant", "I recommend placing an emergency order with our backup supplier in Vietnam. They can deliver within 14 days at a 12% premium. I've also flagged this for the procurement team."),
+    
+    # Carrier delay notification
+    ("user", "We just received notification that carrier COSCO is experiencing port congestion in Shanghai. This affects our Q1 inventory replenishment."),
+    ("assistant", "I've identified 12 affected shipments totaling $2.3M in inventory value. Alternative routing through Ningbo port adds 5 days transit time but avoids the congestion."),
+    
+    # Quality control issue
+    ("user", "Quality inspection failed for batch BT-{idx:06d}. Found 8% defect rate, exceeding our 2% threshold."),
+    ("assistant", "I've initiated a supplier corrective action request (SCAR) and placed a hold on remaining inventory from this batch. Root cause analysis meeting scheduled for tomorrow."),
+    
+    # Demand forecast update
+    ("user", "Marketing just revised Q2 demand forecast upward by 35% for the electronics category due to new product launch."),
+    ("assistant", "I've updated the demand planning model. This creates a 45,000 unit gap in our current procurement plan. I recommend activating our contract manufacturing agreement with Flex."),
+    
+    # Supplier financial risk
+    ("user", "Our credit monitoring service flagged supplier ACME-{idx:04d} with deteriorating financial health. They supply 40% of our packaging materials."),
+    ("assistant", "I've initiated dual-sourcing evaluation with three alternative suppliers. Estimated qualification time is 6-8 weeks. Recommend building 60-day buffer stock as mitigation."),
+    
+    # Transportation cost optimization
+    ("user", "Freight costs have increased 23% this quarter. We need to optimize our transportation network to stay within budget."),
+    ("assistant", "Analysis shows consolidating shipments from 3 distribution centers to 2 regional hubs would reduce costs by $180K annually. Trade-off is 0.5 day increase in average delivery time."),
+    
+    # Inventory write-off discussion
+    ("user", "We have 5,000 units of product XYZ-{idx:05d} that will expire in 30 days. Current sell-through rate won't clear this inventory."),
+    ("assistant", "Options: 1) Flash sale at 40% discount (projected recovery: $125K), 2) Donate for tax benefit ($45K), 3) Liquidator sale ($80K). Recommend option 1 given brand positioning."),
+    
+    # Customs compliance issue
+    ("user", "Border control in Germany flagged shipment for missing CE certification on product batch CE-{idx:06d}."),
+    ("assistant", "Our compliance team confirmed the certification exists but wasn't included in shipping documents. I've expedited document submission. Expected release in 24-48 hours with no penalties."),
+    
+    # Warehouse capacity alert
+    ("user", "Warehouse WH-{idx:03d} in Chicago is at 95% capacity. We have 3 inbound shipments arriving this week totaling 2,400 pallets."),
+    ("assistant", "I've arranged overflow storage at third-party facility 15 miles away. Rate is $0.85/pallet/day. Also initiated review of slow-moving inventory for clearance opportunities."),
+]
+
+
 def create_test_turns(session_id: str, count: int = 10):
-    """Create test conversation turns for L1."""
+    """Create test conversation turns for L1 with rich supply chain content.
+    
+    Uses realistic supply chain scenarios to trigger meaningful LLM fact extraction.
+    Content includes shipment delays, inventory issues, supplier risks, and logistics events.
+    """
     turns = []
+    templates = SUPPLY_CHAIN_CONVERSATION_TEMPLATES
+    
     for i in range(count):
+        template_idx = i % len(templates)
+        role, content_template = templates[template_idx]
+        
+        # Format template with index for unique identifiers
+        content = content_template.format(idx=i)
+        
         turns.append({
             'session_id': session_id,
             'turn_id': i,
-            'role': 'user' if i % 2 == 0 else 'assistant',  # Required field
-            'content': f"Test turn {i}: Container MAEU{str(i).zfill(7)} arrived at port.",
-            'metadata': {'test': True, 'turn_index': i},
+            'role': role,
+            'content': content,
+            'metadata': {'test': True, 'turn_index': i, 'scenario_type': 'supply_chain'},
             'created_at': datetime.now(timezone.utc) - timedelta(minutes=count - i)
         })
     return turns
@@ -583,9 +715,9 @@ def create_test_facts(session_id: str, count: int = 20):
     """Create test facts for L2 with varying CIAR scores."""
     facts = []
     for i in range(count):
-        # Alternate between high and low CIAR scores
-        certainty = 0.9 if i % 2 == 0 else 0.4
-        impact = 0.8 if i % 2 == 0 else 0.3
+        # Integration happy-path requires CIAR above threshold
+        certainty = 0.85
+        impact = 0.75
         
         facts.append({
             'session_id': session_id,
@@ -604,20 +736,58 @@ def create_test_facts(session_id: str, count: int = 20):
 def create_test_episodes(session_id: str, user_id: str, count: int = 5):
     """Create test episodes for L3 with provenance metadata."""
     import uuid
+
+    def _load_corpus() -> str:
+        """Load real text corpus from embedding test data for deterministic vectors."""
+        data_dir = Path(__file__).parent.parent / "fixtures" / "embedding_test_data"
+        if not data_dir.exists():
+            return ""
+        texts = []
+        for file_path in sorted(data_dir.glob("*")):
+            try:
+                texts.append(file_path.read_text(encoding="utf-8"))
+            except OSError:
+                continue
+        return "\n\n".join(texts)
+
+    corpus = _load_corpus()
+
+    def _deterministic_embedding(seed_text: str) -> list[float]:
+        """Generate a stable pseudo-embedding from real text without padding."""
+        vector = []
+        target_dim = EpisodicMemoryTier.VECTOR_SIZE
+        base = (seed_text or corpus or "fallback").encode("utf-8")
+        for i in range(target_dim):
+            digest = hashlib.sha256(base + i.to_bytes(4, "little", signed=False)).digest()
+            # Use first 8 bytes for a float-ish value in [0,1)
+            value = int.from_bytes(digest[:8], "big") / float(2**64)
+            vector.append(round(value, 6))
+        return vector
+
     episodes = []
     for i in range(count):
         episode_id = f"test-episode-{uuid.uuid4().hex[:8]}"
+        content = f"Episode summarizing shipment tracking events {i*5} through {i*5+4}"
+        embedding = _deterministic_embedding(content)
+        window_start = datetime.now(timezone.utc) - timedelta(days=i, hours=1)
+        window_end = window_start + timedelta(hours=1)
         episodes.append({
             'episode_id': episode_id,
             'session_id': session_id,
             'user_id': user_id,
             'summary': f"Test episode {i}: Port operations and customs delays",
-            'content': f"Episode summarizing shipment tracking events {i*5} through {i*5+4}",
-            'embedding': [0.1 + (i * 0.05)] * 384,  # Dummy 384-dim vector
+            'content': content,
+            'embedding': embedding,
             'fact_ids': [f"test-fact-{i*5+j}" for j in range(5)],  # Link to 5 facts
             'created_at': datetime.now(timezone.utc) - timedelta(days=i),
             'valid_from': datetime.now(timezone.utc) - timedelta(days=i),
             'valid_to': None,
+            'time_window_start': window_start,
+            'time_window_end': window_end,
+            'duration_seconds': (window_end - window_start).total_seconds(),
+            'fact_valid_from': window_start,
+            'fact_valid_to': window_end,
+            'source_observation_timestamp': window_start,
             'metadata': {'test': True, 'episode_index': i}
         })
     return episodes

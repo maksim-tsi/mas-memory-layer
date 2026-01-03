@@ -106,6 +106,11 @@ Detailed implementation patterns are organized by directory:
 /home/max/code/mas-memory-layer/scripts/run_memory_integration_tests.sh > /tmp/copilot.out 2>&1; cat /tmp/copilot.out
 ```
 
+**Markers and real LLM/provider checks**
+- Unit/mocked: `-m "not integration and not llm_real"`
+- Integration: `-m "integration"`
+- Real LLM/provider: `-m "llm_real"` (requires `GOOGLE_API_KEY` from `.env`; do not use `GEMINI_API_KEY`). Use `scripts/grade_phase5_readiness.sh --mode full` to include, or `--skip-llm` to suppress even when the key is set.
+
 Tests use `pytest` with `pytest-asyncio`. See `.github/instructions/testing.instructions.md` for complete testing guidelines.
 
 ### Running Benchmarks

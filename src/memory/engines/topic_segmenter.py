@@ -8,7 +8,6 @@ using a single LLM call for efficiency.
 
 import json
 import logging
-from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
 
@@ -143,13 +142,21 @@ class TopicSegmenter:
             model=self.model_name,
             system_instruction=TOPIC_SEGMENTATION_SYSTEM_INSTRUCTION,
             response_schema=TOPIC_SEGMENTATION_SCHEMA,
-            temperature=0.0,
+            temperature=0.3,
             max_output_tokens=8192,
         )
 
-        # Parse response (no markdown cleanup needed with structured output)
+        # Parse response; tolerate markdown fences from some providers
         try:
-            data = json.loads(response.text)
+            text = response.text.strip()
+            if text.startswith("```"):
+                text = text[3:]
+                if text.lower().startswith("json"):
+                    text = text[4:]
+                text = text.strip()
+                if text.endswith("```"):
+                    text = text[:-3].strip()
+            data = json.loads(text)
             raw_segments = data.get("segments", [])
             
             if not raw_segments:
@@ -160,6 +167,10 @@ class TopicSegmenter:
             segments = []
             for rs in raw_segments:
                 try:
+                    temporal_context = rs.get("temporal_context", "")
+                    if isinstance(temporal_context, (dict, list)):
+                        temporal_context = json.dumps(temporal_context)
+
                     segment = TopicSegment(
                         topic=rs.get("topic"),
                         summary=rs.get("summary"),
@@ -169,7 +180,7 @@ class TopicSegmenter:
                         impact=float(rs.get("impact", 0.5)),
                         participant_count=int(rs.get("participant_count", 0)),
                         message_count=int(rs.get("message_count", 0)),
-                        temporal_context=rs.get("temporal_context", "")
+                        temporal_context=temporal_context
                     )
                     segments.append(segment)
                 except ValidationError as ve:
@@ -227,5 +238,5 @@ class TopicSegmenter:
             impact=0.5,     # Medium impact (unknown)
             participant_count=len(participants),
             message_count=len(turns),
-            temporal_context={}
+            temporal_context=""
         )

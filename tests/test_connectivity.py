@@ -321,6 +321,7 @@ def test_qdrant_health(config):
         
         # Test that we can get collections (indicates service is healthy)
         collections = client.get_collections()
+        assert collections is not None
         
         print("✓ Qdrant health check passed")
         
@@ -445,14 +446,14 @@ def test_all_services_summary(config):
         r = redis.Redis(host=config['redis_host'], port=config['redis_port'], socket_connect_timeout=2)
         services_status['Redis'] = '✓' if r.ping() else '✗'
         r.close()
-    except:
+    except Exception:
         services_status['Redis'] = '✗'
     
     try:
         q = QdrantClient(host=config['qdrant_host'], port=config['qdrant_port'], timeout=2)
         q.get_collections()
         services_status['Qdrant'] = '✓'
-    except:
+    except Exception:
         services_status['Qdrant'] = '✗'
     
     try:
@@ -461,14 +462,14 @@ def test_all_services_summary(config):
         driver.verify_connectivity()
         services_status['Neo4j'] = '✓'
         driver.close()
-    except:
+    except Exception:
         services_status['Neo4j'] = '✗'
     
     try:
         url = f"http://{config['typesense_host']}:{config['typesense_port']}/health"
         resp = requests.get(url, timeout=2)
         services_status['Typesense'] = '✓' if resp.status_code == 200 else '✗'
-    except:
+    except Exception:
         services_status['Typesense'] = '✗'
     
     print("\n" + "="*60)

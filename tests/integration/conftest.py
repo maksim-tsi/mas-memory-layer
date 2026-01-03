@@ -10,9 +10,9 @@ import json
 import uuid
 import yaml
 import pytest
-import asyncio
+import logging
 from datetime import datetime, timezone
-from typing import List, AsyncGenerator, Dict, Any, Optional, Tuple
+from typing import AsyncGenerator, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 import pytest_asyncio
 from src.storage.redis_adapter import RedisAdapter
@@ -84,6 +84,18 @@ def test_session_id() -> str:
 def test_user_id() -> str:
     """Generate unique user ID for test isolation (overrides root conftest)."""
     return f"user-{uuid.uuid4().hex[:8]}"
+
+
+@pytest.fixture(scope="function", autouse=True)
+def consolidation_logger_info():
+    """Ensure consolidation engine logs INFO for diagnostics during tests."""
+    logger = logging.getLogger("src.memory.engines.consolidation_engine")
+    previous = logger.level
+    logger.setLevel(logging.INFO)
+    try:
+        yield
+    finally:
+        logger.setLevel(previous)
 
 
 @pytest.fixture(scope="function")
@@ -315,7 +327,10 @@ async def neo4j_adapter(test_session_id: str) -> AsyncGenerator[Neo4jAdapter, No
 async def qdrant_adapter(test_session_id: str) -> AsyncGenerator[QdrantAdapter, None]:
     """Live Qdrant adapter fixture for L3 Episodic Memory (Node 2: 192.168.107.187)."""
     adapter = QdrantAdapter(config={
-        'url': os.getenv('QDRANT_URL', 'http://192.168.107.187:6333')
+        'url': os.getenv('QDRANT_URL', 'http://192.168.107.187:6333'),
+        # L3 episodic vectors live in the "episodes" collection with 768-dim embeddings
+        'collection_name': 'episodes',
+        'vector_size': 768,
     })
     await adapter.connect()
     yield adapter

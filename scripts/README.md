@@ -93,6 +93,13 @@ Integration tests (skipped when no env keys):
 ./.venv/bin/pytest tests/integration/test_llmclient_real.py -q
 ```
 
+Readiness grading and markers
+-----------------------------
+- Use `./scripts/grade_phase5_readiness.sh --mode fast` for lint + unit/mocked tests; `--mode full` adds integration and `llm_real` markers when env vars are present.
+- Real LLM/provider checks require `GOOGLE_API_KEY` exported in the shell (from `.env`, not committed). Add `--skip-llm` to suppress them even if the key is set.
+- Marker scopes: unit/mocked `-m "not integration and not llm_real"`; integration `-m "integration"`; real LLM `-m "llm_real"`.
+- Optional summary JSON: `./scripts/grade_phase5_readiness.sh --mode full --summary-out /tmp/phase5-readiness.json` (feeds docs/reports/phase5-readiness.md).
+
 Environment variables
 ---------------------
 Always keep API keys out of version control—prefer using environment variables or a local `.env` file and never store secrets in the repo.

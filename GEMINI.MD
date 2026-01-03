@@ -212,6 +212,11 @@ docs/
 /home/max/code/mas-memory-layer/.venv/bin/pytest tests/ --cov=src --cov-report=html
 ```
 
+### Real LLM/provider checks
+- Real Gemini checks use the `llm_real` marker. Run via `./scripts/grade_phase5_readiness.sh --mode full` to include them.
+- Requires `GOOGLE_API_KEY` exported in the shell (loaded from `.env`, not committed). No `GEMINI_API_KEY` variable is used anywhere.
+- Use `--skip-llm` with the grading script to omit real-provider calls even when the key is present.
+
 ### Running Benchmarks
 ```bash
 /home/max/code/mas-memory-layer/.venv/bin/python scripts/run_storage_benchmark.py run --size 10000
