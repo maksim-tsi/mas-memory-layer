@@ -32,15 +32,18 @@ set -a
 source .env
 set +a
 
+# Determine Host (support both legacy DEV_IP and new POSTGRES_HOST/DATA_NODE_IP)
+HOST="${POSTGRES_HOST:-${DATA_NODE_IP:-$DEV_IP}}"
+
 echo -e "${YELLOW}Configuration:${NC}"
-echo "  Host: ${DEV_IP}"
+echo "  Host: ${HOST}"
 echo "  Port: ${POSTGRES_PORT}"
 echo "  User: ${POSTGRES_USER}"
 echo "  Database: mas_memory"
 echo ""
 
 # Construct base connection URL (to postgres database)
-BASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DEV_IP}:${POSTGRES_PORT}/postgres"
+BASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${HOST}:${POSTGRES_PORT}/postgres"
 
 # Check if database already exists
 echo -e "${YELLOW}Checking if database 'mas_memory' exists...${NC}"

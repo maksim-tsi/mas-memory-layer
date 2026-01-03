@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 import logging
 
-from src.storage.base import StorageAdapter, StorageError
+from src.storage.base import StorageAdapter
 from src.storage.metrics.collector import MetricsCollector
 
 

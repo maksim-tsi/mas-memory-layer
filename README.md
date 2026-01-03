@@ -6,32 +6,130 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 
 ---
 
-## 🚧 **Current Status: Phase 1 Complete | Phase 2A 92% Complete | Phase 2B-2D Not Started**
+## 🚀 **Current Status: Phase 4 Complete (574/586 Tests Passing) | Phase 5 Ready**
 
-**Overall ADR-003 Completion: ~43%**
+**Overall ADR-003 Completion:** Functional implementation ~98% (all tiers + lifecycle engines + storage adapters + agent tools + integration infrastructure complete).
 
-**Phase 1 (Storage Adapters):** ✅ 100% Complete - 143/143 tests passing  
-**Phase 2A (Memory Tiers):** 🚧 92% Complete - 70/76 tests passing (6 Pydantic validation errors)  
-**Phase 2B (LLM Integration):** ❌ 0% Complete - Connectivity verified, production code not started  
-**Phase 2C-2D (Lifecycle Engines):** ❌ 0% Complete - Blocked by Phase 2B
+**Phase 1 (Storage Adapters):** ✅ 100% Complete  
+**Phase 2 (Memory Tiers + Lifecycle Engines):** ✅ 100% Complete  
+**Phase 3 (Redis Infrastructure + Agent Tools):** ✅ 100% Complete  
+**Phase 4 (Integration Hardening):** ✅ 100% Complete — All lifecycle tests passing, Qdrant scroll() method added  
+**Full Test Suite (2026-01-03):** ✅ **574 passed, 12 skipped, 0 failed** (586 total) in 2m 11s
+
+**Integration Test Status:**
+- ✅ All 4 lifecycle integration tests passing (L1→L2→L3→L4)
+- ✅ All storage adapters verified (Redis, PostgreSQL, Qdrant, Neo4j, Typesense)
+- ✅ Real LLM provider connectivity (Gemini API with structured output)
+- ✅ 3-node research cluster integration (skz-dev-lv)
+
+**Acceptance Criteria (Readiness Gates):**
+- Coverage ≥80% per component and overall
+- <2s p95 latency for lifecycle batches (promotion/consolidation/distillation) at current stage
+- Real-storage end-to-end validation across Redis, PostgreSQL, Qdrant, Neo4j, Typesense
+- Gemini API connectivity re-test after key refresh
 
 **What's Complete**: 
 - ✅ Storage infrastructure (5 database adapters, metrics, benchmarks)
-- ✅ Memory tier classes (L1-L4 with dual-indexing, bi-temporal model)
-- ✅ CIAR scoring system (calculation logic)
-- ✅ Data models (Fact, Episode, KnowledgeDocument)
-- ✅ LLM provider connectivity (7 models tested across 3 providers)
+- ✅ Memory tier classes (L1–L4 with dual-indexing, bi-temporal model)
+- ✅ CIAR scoring system (calculation logic + agent tools)
+- ✅ Data models (Fact, Episode, KnowledgeDocument, ContextBlock, SearchWeights)
+- ✅ Multi-provider LLM client with provider wrappers and demos
+- ✅ Lifecycle engines (Promotion, Consolidation, Distillation) + Knowledge Synthesizer
+- ✅ Phase 3 research validation (5 research topics validated)
+- ✅ **Phase 3 Week 1**: Redis infrastructure (NamespaceManager with Hash Tags, Lua scripts, Lifecycle Streams, Recovery triggers)
+- ✅ **Phase 3 Week 2**: Enhanced UnifiedMemorySystem (hybrid query, lifecycle orchestration), MASToolRuntime wrapper, unified agent tools (memory_query, get_context_block, memory_store)
+- ✅ **Phase 3 Week 3**: CIAR tools (calculate, filter, explain), tier-specific tools (L2 tsvector search, L3 template-based Cypher, L4 Typesense), knowledge synthesis tool, integration test infrastructure with live cluster connectivity
+- ✅ **Week 3 BONUS**: Native Gemini structured output (types.Schema), model-to-provider routing, fact extraction validated with real supply chain document (7 facts, zero JSON errors)
 
-**What's Missing**: 
-- ❌ Multi-provider LLM client (`src/utils/llm_client.py`)
-- ❌ Lifecycle engines (Promotion, Consolidation, Distillation)
-- ❌ LLM-based fact extraction and episode summarization
-- ❌ Circuit breaker pattern for resilience
-- ❌ Autonomous memory management (L1→L2→L3→L4 flow)
+**What's Next**: 
+- 🚧 **Phase 3 Week 4**: BaseAgent interface + MemoryAgent (UC-01)
+- 🔧 **Phase 3 Week 5**: RAGAgent + FullContextAgent variants
+- 🔧 **Phase 3 Week 6**: LangGraph orchestration + FastAPI wrapper + E2E integration tests
+- 🚧 Full lifecycle integration tests (L1→L4) with real LLM calls + GoodAI benchmark runs
 
 **See**: 
+- [Phase 3 Specification v2.1](docs/specs/spec-phase3-agent-integration.md) for validated architecture (updated Dec 29)
+- [Phase 3 Implementation Plan](docs/plan/phase3-implementation-plan-2025-12-27.md) for 6-week roadmap (Week 3 complete)
+- [Research Validation](docs/research/README.md) for RT1-RT5 findings
 - [ADR-003 Architecture Review](docs/reports/adr-003-architecture-review.md) for gap analysis
-- [DEVLOG 2025-11-12](DEVLOG.md#2025-11-12---multi-provider-llm-engine-status-review--phase-2b-gap-analysis-) for comprehensive LLM engine status
+
+### 2025-12-29 — Changelog (Phase 3 Week 3 BONUS: Gemini Structured Output)
+
+**Week 3 Bonus Implementation**: Native Gemini structured output eliminates JSON truncation errors from harmony-format models.
+
+**New Components**:
+- `src/memory/schemas/fact_extraction.py` - Native `types.Schema` for fact extraction with system instruction
+- `src/memory/schemas/topic_segmentation.py` - Native `types.Schema` for topic segmentation
+- `src/memory/schemas/__init__.py` - Schema module exports
+- Model-to-provider routing in `LLMClient.MODEL_ROUTING` map
+
+**Enhanced Components**:
+- `GeminiProvider.generate()` - Added `system_instruction` and `response_schema` parameter support
+- `FactExtractor` - Refactored to use native structured output (removed markdown cleanup)
+- `TopicSegmenter` - Refactored to use native structured output (temperature=0.0)
+- `temporal_context` type fixed (Dict→str) to match Gemini output
+
+**Validation**:
+- Tested with real supply chain optimization document (`tests/fixtures/embedding_test_data/supply_chain_optimization.md`)
+- Successfully extracted 7 facts: relationships, entities, constraints, mentions
+- Impact scoring: 0.50-0.80 (high-impact facts correctly identified)
+- Zero JSON truncation errors (harmony format issue eliminated)
+- Model routing: gemini-3-flash-preview automatically routed to google provider
+
+**Key Benefits**:
+- ✅ Eliminates JSON truncation from harmony-format models (openai/gpt-oss-120b)
+- ✅ No markdown cleanup code needed - native JSON guarantee
+- ✅ Deterministic structured output (temperature=0.0)
+- ✅ Correct model-to-provider routing (prevents Gemini→Groq errors)
+- ✅ Foundation for reliable Phase 2B-2D lifecycle engines
+
+**Documentation Updated**:
+- DEVLOG.md (2025-12-29 entry with full implementation details)
+- docs/lessons-learned.md (LL-20251229-01 incident and mitigation)
+- examples/gemini_structured_output_test.md (working code patterns)
+- GEMINI.MD, AGENTS.MD, .github/copilot-instructions.md (GOOGLE_API_KEY notes)
+- docs/ADR/006-free-tier-llm-strategy.md (Gemini 3 transition log)
+
+---
+
+### 2025-12-28 — Changelog (Phase 3 Week 3 Complete)
+- **CIAR Agent Tools**: Implemented 3 CIAR tools (`ciar_calculate`, `ciar_filter`, `ciar_explain`) with Pydantic schemas and comprehensive unit tests.
+- **Tier-Specific Tools**: Created `l2_search_facts` (PostgreSQL tsvector), `l3_query_graph` (template-based Cypher), `l4_search_knowledge` (Typesense) for granular tier access.
+- **Graph Query Templates**: 6 logistics-focused Neo4j templates with temporal validity enforcement (`factValidTo IS NULL`).
+- **PostgreSQL Migration 002**: Applied tsvector column + GIN index to live cluster; schema verification fixture for fail-fast testing.
+- **Integration Test Infrastructure**: 5 adapter fixtures connecting to 3-node research cluster, surgical cleanup with namespace isolation, all 6 connectivity tests passing.
+- **Knowledge Synthesis Tool**: `synthesize_knowledge` wrapping KnowledgeSynthesizer with conflict detection.
+
+### 2025-12-28 — Changelog (Phase 3 Week 2 Complete)
+- **Enhanced UnifiedMemorySystem**: Refactored to inject L1-L4 tiers + lifecycle engines; added hybrid `query_memory()` with configurable weights, `get_context_block()` for prompt assembly, and lifecycle cycle methods.
+- **MAS Runtime Framework**: Created `MASToolRuntime` wrapper around LangChain's ToolRuntime with 20+ helpers for session/user/context access; implemented `MASContext` dataclass for immutable configuration.
+- **Unified Agent Tools**: Implemented 3 LangChain-compatible tools (`memory_query`, `get_context_block`, `memory_store`) using `@tool` decorator with ToolRuntime parameter (hidden from LLM per ADR-007).
+- **Data Models**: Added `ContextBlock` (prompt context assembly), `SearchWeights` (hybrid search config with validation).
+- **Comprehensive Tests**: 47/47 tests passing (26 runtime tests + 21 tool tests) covering all new components.
+
+### 2025-12-27 — Changelog (Status Alignment)
+- Implemented Promotion, Consolidation, and Distillation engines with Knowledge Synthesizer; 396/396 tests passing.
+- Aligned specs and DEVLOG with Pydantic v2 models and lifecycle workflows.
+- Added domain configuration for container logistics; metrics timers updated for manual control.
+
+### Next Validation Checklist (Mandatory Before Release)
+- Run full L1→L4 pipeline against real backends (Redis, PostgreSQL, Qdrant, Neo4j, Typesense) with metrics enabled.
+- Measure lifecycle batches against <200ms p95 target; capture metrics export for evidence.
+- Confirm coverage ≥80% overall and per component (storage + memory + engines); regenerate htmlcov.
+- Refresh Gemini API key and re-run provider connectivity scripts; record outcomes in [docs/LLM_PROVIDER_TEST_RESULTS.md](docs/LLM_PROVIDER_TEST_RESULTS.md).
+
+## Developer Updates
+
+### 2025-11-15 — Demo: File Output & Test Coverage
+
+Added developer-facing improvements to the `LLMClient` demo harness:
+- `--output-format` (ndjson | json-array)
+- `--output-mode` (overwrite | append)
+- File output support for NDJSON and JSON arrays, with append/overwrite semantics
+- Unit tests verifying NDJSON and JSON-array file behavior were added (`tests/utils/test_llm_client_demo_output.py`) and are passing locally
+
+See `scripts/README.md` and `scripts/llm_client_demo.README.md` for example usage and details.
+
 
 ---
 
@@ -172,7 +270,7 @@ These documents provide detailed specifications of the experimental setup, compo
 
 ## 5. Quick Start
 
-**Current Status**: Storage adapters are production-ready. Memory tier logic and lifecycle engines are not yet implemented (see [ADR-003 Review](docs/reports/adr-003-architecture-review.md)).
+**Current Status**: Storage adapters, memory tiers, and lifecycle engines are implemented with tests passing; readiness is gated by performance/coverage targets and real-storage end-to-end validation (see [ADR-003 Review](docs/reports/adr-003-architecture-review.md)).
 
 ### Prerequisites
 
@@ -200,7 +298,7 @@ psql --version
 
 ## 6. Current Implementation Status
 
-**Overall ADR-003 Completion: ~30%**
+**Overall ADR-003 Completion:** Functional implementation ~80%; readiness gated by acceptance criteria (coverage, performance, real-storage E2E).
 
 ### Phase 1: Storage Layer Foundation ✅ Complete (100%)
 
@@ -263,100 +361,57 @@ prometheus_metrics = await adapter.export_metrics('prometheus')
 
 See [`docs/metrics_usage.md`](docs/metrics_usage.md) for complete metrics documentation.
 
-### Phase 2: Memory Tiers & Lifecycle Engines 🚧 In Progress (~46%)
+### Phase 2: Memory Tiers & Lifecycle Engines ✅ Implemented (Validation Pending)
 
-**Phase 2A: Memory Tier Storage Layer** (92% complete - 70/76 tests passing):
+**Memory Tiers & Engines:**
+- ✅ **L1: Active Context Tier** — Redis + PostgreSQL dual storage with turn windowing
+- ✅ **L2: Working Memory Tier** — CIAR-filtered fact storage with access tracking
+- ✅ **L3: Episodic Memory Tier** — Qdrant + Neo4j dual-indexing with bi-temporal support
+- ✅ **L4: Semantic Memory Tier** — Typesense full-text search with provenance tracking
+- ✅ **Lifecycle Engines:** Promotion (L1→L2), Consolidation (L2→L3), Distillation (L3→L4), Knowledge Synthesizer (query-time)
+- ✅ **Testing:** 396/396 tests passing across tiers and engines (see [DEVLOG 2025-12-27](DEVLOG.md#2025-12-27---phase-2d-distillation-engine--knowledge-synthesizer-completion-))
 
-**Memory Tier Classes** (✅ Implemented, 🚧 6 tests failing):
-- ✅ **L1: Active Context Tier** - Redis + PostgreSQL dual storage with turn windowing (18/18 tests ✅)
-- ✅ **L2: Working Memory Tier** - CIAR-filtered fact storage with access tracking (17/17 tests ✅)
-- 🚧 **L3: Episodic Memory Tier** - Qdrant + Neo4j dual-indexing with bi-temporal support (30+ tests, 3 failing)
-- 🚧 **L4: Semantic Memory Tier** - Typesense full-text search with provenance tracking (5+ tests, 3 failing)
+**Core Innovations:**
+- CIAR Scoring System `(Certainty × Impact) × Age_Decay × Recency_Boost`
+- Bi-Temporal Data Model (`factValidFrom`, `factValidTo`)
+- Dual indexing: Qdrant vectors + Neo4j graph linkage
+- Metadata-first knowledge synthesis with conflict transparency and TTL caching
 
-**Core Innovations** (✅ Implemented in Phase 2A):
-- ✅ **CIAR Scoring System** - `(Certainty × Impact) × Age_Decay × Recency_Boost` (312 lines implemented)
-- ✅ **Bi-Temporal Data Model** - `factValidFrom`, `factValidTo` for temporal reasoning
-- ✅ **Hypergraph Simulation** - Episode nodes with entity relationships in Neo4j
-- ✅ **Data Models** - `Fact`, `Episode`, `KnowledgeDocument` with Pydantic validation (341 lines)
+**Pending Validation (Readiness Gates):**
+- Coverage confirmation to ≥80% per component and overall (htmlcov shows remaining adapter gaps)
+- <2s p95 lifecycle batch latency measured against real storage backends (current stage target)
+- Full L1→L4 end-to-end pipeline on Redis/PostgreSQL/Qdrant/Neo4j/Typesense
+- Gemini API key refresh and connectivity re-test (see [LLM Provider Results](docs/LLM_PROVIDER_TEST_RESULTS.md))
 
-**Known Issues (6 failing tests - blocking 100% Phase 2A):**
-1. Episode model Pydantic validation (3 tests) - missing required field defaults
-2. Context manager cleanup expectations (2 tests) - mock adapter interface
-3. KnowledgeDocument validation (1 test) - missing required field
-
-**Phase 2B: LLM Integration & Lifecycle Engines** (0% complete - NOT STARTED):
-
-**Autonomous Lifecycle Engines** (❌ Not implemented - blocks Weeks 5-10):
-- ❌ **Promotion Engine (L1→L2)** - LLM-based fact extraction + CIAR scoring
-- ❌ **Consolidation Engine (L2→L3)** - Time-windowed clustering + LLM episode summarization
-- ❌ **Distillation Engine (L3→L4)** - Multi-episode pattern mining + LLM knowledge synthesis
-
-**LLM Infrastructure** (✅ Connectivity Complete, ❌ Production Integration Missing):
-- ✅ **Multi-Provider Strategy** - 7 models across 3 providers (Gemini, Groq, Mistral AI)
-  - Google Gemini: 2.5 Flash, 2.0 Flash, 2.5 Flash-Lite (3/3 tested ✅)
-  - Groq: Llama 3.1 8B, GPT OSS 120B (2/2 tested ✅)
-  - Mistral AI: Large, Small (2/2 tested ✅)
-- ✅ **Zero Cost** - All providers offer generous free tiers (14,400+ req/day capacity)
-- ✅ **Connectivity Verified** - Test scripts validate all 7 models working
-- ✅ **Documentation Complete** - ADR-006 (775 lines) with rate limits, cost analysis, fallback chains
-- ✅ **Dependencies Installed** - `google-genai`, `groq`, `mistralai` SDKs in requirements.txt
-- ❌ **Production Client Missing** - `src/utils/llm_client.py` does NOT exist
-- ❌ **Circuit Breaker Missing** - Resilience pattern not implemented
-- ❌ **Fact Extractor Missing** - LLM-based extraction not implemented
-- ❌ **Lifecycle Engines Missing** - `src/memory/engines/` directory does NOT exist
-
-**Critical Blocker:** Without the multi-provider LLM client and lifecycle engines, the memory system is **storage-only** and cannot autonomously:
-- Extract facts from conversations (Promotion Engine blocked)
-- Summarize episodes from fact clusters (Consolidation Engine blocked)  
-- Synthesize knowledge patterns (Distillation Engine blocked)
-
-**Architecture Status:**
-```
-Phase 2A (Weeks 1-3): Memory Tier Storage ✅ 92% COMPLETE (70/76 tests)
-                ↓
-Phase 2B (Weeks 4-5): LLM Client + Promotion ❌ 0% (CRITICAL BLOCKER)
-                ↓
-Phase 2C (Weeks 6-8): Consolidation Engine ❌ BLOCKED (needs LLM)
-                ↓
-Phase 2D (Weeks 9-10): Distillation Engine ❌ BLOCKED (needs LLM)
-```
-
-**Quick Start Testing LLM Connectivity:**
-```bash
-# Test all providers at once
-./scripts/test_llm_providers.py
-
-# Or test individually
-./scripts/test_gemini.py
-./scripts/test_groq.py
-./scripts/test_mistral.py
-```
-
-**Next Steps (Phase 2B - Critical Path):**
-1. Fix 6 failing tests (1-2 days) - Complete Phase 2A to 100%
-2. Implement `src/utils/llm_client.py` (3-5 days) - Multi-provider client with fallbacks
-3. Implement `src/memory/engines/circuit_breaker.py` (1 day) - Resilience pattern
-4. Implement `src/memory/fact_extractor.py` (2-3 days) - LLM extraction with fallback
-5. Implement `src/memory/engines/promotion_engine.py` (3-5 days) - L1→L2 pipeline
-
-**Timeline:** 12-18 days to unblock Phase 2C (Consolidation Engine)
+**LLM Infrastructure:**
+- Multi-provider `LLMClient` with Gemini, Groq, and Mistral providers; connectivity scripts in `scripts/test_*`. Gemini currently blocked by API key validity; Groq/Mistral passing.
 
 **See**: 
-- [ADR-006: Free-Tier LLM Provider Strategy](docs/ADR/006-free-tier-llm-strategy.md) for multi-provider architecture
-- [LLM Provider Tests](docs/LLM_PROVIDER_TESTS.md) for connectivity testing guide
-- [Phase 2 Action Plan](docs/reports/phase-2-action-plan.md) for week-by-week implementation details
-- [DEVLOG Entry 2025-11-12](DEVLOG.md) for comprehensive LLM engine status analysis
-- ~~[ADR-005: Multi-Tier LLM Provider Strategy](docs/ADR/005-multi-tier-llm-provider-strategy.md)~~ (Superseded - AgentRouter not accessible)
+- [ADR-006: Free-Tier LLM Provider Strategy](docs/ADR/006-free-tier-llm-strategy.md)
+- [Phase 2 Engine Plan](docs/plan/implementation-plan-2025-12-27-phase2-engines.md)
+- [LLM Provider Test Results](docs/LLM_PROVIDER_TEST_RESULTS.md)
 
-**Estimated Remaining Effort**: 4-6 weeks for Phase 2B-2D (LLM integration + lifecycle engines)
-
-### Phase 3: Agent Integration ❌ Not Started (0%)
+### Phase 3: Agent Integration 🔬 Research Validated (Ready for Implementation)
 
 LangGraph agent implementation with full memory system integration:
-- Multi-agent coordination patterns
-- Personal vs. shared state management
-- Real-time collaboration workspace
-- Memory-augmented reasoning
+- ✅ **Research Validated**: 5 critical architectural decisions validated (RT1-RT5)
+- 🚀 **Implementation Plan**: 6-week roadmap with weekly deliverables
+- 🔧 Hash Tag namespaces for Redis Cluster compatibility
+- 🔧 Lua scripts for atomic state transitions (replacing WATCH)
+- 🔧 CIAR-aware tools with Reasoning-First schemas
+- 🔧 Tool Message injection for context block delivery
+- 🔧 FastAPI agent wrapper for benchmark integration
+
+**Key Validated Decisions:**
+- Redis: Hash Tags MANDATORY (`{scope:id}:resource`) — CROSSSLOT prevention
+- Concurrency: Lua scripts over WATCH-based optimistic locking
+- Context: Tool Message injection (not system prompt) for cache preservation
+- CIAR: Reasoning-First schemas for constrained decoding
+
+**Documentation:**
+- [Phase 3 Specification v2.0](docs/specs/spec-phase3-agent-integration.md)
+- [Phase 3 Implementation Plan](docs/plan/phase3-implementation-plan-2025-12-27.md)
+- [Research Validation](docs/research/README.md)
 
 ### Phase 4: Evaluation Framework ❌ Not Started (0%)
 
@@ -398,6 +453,49 @@ source .venv/bin/activate  # Linux/macOS
 # or: .venv\Scripts\activate  # Windows
 
 # Upgrade pip
+```
+
+### 3. Environment Bootstrap Checklist (Multi-Host Safe)
+
+1. **Identify where you are executing.** Before running any project task, confirm the host type so path assumptions are correct:
+  ```bash
+  uname -a
+  hostname
+  pwd
+  ```
+  - macOS local checkout → expect `Darwin` and a path such as `/Users/<name>/Documents/code/mas-memory-layer`.
+  - Remote Ubuntu over SSH → expect `Linux` plus `/home/<user>/code/mas-memory-layer`.
+  - Local Ubuntu desktop/RDP → expect `Linux` with `/home/<user>/...` but no SSH hostname suffix.
+
+2. **Create/refresh the virtual environment using a relative path** so the same instructions work on every host:
+  ```bash
+  python3 -m venv .venv
+  ```
+
+3. **Install primary dependencies explicitly via the venv interpreter.** Avoid `pip` from the system path.
+  ```bash
+  ./.venv/bin/pip install -r requirements.txt
+  ```
+
+4. **Install test and tooling dependencies whenever you plan to run any test suite.**
+  ```bash
+  ./.venv/bin/pip install -r requirements-test.txt
+  ```
+
+5. **Verify the interpreter being used by automation.** The command below must print the absolute path to `.venv/bin/python` on the current host.
+  ```bash
+  ./.venv/bin/python -c "import sys; print(sys.executable)"
+  ```
+
+6. **Run smoke validations before heavy workflows.**
+  ```bash
+  ./.venv/bin/python scripts/test_llm_providers.py --help
+  ./scripts/run_smoke_tests.sh --summary
+  ```
+
+> **Why this sequence?** Contributors regularly switch between a remote Ubuntu VM, a macOS laptop, and containerised CI. Using relative paths plus the explicit interpreter commands prevents accidental invocation of a different Python installation that might live outside the repo.
+
+For more detailed troubleshooting guidance, see [`docs/environment-guide.md`](docs/environment-guide.md).
 pip install --upgrade pip
 ```
 
@@ -618,39 +716,38 @@ See [`DEVLOG.md`](DEVLOG.md) for complete development history and progress track
 - Performance benchmarking suite
 - Complete documentation
 
+**Phase 2: Memory Tiers + Lifecycle Engines (100%)**
+- Memory tier classes (L1–L4 with dual-indexing, bi-temporal model)
+- CIAR scoring system (calculation logic)
+- Data models (Fact, Episode, KnowledgeDocument)
+- Lifecycle engines: Promotion, Consolidation, Distillation
+- Knowledge Synthesizer for L3→L4 distillation
+- 441/445 tests passing (86% coverage)
+
+**Phase 3 Research: Validated (100%)**
+- RT1: LangGraph tool injection patterns → InjectedState, state reducers
+- RT2: Gemini structured output → Reasoning-First schemas
+- RT3: Redis namespace isolation → Hash Tags MANDATORY
+- RT4: Hybrid memory context injection → Tool Message pattern
+- RT5: CIAR decision-making impact → 18-48% improvement validated
+
 ### What's Next 🚧
 
-**Phase 2A: Memory Tier Classes (2-3 weeks)**
-- Implement `ActiveContextTier`, `WorkingMemoryTier`, `EpisodicMemoryTier`, `SemanticMemoryTier`
-- Add tier-specific logic and coordination
+**Phase 3: Agent Integration (6 weeks)**
+- Week 1: Namespace Manager + Lua Scripts + Redis Streams
+- Week 2: Enhanced UnifiedMemorySystem + Unified Tools
+- Week 3: CIAR Tools + Granular Tier Tools + Synthesis Tools
+- Week 4: BaseAgent + MemoryAgent + Baseline Agents
+- Week 5: LangGraph Orchestrator + FastAPI Agent Wrapper
+- Week 6: End-to-End Integration Tests + Documentation
 
-**Phase 2B: CIAR Scoring & Promotion (1-2 weeks)**
-- Implement CIAR scoring algorithm (core research contribution)
-- Build LLM-based fact extraction with circuit breaker fallback
-- Create L1→L2 promotion engine
+**Phase 4: Evaluation Framework (2-3 weeks)**
+- GoodAI LTM Benchmark integration
+- Full hybrid system evaluation
+- Baseline comparisons (RAG, full-context)
+- Performance metrics and analysis
 
-**Phase 2C: Consolidation Engine (2-3 weeks)**
-- Time-windowed fact clustering
-- LLM-based episode summarization
-- Dual indexing (Qdrant + Neo4j)
-- Bi-temporal property graph model
-
-**Phase 2D: Distillation Engine (1-2 weeks)**
-- Pattern mining across episodes
-- LLM-based knowledge synthesis
-- L3→L4 distillation automation
-
-**Phase 2E: Memory Orchestrator (1 week)**
-- Integrate all tiers and engines
-- Unified query interface
-- Lifecycle management
-
-**Phase 3: Agent Integration (2-3 weeks)**
-- LangGraph agent implementation
-- Multi-agent coordination
-- GoodAI LTM benchmark integration
-
-**See [ADR-003 Architecture Review](docs/reports/adr-003-architecture-review.md)** for complete gap analysis and detailed implementation roadmap.
+**See [Phase 3 Implementation Plan](docs/plan/phase3-implementation-plan-2025-12-27.md)** for detailed week-by-week breakdown.
 
 ## 10. Contributing
 

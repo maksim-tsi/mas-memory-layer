@@ -200,7 +200,6 @@ async def test_working_memory_table():
 @pytest.mark.asyncio
 async def test_connection_error_handling():
     """Test connection error handling with invalid credentials"""
-    from src.storage.base import StorageConnectionError
     
     config = {
         'url': 'postgresql://invalid:invalid@localhost:5432/invalid_db'
@@ -229,7 +228,6 @@ async def test_disconnect_when_not_connected():
 @pytest.mark.asyncio
 async def test_store_without_connection():
     """Test store operation when not connected"""
-    from src.storage.base import StorageConnectionError
     
     url = os.getenv('POSTGRES_URL')
     if not url:
@@ -283,7 +281,6 @@ async def test_store_batch_empty_list(postgres_adapter):
 @pytest.mark.asyncio
 async def test_unknown_table_error():
     """Test storing to unknown table raises error"""
-    from src.storage.base import StorageDataError
     
     url = os.getenv('POSTGRES_URL')
     if not url:

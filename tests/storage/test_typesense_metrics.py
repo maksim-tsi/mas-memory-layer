@@ -70,5 +70,5 @@ async def test_typesense_metrics_integration():
     finally:
         try:
             await adapter.disconnect()
-        except:
+        except Exception:
             pass

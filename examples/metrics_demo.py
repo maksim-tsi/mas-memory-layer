@@ -2,7 +2,6 @@
 Demo script showing metrics collection for storage adapters.
 """
 import asyncio
-import json
 from src.storage.redis_adapter import RedisAdapter
 
 

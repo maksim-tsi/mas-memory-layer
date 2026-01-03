@@ -15,19 +15,19 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
-
-from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
 # Import individual test modules
-import test_gemini
-import test_groq
-import test_mistral
+import test_gemini  # noqa: E402
+import test_groq  # noqa: E402
+import test_mistral  # noqa: E402
 
 
 def print_header():
@@ -156,15 +156,15 @@ def print_summary(results):
         print("   Action: Configure at least one API key to proceed.")
         print("   Priority: Start with Google Gemini (easiest to set up)")
     elif passed == 1:
-        print(f"\n✓ One provider is working, but consider adding more for:")
+        print("\n✓ One provider is working, but consider adding more for:")
         print("  • Fallback resilience (if primary provider fails)")
         print("  • Task-specific optimization (different models for different tasks)")
         print("  • Rate limit distribution (spread load across providers)")
     elif passed == 2:
-        print(f"\n✓ Two providers are working - good resilience!")
-        print(f"  Consider adding the remaining provider for maximum flexibility.")
+        print("\n✓ Two providers are working - good resilience!")
+        print("  Consider adding the remaining provider for maximum flexibility.")
     else:
-        print(f"\n✅ All providers are working - excellent setup!")
+        print("\n✅ All providers are working - excellent setup!")
         print("   You have maximum resilience and task optimization options.")
     
     print("\nNext Steps:")

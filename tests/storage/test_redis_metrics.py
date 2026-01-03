@@ -33,10 +33,10 @@ async def test_redis_metrics_integration():
         })
         
         # Retrieve data
-        data = await adapter.retrieve(record_id)
+        await adapter.retrieve(record_id)
         
         # Search data
-        results = await adapter.search({
+        await adapter.search({
             'session_id': 'test-metrics-session',
             'limit': 2
         })
@@ -81,5 +81,5 @@ async def test_redis_metrics_integration():
         # Clean up
         try:
             await adapter.disconnect()
-        except:
+        except Exception:
             pass

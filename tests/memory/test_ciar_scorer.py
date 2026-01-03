@@ -11,8 +11,6 @@ Date: November 2025
 import pytest
 import math
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
-from unittest.mock import patch, mock_open
 
 from src.memory.ciar_scorer import CIARScorer
 from src.memory.models import Fact

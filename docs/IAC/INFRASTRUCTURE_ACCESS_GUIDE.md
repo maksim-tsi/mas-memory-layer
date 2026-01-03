@@ -8,26 +8,26 @@
 
 ## Overview
 
-This project uses a **two-node distributed infrastructure** as specified in [ADR-002](../ADR/002-infrastructure-architecture.md):
+This project uses a **two-node distributed infrastructure** following the "Role Swap" migration (Nov 2025):
 
-- **skz-dev-lv** (192.168.107.172) - Orchestrator Node
-- **skz-stg-lv** (192.168.107.187) - AI Data & Monitoring Node
+- **skz-dev-lv** (192.168.107.172) - Dev & Platform Node
+- **skz-data-lv** (192.168.107.187) - AI & Data Node
 
 ---
 
 ## Infrastructure Architecture
 
-### Node Assignments (per ADR-002)
+### Node Assignments
 
 | Service | Node | Port(s) | Purpose | Storage |
 |---------|------|---------|---------|---------|
-| **PostgreSQL** | skz-dev-lv | 5432 | L1/L2 Relational Memory | OS Drive |
+| **PostgreSQL** | **skz-data-lv** | 5432 | L1/L2 Relational Memory | 2TB NVMe |
 | **Redis** | skz-dev-lv | 6379 | L1 High-Speed Cache | OS Drive |
-| **Qdrant** | skz-stg-lv | 6333-6334 | L3 Vector Search | `/mnt/data` (512GB NVMe) |
-| **Neo4j** | skz-stg-lv | 7474, 7687 | L3 Graph Relationships | `/mnt/data` (512GB NVMe) |
-| **Typesense** | skz-stg-lv | 8108 | L4 Full-Text Search | `/mnt/data` (512GB NVMe) |
-| **Prometheus** | skz-stg-lv | 9090 | Metrics Collection | OS Drive |
-| **Grafana** | skz-stg-lv | 3000 | Monitoring Dashboards | OS Drive |
+| **Qdrant** | **skz-data-lv** | 6333-6334 | L3 Vector Search | 2TB NVMe |
+| **Neo4j** | **skz-data-lv** | 7474, 7687 | L3 Graph Relationships | 2TB NVMe |
+| **Typesense** | **skz-data-lv** | 8108 | L4 Full-Text Search | 2TB NVMe |
+| **Prometheus** | **skz-data-lv** | 9090 | Metrics Collection | OS Drive |
+| **Grafana** | **skz-data-lv** | 3000 | Monitoring Dashboards | OS Drive |
 
 ---
 
@@ -39,18 +39,6 @@ All services require authentication. **Credentials are stored in `.env` file** (
 
 #### skz-dev-lv (192.168.107.172)
 
-**PostgreSQL** - L1/L2 Relational Storage
-```
-Host: 192.168.107.172
-Port: 5432
-Database: mas_memory
-User: postgres
-Password: <stored in .env>
-
-Connection String:
-postgresql://postgres:${POSTGRES_PASSWORD}@192.168.107.172:5432/mas_memory
-```
-
 **Redis** - L1 Cache
 ```
 Host: 192.168.107.172
@@ -61,7 +49,19 @@ Connection String:
 redis://192.168.107.172:6379
 ```
 
-#### skz-stg-lv (192.168.107.187)
+#### skz-data-lv (192.168.107.187)
+
+**PostgreSQL** - L1/L2 Relational Storage
+```
+Host: 192.168.107.187
+Port: 5432
+Database: mas_memory
+User: postgres
+Password: <stored in .env>
+
+Connection String:
+postgresql://postgres:${POSTGRES_PASSWORD}@192.168.107.187:5432/mas_memory
+```
 
 **Qdrant** - L3 Vector Database
 ```

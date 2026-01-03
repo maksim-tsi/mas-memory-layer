@@ -31,12 +31,12 @@ This section provides the necessary context for all development tasks.
 This is a **four-tier cognitive memory system** for Multi-Agent Systems (MAS), designed for supply chain/logistics applications.
 
 **Four-Tier Architecture (ADR-003)**:
-- **L1: Active Context** (Redis) → 10-20 recent turns, 24h TTL
-- **L2: Working Memory** (PostgreSQL) → Significant facts filtered by CIAR score
+- **L1: Active Context** (Redis) → 10-20 recent **raw** turns, 24h TTL, **no pre-processing** (hot path)
+- **L2: Working Memory** (PostgreSQL) → Significant facts filtered by CIAR score, **batch-processed topic segments**
 - **L3: Episodic Memory** (Qdrant + Neo4j) → Consolidated episodes with dual indexing
 - **L4: Semantic Memory** (Typesense) → Distilled knowledge patterns
 
-**Information Flow**: L1 raw turns → [Promotion Engine] → L2 facts → [Consolidation Engine] → L3 episodes → [Distillation Engine] → L4 knowledge
+**Information Flow**: L1 raw turns → [Promotion Engine with batch compression/segmentation via Groq/Gemini] → L2 facts → [Consolidation Engine] → L3 episodes → [Distillation Engine] → L4 knowledge
 
 **Core Architectural Principles**:
 1. **Computational State Persistence**: Memory is an active workspace for multi-step reasoning
@@ -53,8 +53,12 @@ You must assume the following technology stack is in use. All generated code, te
 * **Data Validation:** Pydantic v2  
 * **Testing:** Pytest, pytest-asyncio  
 * **Databases:** PostgreSQL, Redis, Qdrant, Neo4j, Typesense
+* **LLM Providers:** Google Gemini (gemini-3-flash-preview), Groq (openai/gpt-oss-120b), Mistral
+* **LLM SDK:** `google-genai` for Gemini structured output with native `types.Schema` format
 
 This stack is precise. For example, all data validation tasks must use Pydantic v2 models. This may present specific challenges, such as handling ValidationError exceptions during execution or mocking BaseModel objects in tests, which are common developer pain points.8 You must address these challenges using the protocols in this document.
+
+**CRITICAL LLM Environment Variable**: Use `GOOGLE_API_KEY` (sourced from `.env` in repository root) for all Gemini operations. Do NOT use `GEMINI_API_KEY` - this is incorrect. See `tests/utils/test_gemini_structured_output.py` for validated usage patterns.
 
 ### **2.3 Repository Manifest**
 
@@ -72,6 +76,8 @@ You must adhere to the following file and directory interaction policies. This s
 | AGENTS.MD | **AGENT PROTOCOL (This file).** | **Read-Only**. You must read and obey this file at the start of your session. You *must not* modify it. |
 | /tmp/copilot.out | Temporary output file for terminal commands. | **Write (via redirection)**, **Read (via cat)**. This file is your trusted source for command output (see Protocol 5.0). |
 
+Document every incident and mitigation in `docs/lessons-learned.md`. Use the structured table format so future agents can reference prior failures and their resolutions.
+
 ## **3.0 Environment Setup and Management Protocol**
 
 This protocol is **non-negotiable**. You *must* perform and verify these steps before running any test, build, or application-specific command.
@@ -82,23 +88,34 @@ A primary failure mode for agents is misdiagnosing an environment-level problem 
 
 You must execute the following steps in order, using the workarounds in Protocol 5.0 for all terminal commands.
 
-**CRITICAL ENVIRONMENT RULE**: You are operating on a remote Ubuntu machine (skz-dev-lv) via SSH. The `run_in_terminal` tool operates in a **stateless shell**. You **MUST NOT** use `source .venv/bin/activate` because activation will be lost on the very next command.
+**Host Detection (Step 0)**: Before touching the environment, run the following commands (in a single invocation) and inspect their output to determine whether you are on the managed remote host or a local machine:
+```bash
+uname -a && hostname && pwd
+```
+Consult `docs/environment-guide.md` for examples of expected output.
 
-**MANDATORY**: All Python, pip, or pytest commands **MUST use the direct, absolute executable path**:
-- Python: `/home/max/code/mas-memory-layer/.venv/bin/python`
-- Pytest: `/home/max/code/mas-memory-layer/.venv/bin/pytest`
-- Pip: `/home/max/code/mas-memory-layer/.venv/bin/pip`
+**CRITICAL ENVIRONMENT RULE**: The `run_in_terminal` tool operates in a **stateless shell**. You **MUST NOT** use `source .venv/bin/activate` because activation will be lost on the very next command.
+
+**MANDATORY**:
+- If Step 0 shows the managed remote host (Linux + hostname like `skz-dev-lv` with project rooted at `/home/max/code/mas-memory-layer`), all Python, pip, or pytest commands **MUST use the direct, absolute executable path**:
+   - Python: `/home/max/code/mas-memory-layer/.venv/bin/python`
+   - Pytest: `/home/max/code/mas-memory-layer/.venv/bin/pytest`
+   - Pip: `/home/max/code/mas-memory-layer/.venv/bin/pip`
+- If Step 0 shows a local macOS/Linux checkout, use the relative variants so the commands remain portable:
+   - Python: `./.venv/bin/python`
+   - Pytest: `./.venv/bin/pytest`
+   - Pip: `./.venv/bin/pip`
 
 1. **Check for .venv:** Use a terminal command to check for the existence of the .venv directory at the project root.  
-2. **Create (if non-existent):** If the .venv directory does not exist, you *must* run:  
-   * `python3 -m venv /home/max/code/mas-memory-layer/.venv > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`  
-3. **NO ACTIVATION STEP**: Skip any activation. Use absolute paths to executables instead.  
-4. **Install Dependencies:** Run the following command:  
-   * `/home/max/code/mas-memory-layer/.venv/bin/pip install -r requirements.txt > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`  
-5. **Verify Installation:** After installation, you *must* run the following verification command:  
-   * `/home/max/code/mas-memory-layer/.venv/bin/python -c 'import sys; print(sys.executable)' > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`  
+2. **Create (if non-existent):** If the .venv directory does not exist, you *must* run the appropriate command:  
+   * Remote host: `python3 -m venv /home/max/code/mas-memory-layer/.venv > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`  
+   * Local host: `python3 -m venv .venv > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`  
+3. **NO ACTIVATION STEP**: Skip any activation. Use the resolved interpreter path from Step 0 for every command.  
+4. **Install Dependencies:** Run the pip command determined in Step 0 against `requirements.txt`.  
+5. **Verify Installation:** After installation, run the python command determined in Step 0:  
+   * `<python_path_from_step_0> -c 'import sys; print(sys.executable)' > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`  
 6. **Verify Output:** You must then read the output from /tmp/copilot.out.  
-   * **Expected Output:** The output *must* contain `/home/max/code/mas-memory-layer/.venv/bin/python`.  
+   * **Expected Output:** The output *must* contain the `.venv/bin/python` path that belongs to this repository (absolute path on remote, relative path resolving locally).  
    * **Failure Condition:** If the output does not match, you *must* stop and report to the user that the environment is not correctly configured. **Do not proceed.**
 
 ## **4.0 Standard Development Workflow**
@@ -107,12 +124,12 @@ This section outlines the "inner loop" of development that you must emulate. Thi
 
 ### **4.1 Linting**
 
-* **Command:** `/home/max/code/mas-memory-layer/.venv/bin/ruff check . > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`  
+* **Command:** `/home/max/code/mas-memory-layer/.venv/bin/ruff check . > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`  
 * **Protocol:** You must run this command *before* running tests. If it fails, you must fix the linting errors first. Analyze the output in /tmp/copilot.out to identify and correct the reported issues.
 
 ### **4.2 Testing (Core Protocol)**
 
-* **Command:** `/home/max/code/mas-memory-layer/.venv/bin/pytest tests/ -v > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`  
+* **Command:** `/home/max/code/mas-memory-layer/.venv/bin/pytest tests/ -v > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`  
 * **Protocol (Test-Driven Fix):** This protocol is designed to prevent a critical agent failure mode where agents, when asked to "fix failing tests," will instead *modify or delete the tests* to match the broken code.15  
   1. After *any* code modification in /src/, you *must* run the full test suite using the pytest command.  
   2. If tests fail, you must analyze the pytest output from /tmp/copilot.out.  
@@ -120,9 +137,14 @@ This section outlines the "inner loop" of development that you must emulate. Thi
   4. You *must not* modify the test code (in /tests/) unless the user's prompt *explicitly* and *unambiguously* directs you to "update the tests," "fix a broken test," or "write new tests".16  
   5. When fixing failing tests, you must be specific.17 State your hypothesis for the failure *before* editing the code (see Protocol 7.1). This includes debugging complex test failures, such as those involving mock objects or Pydantic models.18
 
+**Marker scope and real-provider runs:**
+- Unit/mocked scope: `-m "not integration and not llm_real"`
+- Integration scope: `-m "integration"`
+- Real LLM/provider scope: `-m "llm_real"` (requires `GOOGLE_API_KEY` from `.env`; no `GEMINI_API_KEY` is used). Use the grading script `scripts/grade_phase5_readiness.sh --mode full` to include real-provider checks; add `--skip-llm` to suppress them even when the key is present.
+
 ### **4.3 Building**
 
-* **Command:** `make build > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out` (Modify as appropriate for the project)  
+* **Command:** `make build > /tmp/copilot.out 2>&1; cat /tmp/copilot.out` (Modify as appropriate for the project)  
 * **Protocol:** You must run this command after all tests pass to ensure the project builds successfully.
 
 ## **5.0 Mandatory Tooling Workarounds and Execution Contracts**
@@ -140,9 +162,10 @@ You must follow this exact sequence for *every* terminal command you run.
 **MANDATORY Terminal Resiliency Protocol**: You are operating on a remote Ubuntu machine (skz-dev-lv) via SSH. The `run_in_terminal` tool is known to be unreliable; it can hang, time out, or fail to capture command output.
 
 **Rule 1 (Execution)**: All commands that produce output MUST use the **redirect-and-cat pattern**. This decouples execution from output capture:
-   * **Pattern**: `<command> > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`
-   * **Correct Example**: `/home/max/code/mas-memory-layer/.venv/bin/pytest tests/ -v > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`  
-   * **Correct Example**: `/home/max/code/mas-memory-layer/.venv/bin/ruff check . > /tmp/copilot.out 2>&1 && cat /tmp/copilot.out`  
+   * **Pattern**: `<command> > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`
+   * The semicolon ensures the log is surfaced even when the primary command exits non-zero. See `docs/lessons-learned.md` (entry LL-20251115-01) for the root-cause analysis.
+   * **Correct Example**: `/home/max/code/mas-memory-layer/.venv/bin/pytest tests/ -v > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`  
+   * **Correct Example**: `/home/max/code/mas-memory-layer/.venv/bin/ruff check . > /tmp/copilot.out 2>&1; cat /tmp/copilot.out`  
    * **Incorrect Example (FORBIDDEN)**: `pytest` (no redirection or absolute path)
 
 **Rule 2 (Fallback)**: If this fails and you get no output, you MUST immediately use the `get_terminal_output` tool to try and retrieve the output.

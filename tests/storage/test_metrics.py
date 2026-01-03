@@ -3,7 +3,6 @@ Unit tests for metrics collection components.
 """
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, patch
 from src.storage.metrics import MetricsCollector, OperationTimer, MetricsStorage, MetricsAggregator
 
 
@@ -177,9 +176,9 @@ class TestMetricsCollector:
         
         collector = MetricsCollector(config)
         
-        assert collector.enabled == False
+        assert not collector.enabled
         assert collector.max_history == 500
-        assert collector.track_errors == False
+        assert not collector.track_errors
         assert collector.percentiles == [50, 90, 99]
     
     async def test_record_operation(self):

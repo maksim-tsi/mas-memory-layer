@@ -8,6 +8,22 @@ import uuid
 import redis
 import json
 
+# Import tier classes
+from src.memory.tiers import (
+    ActiveContextTier,
+    WorkingMemoryTier,
+    EpisodicMemoryTier,
+    SemanticMemoryTier
+)
+
+# Import lifecycle engines
+from src.memory.engines.promotion_engine import PromotionEngine
+from src.memory.engines.consolidation_engine import ConsolidationEngine
+from src.memory.engines.distillation_engine import DistillationEngine
+
+# Import data models
+from src.memory.models import Fact, Episode, KnowledgeDocument, ContextBlock, SearchWeights
+
 # Import the facade for the persistent knowledge layer
 from knowledge_store_manager import KnowledgeStoreManager
 
@@ -67,6 +83,45 @@ class HybridMemorySystem(ABC):
     ) -> List[Dict[str, Any]]:
         """Queries the persistent knowledge layer."""
         pass
+    
+    # --- Lifecycle Engine Methods ---
+    @abstractmethod
+    async def run_promotion_cycle(self, session_id: str) -> List[Fact]:
+        """Execute L1→L2 promotion cycle with CIAR filtering."""
+        pass
+    
+    @abstractmethod
+    async def run_consolidation_cycle(self, session_id: str) -> List[Episode]:
+        """Execute L2→L3 consolidation cycle."""
+        pass
+    
+    @abstractmethod
+    async def run_distillation_cycle(self, session_id: Optional[str] = None) -> List[KnowledgeDocument]:
+        """Execute L3→L4 distillation cycle."""
+        pass
+    
+    # --- Cross-Tier Query Methods ---
+    @abstractmethod
+    async def query_memory(
+        self,
+        session_id: str,
+        query: str,
+        limit: int = 10,
+        weights: Optional[SearchWeights] = None
+    ) -> List[Dict[str, Any]]:
+        """Hybrid semantic search across L2, L3, and L4 tiers."""
+        pass
+    
+    @abstractmethod
+    async def get_context_block(
+        self,
+        session_id: str,
+        min_ciar: float = 0.6,
+        max_turns: int = 20,
+        max_facts: int = 10
+    ) -> ContextBlock:
+        """Assemble context block for prompt injection."""
+        pass
 
 # --- Concrete UNIFIED Implementation ---
 
@@ -74,11 +129,36 @@ class UnifiedMemorySystem(HybridMemorySystem):
     """
     A concrete implementation of the HybridMemorySystem, unifying Operating Memory (Redis)
     and the Persistent Knowledge Layer (via KnowledgeStoreManager).
+    
+    Integrates all four memory tiers (L1-L4) with lifecycle engines for automated
+    information flow and promotion.
     """
     
-    def __init__(self, redis_client: redis.StrictRedis, knowledge_manager: KnowledgeStoreManager):
+    def __init__(
+        self,
+        redis_client: redis.StrictRedis,
+        knowledge_manager: KnowledgeStoreManager,
+        l1_tier: Optional[ActiveContextTier] = None,
+        l2_tier: Optional[WorkingMemoryTier] = None,
+        l3_tier: Optional[EpisodicMemoryTier] = None,
+        l4_tier: Optional[SemanticMemoryTier] = None,
+        promotion_engine: Optional[PromotionEngine] = None,
+        consolidation_engine: Optional[ConsolidationEngine] = None,
+        distillation_engine: Optional[DistillationEngine] = None
+    ):
         """
         Initializes the memory system with clients for all layers.
+        
+        Args:
+            redis_client: Redis client for Operating Memory
+            knowledge_manager: Facade for persistent knowledge stores
+            l1_tier: Active Context tier (L1) - optional for backward compatibility
+            l2_tier: Working Memory tier (L2) - optional for backward compatibility
+            l3_tier: Episodic Memory tier (L3) - optional for backward compatibility
+            l4_tier: Semantic Memory tier (L4) - optional for backward compatibility
+            promotion_engine: L1→L2 promotion engine - optional
+            consolidation_engine: L2→L3 consolidation engine - optional
+            distillation_engine: L3→L4 distillation engine - optional
         """
         # --- Operating Memory Client ---
         self.redis_client = redis_client
@@ -91,6 +171,17 @@ class UnifiedMemorySystem(HybridMemorySystem):
 
         # --- Persistent Knowledge Layer Client ---
         self.knowledge_manager = knowledge_manager
+        
+        # --- Memory Tiers ---
+        self.l1_tier = l1_tier
+        self.l2_tier = l2_tier
+        self.l3_tier = l3_tier
+        self.l4_tier = l4_tier
+        
+        # --- Lifecycle Engines ---
+        self.promotion_engine = promotion_engine
+        self.consolidation_engine = consolidation_engine
+        self.distillation_engine = distillation_engine
 
     # --- Private Key Helpers for Redis ---
     def _get_personal_key(self, agent_id: str) -> str: return f"personal_state:{agent_id}"
@@ -153,6 +244,273 @@ class UnifiedMemorySystem(HybridMemorySystem):
             top_k=top_k,
             filters=filters
         )
+    
+    # --- Lifecycle Engine Implementation ---
+    
+    async def run_promotion_cycle(self, session_id: str) -> List[Fact]:
+        """
+        Execute L1→L2 promotion cycle with CIAR filtering.
+        
+        Args:
+            session_id: Session to promote turns from
+            
+        Returns:
+            List of Facts promoted to L2
+            
+        Raises:
+            RuntimeError: If promotion engine or required tiers not configured
+        """
+        if not self.promotion_engine:
+            raise RuntimeError("PromotionEngine not configured")
+        if not self.l1_tier or not self.l2_tier:
+            raise RuntimeError("L1 and L2 tiers required for promotion")
+        
+        # Run promotion engine
+        facts = await self.promotion_engine.promote_session(session_id)
+        return facts
+    
+    async def run_consolidation_cycle(self, session_id: str) -> List[Episode]:
+        """
+        Execute L2→L3 consolidation cycle.
+        
+        Args:
+            session_id: Session to consolidate facts from
+            
+        Returns:
+            List of Episodes created in L3
+            
+        Raises:
+            RuntimeError: If consolidation engine or required tiers not configured
+        """
+        if not self.consolidation_engine:
+            raise RuntimeError("ConsolidationEngine not configured")
+        if not self.l2_tier or not self.l3_tier:
+            raise RuntimeError("L2 and L3 tiers required for consolidation")
+        
+        # Run consolidation engine
+        episodes = await self.consolidation_engine.consolidate_session(session_id)
+        return episodes
+    
+    async def run_distillation_cycle(self, session_id: Optional[str] = None) -> List[KnowledgeDocument]:
+        """
+        Execute L3→L4 distillation cycle.
+        
+        Args:
+            session_id: Optional session filter (None = global distillation)
+            
+        Returns:
+            List of KnowledgeDocuments created in L4
+            
+        Raises:
+            RuntimeError: If distillation engine or required tiers not configured
+        """
+        if not self.distillation_engine:
+            raise RuntimeError("DistillationEngine not configured")
+        if not self.l3_tier or not self.l4_tier:
+            raise RuntimeError("L3 and L4 tiers required for distillation")
+        
+        # Run distillation engine
+        if session_id:
+            knowledge_docs = await self.distillation_engine.distill_session(session_id)
+        else:
+            knowledge_docs = await self.distillation_engine.distill_global()
+        return knowledge_docs
+    
+    # --- Cross-Tier Query Implementation ---
+    
+    async def query_memory(
+        self,
+        session_id: str,
+        query: str,
+        limit: int = 10,
+        weights: Optional[SearchWeights] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Hybrid semantic search across L2, L3, and L4 tiers.
+        
+        Merges results from multiple tiers using configurable weights
+        with min-max normalization for comparable scoring.
+        
+        Args:
+            session_id: Session context for search
+            query: Search query string
+            limit: Maximum results to return
+            weights: Search weighting config (default: 0.3/0.5/0.2 for L2/L3/L4)
+            
+        Returns:
+            List of ranked results with unified schema:
+            [
+                {
+                    'content': str,
+                    'tier': str (L2/L3/L4),
+                    'score': float (0.0-1.0),
+                    'metadata': dict
+                }
+            ]
+        """
+        if weights is None:
+            weights = SearchWeights()  # Use defaults
+        
+        all_results = []
+        
+        # L2: Working Memory (Facts)
+        if self.l2_tier and weights.l2_weight > 0:
+            try:
+                l2_facts = await self.l2_tier.retrieve(
+                    session_id=session_id,
+                    query=query,
+                    limit=limit
+                )
+                # Normalize CIAR scores to 0-1 range
+                if l2_facts:
+                    l2_scores = [f.ciar_score for f in l2_facts]
+                    min_score, max_score = min(l2_scores), max(l2_scores)
+                    score_range = max_score - min_score if max_score > min_score else 1.0
+                    
+                    for fact in l2_facts:
+                        normalized_score = (fact.ciar_score - min_score) / score_range if score_range > 0 else 0.5
+                        weighted_score = normalized_score * weights.l2_weight
+                        all_results.append({
+                            'content': fact.content,
+                            'tier': 'L2',
+                            'score': weighted_score,
+                            'metadata': {
+                                'fact_id': fact.fact_id,
+                                'fact_type': fact.fact_type,
+                                'ciar_score': fact.ciar_score,
+                                'extracted_at': fact.extracted_at.isoformat()
+                            }
+                        })
+            except Exception as e:
+                print(f"L2 query failed: {e}")
+        
+        # L3: Episodic Memory (Episodes)
+        if self.l3_tier and weights.l3_weight > 0:
+            try:
+                l3_episodes = await self.l3_tier.retrieve(
+                    session_id=session_id,
+                    query=query,
+                    limit=limit
+                )
+                # Normalize importance scores
+                if l3_episodes:
+                    l3_scores = [e.importance_score for e in l3_episodes]
+                    min_score, max_score = min(l3_scores), max(l3_scores)
+                    score_range = max_score - min_score if max_score > min_score else 1.0
+                    
+                    for episode in l3_episodes:
+                        normalized_score = (episode.importance_score - min_score) / score_range if score_range > 0 else 0.5
+                        weighted_score = normalized_score * weights.l3_weight
+                        all_results.append({
+                            'content': episode.summary,
+                            'tier': 'L3',
+                            'score': weighted_score,
+                            'metadata': {
+                                'episode_id': episode.episode_id,
+                                'fact_count': episode.fact_count,
+                                'importance_score': episode.importance_score,
+                                'topics': episode.topics,
+                                'consolidated_at': episode.consolidated_at.isoformat()
+                            }
+                        })
+            except Exception as e:
+                print(f"L3 query failed: {e}")
+        
+        # L4: Semantic Memory (Knowledge Documents)
+        if self.l4_tier and weights.l4_weight > 0:
+            try:
+                l4_docs = await self.l4_tier.retrieve(
+                    query=query,
+                    limit=limit
+                )
+                # Normalize confidence scores
+                if l4_docs:
+                    l4_scores = [d.confidence_score for d in l4_docs]
+                    min_score, max_score = min(l4_scores), max(l4_scores)
+                    score_range = max_score - min_score if max_score > min_score else 1.0
+                    
+                    for doc in l4_docs:
+                        normalized_score = (doc.confidence_score - min_score) / score_range if score_range > 0 else 0.5
+                        weighted_score = normalized_score * weights.l4_weight
+                        all_results.append({
+                            'content': doc.content,
+                            'tier': 'L4',
+                            'score': weighted_score,
+                            'metadata': {
+                                'knowledge_id': doc.knowledge_id,
+                                'title': doc.title,
+                                'knowledge_type': doc.knowledge_type,
+                                'confidence_score': doc.confidence_score,
+                                'tags': doc.tags,
+                                'distilled_at': doc.distilled_at.isoformat()
+                            }
+                        })
+            except Exception as e:
+                print(f"L4 query failed: {e}")
+        
+        # Sort by weighted score and limit results
+        all_results.sort(key=lambda x: x['score'], reverse=True)
+        return all_results[:limit]
+    
+    async def get_context_block(
+        self,
+        session_id: str,
+        min_ciar: float = 0.6,
+        max_turns: int = 20,
+        max_facts: int = 10
+    ) -> ContextBlock:
+        """
+        Assemble context block for prompt injection.
+        
+        Retrieves recent L1 turns and high-CIAR L2 facts, optionally
+        including L3 episode summaries and L4 knowledge snippets.
+        
+        Args:
+            session_id: Session to retrieve context for
+            min_ciar: Minimum CIAR score for L2 facts
+            max_turns: Maximum L1 turns to include
+            max_facts: Maximum L2 facts to include
+            
+        Returns:
+            ContextBlock ready for prompt injection
+            
+        Raises:
+            RuntimeError: If required tiers not configured
+        """
+        context = ContextBlock(
+            session_id=session_id,
+            min_ciar_threshold=min_ciar
+        )
+        
+        # Retrieve L1 recent turns
+        if self.l1_tier:
+            try:
+                turns = await self.l1_tier.retrieve(
+                    session_id=session_id,
+                    limit=max_turns
+                )
+                context.recent_turns = turns
+                context.turn_count = len(turns)
+            except Exception as e:
+                print(f"L1 retrieval failed: {e}")
+        
+        # Retrieve L2 high-CIAR facts
+        if self.l2_tier:
+            try:
+                facts = await self.l2_tier.retrieve(
+                    session_id=session_id,
+                    min_ciar_score=min_ciar,
+                    limit=max_facts
+                )
+                context.significant_facts = facts
+                context.fact_count = len(facts)
+            except Exception as e:
+                print(f"L2 retrieval failed: {e}")
+        
+        # Estimate token count
+        context.estimate_token_count()
+        
+        return context
 
 
 if __name__ == '__main__':

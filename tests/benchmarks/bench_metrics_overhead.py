@@ -5,7 +5,6 @@ Verifies that metrics collection adds reasonable overhead to operations.
 """
 import pytest
 import time
-import asyncio
 from src.storage.redis_adapter import RedisAdapter
 
 
@@ -70,7 +69,7 @@ async def test_metrics_overhead():
     # Calculate overhead
     overhead_pct = ((time_with_metrics - time_without_metrics) / time_without_metrics) * 100
     
-    print(f"\n=== Metrics Overhead Benchmark ===")
+    print("\n=== Metrics Overhead Benchmark ===")
     print(f"Operations: {iterations}")
     print(f"Time without metrics: {time_without_metrics:.3f}s")
     print(f"Time with metrics: {time_with_metrics:.3f}s")

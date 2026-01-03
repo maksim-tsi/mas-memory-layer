@@ -9,23 +9,24 @@ import asyncio
 import json
 import logging
 import os
-from pathlib import Path
-from datetime import datetime
-from typing import Dict, Any, List, Optional
 import sys
-from dotenv import load_dotenv
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-# Load environment variables
-load_dotenv()
+from dotenv import load_dotenv
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.storage.redis_adapter import RedisAdapter
-from src.storage.qdrant_adapter import QdrantAdapter
-from src.storage.neo4j_adapter import Neo4jAdapter
-from src.storage.typesense_adapter import TypesenseAdapter
-from tests.benchmarks.workload_generator import WorkloadGenerator, WorkloadOperation
+# Load environment variables
+load_dotenv()
+
+from src.storage.redis_adapter import RedisAdapter  # noqa: E402
+from src.storage.qdrant_adapter import QdrantAdapter  # noqa: E402
+from src.storage.neo4j_adapter import Neo4jAdapter  # noqa: E402
+from src.storage.typesense_adapter import TypesenseAdapter  # noqa: E402
+from tests.benchmarks.workload_generator import WorkloadGenerator, WorkloadOperation  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -183,7 +184,7 @@ class StorageBenchmark:
         seed = workload_seed or self.config['workload_seed']
         
         logger.info("="*80)
-        logger.info(f"Starting Storage Adapter Benchmark")
+        logger.info("Starting Storage Adapter Benchmark")
         logger.info(f"Workload size: {size} operations")
         logger.info(f"Random seed: {seed}")
         logger.info("="*80)
@@ -242,7 +243,7 @@ class StorageBenchmark:
         # Save results
         output_file = self._save_results(results)
         logger.info(f"\n{'='*80}")
-        logger.info(f"✓ Benchmark complete!")
+        logger.info("✓ Benchmark complete!")
         logger.info(f"📁 Results saved to: {output_file}")
         logger.info(f"{'='*80}")
         

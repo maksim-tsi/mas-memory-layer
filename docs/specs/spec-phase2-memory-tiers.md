@@ -4877,87 +4877,144 @@ DEDUPLICATION_SIMILARITY_THRESHOLD = 0.90
 # Enums and Type Definitions
 # ============================================================================
 
-class FactType:
-    """Fact type constants"""
-    ENTITY = "entity"           # Named entities (people, places, vessels, orgs)
-    PREFERENCE = "preference"   # User or agent preferences
-    CONSTRAINT = "constraint"   # Business rules, requirements, restrictions
-    GOAL = "goal"              # Objectives, targets, desired outcomes
-    METRIC = "metric"          # Quantitative measurements, KPIs
-    
-    @classmethod
-    def all_types(cls) -> List[str]:
-        """Get all valid fact types"""
-        return [cls.ENTITY, cls.PREFERENCE, cls.CONSTRAINT, cls.GOAL, cls.METRIC]
-    
-    @classmethod
-    def validate(cls, fact_type: str) -> bool:
-        """Validate fact type"""
-        return fact_type in cls.all_types()
+class FactType(str, Enum):
+    """Classification of fact types."""
+    PREFERENCE = "preference"      # User preferences (high impact)
+    CONSTRAINT = "constraint"      # Business rules, requirements
+    ENTITY = "entity"             # Named entities, objects
+    MENTION = "mention"           # Casual mentions (low impact)
+    RELATIONSHIP = "relationship"  # Entity relationships
+    EVENT = "event"               # Temporal events
+
+
+class FactCategory(str, Enum):
+    """Domain-specific fact categories."""
+    PERSONAL = "personal"
+    BUSINESS = "business"
+    TECHNICAL = "technical"
+    OPERATIONAL = "operational"
 
 
 # ============================================================================
 # Data Models
 # ============================================================================
 
-class Fact:
-    """Represents a structured fact in working memory"""
+class Fact(BaseModel):
+    """
+    Represents a significant fact in L2 Working Memory.
     
-    def __init__(
-        self,
-        fact_id: Optional[int],
-        session_id: str,
-        fact_type: str,
-        content: str,
-        confidence: float = DEFAULT_CONFIDENCE,
-        source_turn_ids: Optional[List[int]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        lifecycle_stage: str = "l2_fact",
-        ciar_score: Optional[float] = None,
-        created_at: Optional[datetime] = None,
-        promoted_from_l1_at: Optional[datetime] = None,
-        consolidated_to_l3_at: Optional[datetime] = None
-    ):
-        self.fact_id = fact_id
-        self.session_id = session_id
-        self.fact_type = fact_type
-        self.content = content
-        self.confidence = confidence
-        self.source_turn_ids = source_turn_ids or []
-        self.metadata = metadata or {}
-        self.lifecycle_stage = lifecycle_stage
-        self.ciar_score = ciar_score
-        self.created_at = created_at or datetime.utcnow()
-        self.promoted_from_l1_at = promoted_from_l1_at
-        self.consolidated_to_l3_at = consolidated_to_l3_at
+    Attributes:
+        fact_id: Unique identifier
+        session_id: Associated session
+        content: Natural language fact statement
+        ciar_score: Computed CIAR significance score
+        certainty: Confidence in fact accuracy (0.0-1.0)
+        impact: Estimated importance (0.0-1.0)
+        age_decay: Time-based decay factor
+        recency_boost: Access-based boost factor
+        source_uri: Reference to source turn in L1
+        source_type: How fact was obtained
+        fact_type: Classification of fact
+        fact_category: Domain category
+        metadata: Additional context
+        extracted_at: When fact was extracted
+        last_accessed: Most recent access time
+        access_count: Number of times accessed
+    """
+    
+    fact_id: str
+    session_id: str
+    content: str = Field(..., min_length=1, max_length=5000)
+    
+    # CIAR components
+    ciar_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    certainty: float = Field(default=0.7, ge=0.0, le=1.0)
+    impact: float = Field(default=0.5, ge=0.0, le=1.0)
+    age_decay: float = Field(default=1.0, ge=0.0, le=1.0)
+    recency_boost: float = Field(default=1.0, ge=0.0)
+    
+    # Provenance
+    source_uri: Optional[str] = None
+    source_type: str = Field(default="extracted")
+    
+    # Classification
+    fact_type: Optional[FactType] = None
+    fact_category: Optional[FactCategory] = None
+    
+    # Metadata
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    # Timestamps
+    extracted_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_accessed: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    access_count: int = Field(default=0, ge=0)
+    
+    model_config = {
+        "use_enum_values": True
+    }
+    
+    @field_validator('ciar_score')
+    @classmethod
+    def validate_ciar_score(cls, v: float, info) -> float:
+        """Ensure CIAR score is consistent with components if all are present."""
+        values = info.data
+        if all(k in values for k in ['certainty', 'impact', 'age_decay', 'recency_boost']):
+            expected = (
+                values['certainty'] * values['impact']
+            ) * values['age_decay'] * values['recency_boost']
+            # Allow small floating point differences
+            if abs(v - expected) > 0.01:
+                return round(expected, 4)
+        return v
+    
+    def mark_accessed(self) -> None:
+        """Update access tracking."""
+        self.last_accessed = datetime.now(timezone.utc)
+        self.access_count += 1
+        # Recalculate recency boost based on access pattern
+        self.recency_boost = 1.0 + (0.05 * self.access_count)  # 5% boost per access
+        # Recalculate CIAR score
+        self.ciar_score = round(
+            (self.certainty * self.impact) * self.age_decay * self.recency_boost,
+            4
+        )
+    
+    def calculate_age_decay(self, decay_lambda: float = 0.1) -> None:
+        """
+        Calculate age decay factor based on time since extraction.
         
-        # Validate
-        if not FactType.validate(fact_type):
-            raise ValidationError(f"Invalid fact type: {fact_type}")
-        if not (0.0 <= confidence <= 1.0):
-            raise ValidationError(f"Confidence must be 0.0-1.0, got {confidence}")
+        Args:
+            decay_lambda: Decay rate (default: 0.1 per day)
+        """
+        age_days = (datetime.now(timezone.utc) - self.extracted_at).days
+        self.age_decay = round(max(0.0, min(1.0, 2 ** (-decay_lambda * age_days))), 4)
+        # Recalculate CIAR score
+        self.ciar_score = round(
+            (self.certainty * self.impact) * self.age_decay * self.recency_boost,
+            4
+        )
     
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for storage"""
+    def to_db_dict(self) -> Dict[str, Any]:
+        """Convert to database-compatible dictionary."""
+        import json
         return {
             'fact_id': self.fact_id,
             'session_id': self.session_id,
-            'fact_type': self.fact_type,
             'content': self.content,
-            'confidence': self.confidence,
-            'source_turn_ids': self.source_turn_ids,
-            'metadata': self.metadata,
-            'lifecycle_stage': self.lifecycle_stage,
             'ciar_score': self.ciar_score,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'promoted_from_l1_at': self.promoted_from_l1_at.isoformat() if self.promoted_from_l1_at else None,
-            'consolidated_to_l3_at': self.consolidated_to_l3_at.isoformat() if self.consolidated_to_l3_at else None
+            'certainty': self.certainty,
+            'impact': self.impact,
+            'age_decay': self.age_decay,
+            'recency_boost': self.recency_boost,
+            'source_uri': self.source_uri,
+            'source_type': self.source_type,
+            'fact_type': self.fact_type.value if isinstance(self.fact_type, FactType) else self.fact_type,
+            'fact_category': self.fact_category.value if isinstance(self.fact_category, FactCategory) else self.fact_category,
+            'metadata': json.dumps(self.metadata) if self.metadata else '{}',
+            'extracted_at': self.extracted_at,
+            'last_accessed': self.last_accessed,
+            'access_count': self.access_count
         }
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Fact':
-        """Create from dictionary"""
-        return cls(
             fact_id=data.get('id') or data.get('fact_id'),
             session_id=data['session_id'],
             fact_type=data['fact_type'],
@@ -6345,61 +6402,91 @@ class EpisodeType:
 # Data Models
 # ============================================================================
 
-class Episode:
-    """Represents an episodic memory"""
+class Episode(BaseModel):
+    """
+    Represents a consolidated episode in L3 Episodic Memory.
     
-    def __init__(
-        self,
-        episode_id: Optional[str],
-        session_ids: List[str],
-        episode_type: str,
-        summary: str,
-        content: str,
-        facts: List[Dict[str, Any]],
-        entities: List[str],
-        timestamp: datetime,
-        embedding: Optional[List[float]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        version: int = 1,
-        ciar_score: Optional[float] = None,
-        distilled_to_l4_at: Optional[datetime] = None
-    ):
-        self.episode_id = episode_id or self._generate_id()
-        self.session_ids = session_ids
-        self.episode_type = episode_type
-        self.summary = summary
-        self.content = content
-        self.facts = facts
-        self.entities = entities
-        self.timestamp = timestamp
-        self.embedding = embedding
-        self.metadata = metadata or {}
-        self.version = version
-        self.ciar_score = ciar_score
-        self.distilled_to_l4_at = distilled_to_l4_at
-        
-        # Validate
-        if episode_type not in EpisodeType.all_types():
-            raise ValidationError(f"Invalid episode type: {episode_type}")
-        if not session_ids:
-            raise ValidationError("At least one session_id required")
+    Episodes are clusters of related facts from L2, summarized into
+    coherent narrative experiences. Dual-indexed in Qdrant (vector)
+    and Neo4j (graph) for hybrid retrieval.
+    """
     
-    def _generate_id(self) -> str:
-        """Generate unique episode ID"""
-        content_hash = hashlib.sha256(
-            f"{self.summary}:{self.timestamp.isoformat()}".encode()
-        ).hexdigest()[:16]
-        return f"ep_{content_hash}"
+    episode_id: str
+    session_id: str
     
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for storage"""
+    # Content
+    summary: str = Field(..., min_length=10, max_length=10000)
+    narrative: Optional[str] = None  # Longer form narrative
+    
+    # Source facts
+    source_fact_ids: List[str] = Field(default_factory=list)
+    fact_count: int = Field(default=0, ge=0)
+    
+    # Temporal boundaries
+    time_window_start: datetime
+    time_window_end: datetime
+    duration_seconds: float = Field(default=0.0, ge=0.0)
+    
+    # Bi-temporal properties (ADR-003 requirement)
+    fact_valid_from: datetime  # When facts became true
+    fact_valid_to: Optional[datetime] = None  # When facts stopped being true
+    source_observation_timestamp: datetime  # When we observed/recorded this
+    
+    # Embeddings and indexing
+    embedding_model: str = Field(default="text-embedding-ada-002")
+    vector_id: Optional[str] = None  # Qdrant point ID
+    graph_node_id: Optional[str] = None  # Neo4j node ID
+    
+    # Metadata
+    entities: List[Dict[str, Any]] = Field(default_factory=list)
+    relationships: List[Dict[str, Any]] = Field(default_factory=list)
+    topics: List[str] = Field(default_factory=list)
+    importance_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    
+    # Provenance
+    consolidated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    consolidation_method: str = Field(default="llm_clustering")
+    
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    def to_qdrant_payload(self) -> Dict[str, Any]:
+        """Convert to Qdrant payload format."""
         return {
             'episode_id': self.episode_id,
-            'session_ids': self.session_ids,
-            'episode_type': self.episode_type,
+            'session_id': self.session_id,
             'summary': self.summary,
-            'content': self.content,
-            'facts': self.facts,
+            'narrative': self.narrative,
+            'source_fact_ids': self.source_fact_ids,
+            'fact_count': self.fact_count,
+            'time_window_start': self.time_window_start.isoformat(),
+            'time_window_end': self.time_window_end.isoformat(),
+            'fact_valid_from': self.fact_valid_from.isoformat(),
+            'fact_valid_to': self.fact_valid_to.isoformat() if self.fact_valid_to else None,
+            'topics': self.topics,
+            'importance_score': self.importance_score,
+            'graph_node_id': self.graph_node_id,
+            'consolidated_at': self.consolidated_at.isoformat()
+        }
+    
+    def to_neo4j_properties(self) -> Dict[str, Any]:
+        """Convert to Neo4j node properties."""
+        return {
+            'episodeId': self.episode_id,
+            'sessionId': self.session_id,
+            'summary': self.summary,
+            'narrative': self.narrative or '',
+            'factCount': self.fact_count,
+            'timeWindowStart': self.time_window_start.isoformat(),
+            'timeWindowEnd': self.time_window_end.isoformat(),
+            'durationSeconds': self.duration_seconds,
+            'factValidFrom': self.fact_valid_from.isoformat(),
+            'factValidTo': self.fact_valid_to.isoformat() if self.fact_valid_to else None,
+            'sourceObservationTimestamp': self.source_observation_timestamp.isoformat(),
+            'importanceScore': self.importance_score,
+            'vectorId': self.vector_id,
+            'consolidatedAt': self.consolidated_at.isoformat(),
+            'consolidationMethod': self.consolidation_method
+        }
             'entities': self.entities,
             'timestamp': self.timestamp.isoformat(),
             'metadata': self.metadata,
@@ -7994,60 +8081,65 @@ class ConfidenceLevel(str, Enum):
 # Data Models
 # ============================================================================
 
-class Knowledge:
-    """Represents a piece of distilled knowledge"""
+class KnowledgeDocument(BaseModel):
+    """
+    Represents distilled knowledge in L4 Semantic Memory.
     
-    def __init__(
-        self,
-        knowledge_id: Optional[str] = None,
-        knowledge_type: str = KnowledgeType.PATTERN,
-        title: str = "",
-        content: str = "",
-        tags: Optional[List[str]] = None,
-        confidence: float = 0.75,
-        source_episode_ids: Optional[List[str]] = None,
-        session_ids: Optional[List[str]] = None,
-        entities: Optional[List[str]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        version: int = 1,
-        created_at: Optional[datetime] = None,
-        updated_at: Optional[datetime] = None,
-        last_reinforced_at: Optional[datetime] = None,
-        reinforcement_count: int = 0
-    ):
-        self.knowledge_id = knowledge_id or self._generate_id(knowledge_type, content)
-        self.knowledge_type = knowledge_type
-        self.title = title
-        self.content = content
-        self.tags = tags or []
-        self.confidence = min(confidence, MAX_CONFIDENCE)
-        self.source_episode_ids = source_episode_ids or []
-        self.session_ids = session_ids or []
-        self.entities = entities or []
-        self.metadata = metadata or {}
-        self.version = version
-        self.created_at = created_at or datetime.utcnow()
-        self.updated_at = updated_at or datetime.utcnow()
-        self.last_reinforced_at = last_reinforced_at
-        self.reinforcement_count = reinforcement_count
+    Knowledge documents are generalized patterns mined from L3 episodes,
+    representing durable, reusable insights.
+    """
     
-    def _generate_id(self, knowledge_type: str, content: str) -> str:
-        """Generate unique knowledge ID"""
-        content_hash = hashlib.md5(
-            f"{knowledge_type}:{content}".encode()
-        ).hexdigest()[:16]
-        return f"kn_{content_hash}"
+    knowledge_id: str
     
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for storage"""
+    # Content
+    title: str = Field(..., min_length=5, max_length=500)
+    content: str = Field(..., min_length=10, max_length=50000)
+    knowledge_type: str = Field(default="insight")  # insight, pattern, rule, preference
+    
+    # Confidence and provenance
+    confidence_score: float = Field(default=0.7, ge=0.0, le=1.0)
+    source_episode_ids: List[str] = Field(default_factory=list)
+    episode_count: int = Field(default=0, ge=0)
+    
+    # Provenance links (for traceability)
+    provenance_links: List[str] = Field(default_factory=list)
+    
+    # Classification
+    category: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    domain: Optional[str] = None
+    
+    # Lifecycle
+    distilled_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_validated: Optional[datetime] = None
+    validation_count: int = Field(default=0, ge=0)
+    
+    # Usage tracking
+    access_count: int = Field(default=0, ge=0)
+    last_accessed: Optional[datetime] = None
+    usefulness_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+    
+    def to_typesense_document(self) -> Dict[str, Any]:
+        """Convert to Typesense document format."""
         return {
-            'knowledge_id': self.knowledge_id,
-            'knowledge_type': self.knowledge_type,
+            'id': self.knowledge_id,
             'title': self.title,
             'content': self.content,
+            'knowledge_type': self.knowledge_type,
+            'confidence_score': self.confidence_score,
+            'source_episode_ids': self.source_episode_ids,
+            'episode_count': self.episode_count,
+            'provenance_links': self.provenance_links,
+            'category': self.category or '',
             'tags': self.tags,
-            'confidence': self.confidence,
-            'confidence_level': ConfidenceLevel.from_score(self.confidence).value,
+            'domain': self.domain or '',
+            'distilled_at': int(self.distilled_at.timestamp()),
+            'access_count': self.access_count,
+            'usefulness_score': self.usefulness_score,
+            'validation_count': self.validation_count
+        }
             'source_episode_ids': self.source_episode_ids,
             'session_ids': self.session_ids,
             'entities': self.entities,
@@ -8238,7 +8330,7 @@ class SemanticMemoryTier(BaseTier):
                 raise ValidationError(f"Confidence must be 0.0-1.0, got {confidence}")
             
             # Create Knowledge object
-            knowledge = Knowledge(
+            knowledge = KnowledgeDocument(
                 knowledge_type=data['knowledge_type'],
                 title=data['title'],
                 content=data['content'],
@@ -8685,7 +8777,7 @@ class SemanticMemoryTier(BaseTier):
             # Collection may already exist
             self.logger.debug(f"Collection setup: {e}")
     
-    async def _store_typesense(self, knowledge: Knowledge) -> None:
+    async def _store_typesense(self, knowledge: KnowledgeDocument) -> None:
         """Store knowledge in Typesense"""
         document = knowledge.to_dict()
         
@@ -8695,7 +8787,7 @@ class SemanticMemoryTier(BaseTier):
             document_id=knowledge.knowledge_id
         )
     
-    async def _find_similar_knowledge(self, knowledge: Knowledge) -> Optional[Dict[str, Any]]:
+    async def _find_similar_knowledge(self, knowledge: KnowledgeDocument) -> Optional[Dict[str, Any]]:
         """Find existing knowledge with similar content"""
         try:
             # Search for exact title match
@@ -8719,7 +8811,7 @@ class SemanticMemoryTier(BaseTier):
     async def _merge_knowledge(
         self,
         existing: Dict[str, Any],
-        new_knowledge: Knowledge
+        new_knowledge: KnowledgeDocument
     ) -> str:
         """Merge new knowledge with existing knowledge"""
         knowledge = Knowledge.from_dict(existing)

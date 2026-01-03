@@ -1,0 +1,52 @@
+# Test Settings for Phase 3 Week 3 Lifecycle Integration Tests
+#
+# This file configures test execution parameters for lifecycle integration tests
+# that use real LLM providers and live database adapters.
+#
+# Environment Variable Overrides:
+# All settings can be overridden via TEST_* prefixed environment variables:
+#   - TEST_LLM_THROTTLE_SECONDS: Override llm_throttle_seconds
+#   - TEST_REPORT_OUTPUT_DIR: Override report_output_dir
+#   - TEST_L1_TURNS: Override batch_sizes.l1_turns
+#   - TEST_PROMOTION_MAX_SECONDS: Override timeouts.promotion_max_seconds
+#
+# Example CI Usage:
+#   export TEST_LLM_THROTTLE_SECONDS=4  # Conservative for shared quota
+#   export TEST_REPORT_OUTPUT_DIR=/tmp/reports
+#   pytest tests/integration/ -m "integration and slow"
+
+# LLM Provider Configuration
+# Google Gemini is primary (validated structured output), Groq is fallback
+llm_providers:
+  primary:
+    name: google
+    model: gemini-3-flash-preview
+    env_key: GOOGLE_API_KEY
+  fallback:
+    name: groq
+    model: openai/gpt-oss-120b
+    env_key: GROQ_API_KEY
+  fallback_reasoning:
+    name: google
+    model: gemini-3-pro-preview
+    env_key: GOOGLE_API_KEY
+
+# Throttle rate limiting for LLM API calls (seconds between calls)
+# Gemini has higher RPM, 2s is conservative for free tier
+llm_throttle_seconds: 2
+
+# Batch sizes for lifecycle tests
+batch_sizes:
+  l1_turns: 50              # Number of raw turns to store in L1 for tests
+  l2_facts_trigger: 50      # Fact count to trigger consolidation
+  l3_episodes_trigger: 5    # Episode count to trigger distillation
+
+# Timeouts for async operations (seconds)
+timeouts:
+  promotion_max_seconds: 60       # Max time for L1→L2 promotion
+  consolidation_max_seconds: 30   # Max time for L2→L3 consolidation
+  distillation_max_seconds: 30    # Max time for L3→L4 distillation
+
+# Report output directory for daily test latency reports
+# Output format: {report_output_dir}/lifecycle-test-{YYYY-MM-DD}.json
+report_output_dir: docs/reports

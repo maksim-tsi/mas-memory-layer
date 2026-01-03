@@ -1,7 +1,7 @@
 """
 Thread-safe in-memory metrics storage with history limits.
 """
-from typing import Dict, Any, List, Optional, Deque
+from typing import Dict, Any
 from collections import defaultdict, deque
 import asyncio
 

@@ -228,7 +228,7 @@ pip install mistralai
 
 ---
 
-### **Provider 5: Groq (with Meta Llama 3.1 / Mixtral / Gemma 2)**
+### **Provider 5: Groq (with Meta Llama 3.3 70B / Mixtral / Gemma 2)**
 
 **Rate Limits (Free Tier):**
 - **RPM:** 30 (varies by model)
@@ -252,7 +252,7 @@ pip install groq
 
 **Available Free Models:**
 - **openai/gpt-oss-120b** - Best reasoning, 120B parameters (reasoning fallback)
-- **llama-3.1-8b-instant** - Ultra-fast, 8k context
+- **llama-3.3-70b-versatile** - Ultra-fast, 128k context, 70B parameters
 - **mixtral-8x7b-32768** - Good reasoning, 32k context
 - **gemma2-9b-it** - Fast, efficient, 8k context
 
@@ -284,11 +284,11 @@ pip install groq
 | **Task** | **Primary Provider** | **Fallback 1** | **Fallback 2** | **Fallback 3** | **Rationale** |
 |----------|---------------------|----------------|----------------|----------------|---------------|
 | **Fact Extraction (Week 5)** | Gemini 2.5 Flash | Mistral Large | Gemini 2.0 Flash | Gemini 2.5 Flash-Lite | 2.5 Flash's reasoning + 1M context; Mistral for structured JSON output; 2.0 Flash for high volume (1M TPM); Lite for emergency fallback |
-| **CIAR Certainty Scoring (Week 4)** | Groq (Llama 3.1 8B) | Gemini 2.5 Flash-Lite | Gemini 2.5 Flash | N/A | Groq ultra-fast for simple classification; Lite optimized for speed; 2.5 Flash for nuanced scoring |
+| **CIAR Certainty Scoring (Week 4)** | Groq (Llama 3.3 70B) | Gemini 2.5 Flash-Lite | Gemini 2.5 Flash | N/A | Groq ultra-fast for simple classification; Lite optimized for speed; 2.5 Flash for nuanced scoring |
 | **Episode Summarization (Week 7)** | Gemini 2.5 Flash | Gemini 2.0 Flash | Mistral Large | N/A | 2.5 Flash's reasoning for coherent narratives; 2.0 Flash for batch processing; Mistral for complex episodes |
 | **Knowledge Synthesis (Week 10)** | Mistral Large | Gemini 2.5 Flash | Gemini 2.0 Flash | N/A | Mistral excels at complex reasoning/analysis; 2.5 Flash for distillation; 2.0 Flash handles multiple episodes |
 | **Pattern Mining (Week 9)** | Gemini 2.5 Flash | Mistral Large | Gemini 2.0 Flash | Groq (GPT OSS 120B) | 2.5 Flash for pattern recognition; Mistral for complex theme analysis; 2.0 for high throughput; Groq reasoning fallback for complex patterns |
-| **Development/Testing** | Groq (Llama 3.1 8B) | Gemini 2.5 Flash-Lite | Gemini 2.5 Flash | N/A | Groq ultra-fast (800 tok/sec) for instant feedback; Lite's speed for rapid iteration; 2.5 Flash for quality testing |
+| **Development/Testing** | Groq (Llama 3.3 70B) | Gemini 2.5 Flash-Lite | Gemini 2.5 Flash | N/A | Groq ultra-fast (800 tok/sec) for instant feedback; Lite's speed for rapid iteration; 2.5 Flash for quality testing |
 
 ---
 
@@ -307,7 +307,7 @@ pip install groq
 5. **Vendor Independence**: Reduce lock-in to single provider (Google, Mistral, Groq are all independent companies)
 
 **Practical Example:**
-- **Week 4 (CIAR Scoring)**: Use Groq Llama 3.1 8B for ultra-fast classification (800 tok/sec)
+- **Week 4 (CIAR Scoring)**: Use Groq Llama 3.3 70B for ultra-fast classification (800 tok/sec)
 - **Week 5 (Fact Extraction)**: Use Gemini 2.5 Flash for structured output + massive context (1M tokens)
 - **Week 9 (Pattern Mining)**: Use Mistral Large for complex theme analysis and reasoning
 - **Rate Limit Hit**: Automatically failover to Gemini 2.0 Flash (1M TPM) for high-volume processing
@@ -365,12 +365,12 @@ DAILY_LIMITS = {
         'tpd': 1000000,
         'context_window': 8000,  # GPT OSS 120B context window
     },
-    'groq_llama_3_1_8b': {
+    'llama-3.3-70b-versatile': {
         'rpm': 30,
-        'tpm': 200000,
+        'tpm': 6000,
         'rpd': 14400,
-        'tpd': 1000000,
-        'context_window': 8000,
+        'tpd': 100000,
+        'context_window': 128000,
     },
     'groq_mixtral_8x7b': {
         'rpm': 30,
@@ -426,7 +426,7 @@ class LLMProvider(Enum):
     MISTRAL_LARGE = "mistral-large-latest"
     MISTRAL_SMALL = "mistral-small-latest"
     GROQ_GPT_OSS_120B = "openai/gpt-oss-120b"
-    GROQ_LLAMA_3_1_8B = "llama-3.1-8b-instant"
+    GROQ_LLAMA_3_3_70B = "llama-3.3-70b-versatile"
     GROQ_MIXTRAL_8X7B = "mixtral-8x7b-32768"
 
 class LLMTask(Enum):
@@ -445,7 +445,7 @@ TASK_PROVIDER_PRIORITY = {
         LLMProvider.GEMINI_2_5_FLASH_LITE
     ],
     LLMTask.CIAR_CERTAINTY_SCORING: [
-        LLMProvider.GROQ_LLAMA_3_1_8B,
+        LLMProvider.GROQ_LLAMA_3_3_70B,
         LLMProvider.GEMINI_2_5_FLASH_LITE,
         LLMProvider.GEMINI_2_5_FLASH
     ],
@@ -466,7 +466,7 @@ TASK_PROVIDER_PRIORITY = {
         LLMProvider.GROQ_GPT_OSS_120B
     ],
     LLMTask.DEVELOPMENT: [
-        LLMProvider.GROQ_LLAMA_3_1_8B,
+        LLMProvider.GROQ_LLAMA_3_3_70B,
         LLMProvider.GEMINI_2_5_FLASH_LITE,
         LLMProvider.GEMINI_2_5_FLASH
     ],
@@ -629,7 +629,7 @@ Assuming each fact extraction request requires:
 | **Gemini 2.0 Flash** | High-volume batch processing | 15 | 1M | 1M tokens | Highest TPM (1M) |
 | **Gemini 2.5 Flash-Lite** | Fast classification, dev/test | 15 | 250k | 1M tokens | Ultra-fast inference |
 | **Mistral Large** | Complex analysis, structured output | 60 | N/A | 128k tokens | Excellent reasoning, JSON mode |
-| **Groq (Llama 3.1 8B)** | Real-time responses, dev/test | 30 | 200k | 8k tokens | Ultra-fast (800 tok/sec) |
+| **Groq (Llama 3.3 70B)** | Real-time responses, dev/test | 30 | 6k | 128k tokens | Ultra-fast (800 tok/sec), 70B params |
 | **Groq (GPT OSS 120B)** | Complex reasoning fallback | 30 | 20k | 8k tokens | Strong reasoning, 120B params |
 
 ### **Worst-Case Scenario: Exceed Free Tiers**
@@ -662,7 +662,7 @@ If free tiers are exhausted and we need to upgrade to paid tier:
 ### **Phase 1: Implement Multi-Provider Client (Week 4 - CIAR Scorer)**
 - [ ] Create `src/utils/llm_client.py` with provider abstraction
 - [ ] Implement Gemini provider wrappers (2.5 Flash, 2.0 Flash, 2.5 Flash-Lite)
-- [ ] Implement Groq provider wrapper (Llama 3.1 8B/70B, Mixtral)
+- [ ] Implement Groq provider wrapper (Llama 3.3 70B, Mixtral)
 - [ ] Implement Mistral provider wrapper (Large, Small)
 - [ ] Add per-provider rate limit tracking and exponential backoff
 - [ ] Create task-to-provider priority mapping with automatic fallback
@@ -755,6 +755,7 @@ If free tiers are exhausted and we need to upgrade to paid tier:
 | 2025-11-02 | Use Gemini 2.5 Flash-Lite for speed-critical tasks | Fastest model, ideal for CIAR certainty scoring and simple classification |
 | 2025-11-02 | Implement circuit breaker pattern | Resilience against LLM failures, graceful degradation to rule-based extraction |
 | 2025-11-02 | Plan for paid tier at ~$50-100/month | Budget for potential upgrade if free tier insufficient for production |
+| **2025-12-29** | **Transition to Gemini 3 family** | **Adopt `gemini-3-flash-preview` (64K output tokens) and `gemini-3-pro-preview` as primary models. These support native structured output with `types.Schema` format, validated with fact extraction tests (see `tests/utils/test_gemini_structured_output.py`). Previous models (gemini-2.0-flash-exp, gemini-2.5-flash) deprecated. Groq's llama-3.3-70b-versatile excluded due to output reliability issues (truncated JSON, harmony format incompatibility). Also integrated Groq's `openai/gpt-oss-120b` reasoning model as fallback.** |
 
 ---
 

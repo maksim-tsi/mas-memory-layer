@@ -59,5 +59,5 @@ async def test_qdrant_metrics_integration():
     finally:
         try:
             await adapter.disconnect()
-        except:
+        except Exception:
             pass

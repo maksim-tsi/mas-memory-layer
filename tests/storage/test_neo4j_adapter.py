@@ -801,7 +801,7 @@ class TestNeo4jRelationshipOperations:
                 'cypher': 'MATCH ()-[r {id: $id}]->() DELETE r',
                 'params': {'id': 'test-rel-123'}
             }
-            result = await adapter.search(query)  # Using search for deletion
+            await adapter.search(query)  # Using search for deletion
             
             # Since we're using search, we check that the call was made
             assert mock_session.run.call_count == 2

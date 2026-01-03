@@ -11,12 +11,11 @@ Tests cover:
 """
 
 import pytest
-from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, patch, MagicMock
+from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 import json
 
 from src.memory.tiers.active_context_tier import ActiveContextTier
-from src.memory.tiers.base_tier import TierOperationError
 from src.storage.base import StorageDataError
 
 

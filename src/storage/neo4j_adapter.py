@@ -121,6 +121,20 @@ class Neo4jAdapter(StorageAdapter):
                 self.driver = None
                 self._connected = False
                 logger.info("Disconnected from Neo4j")
+
+    async def execute_query(self, cypher: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+        """Execute arbitrary Cypher and return result data."""
+        async with OperationTimer(self.metrics, 'execute_query'):
+            if not self.driver:
+                raise StorageConnectionError("Not connected to Neo4j")
+
+            try:
+                async with self.driver.session(database=self.database) as session:
+                    result = await session.run(cypher, params or {})
+                    return await result.data()
+            except Exception as e:
+                logger.error(f"Neo4j query failed: {e}", exc_info=True)
+                raise StorageQueryError(f"Query failed: {e}") from e
     
     async def store(self, data: Dict[str, Any]) -> str:
         """

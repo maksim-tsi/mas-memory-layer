@@ -23,8 +23,6 @@ Usage:
 
 import os
 import pytest
-import asyncio
-from typing import Optional
 
 # Import clients for each service
 try:
@@ -79,28 +77,28 @@ def config():
     
     return {
         # PostgreSQL
-        'postgres_host': os.getenv('DEV_IP', '192.168.107.172'),
+        'postgres_host': os.getenv('DATA_NODE_IP', '192.168.107.187'),
         'postgres_port': int(os.getenv('POSTGRES_PORT', '5432')),
         'postgres_user': os.getenv('POSTGRES_USER', 'postgres'),
         'postgres_password': os.getenv('POSTGRES_PASSWORD'),
         'postgres_db': os.getenv('POSTGRES_DB', 'mas_memory'),
         
         # Redis
-        'redis_host': os.getenv('DEV_IP', '192.168.107.172'),
+        'redis_host': os.getenv('DEV_NODE_IP', '192.168.107.172'),
         'redis_port': int(os.getenv('REDIS_PORT', '6379')),
         
         # Qdrant
-        'qdrant_host': os.getenv('STG_IP', '192.168.107.187'),
+        'qdrant_host': os.getenv('DATA_NODE_IP', '192.168.107.187'),
         'qdrant_port': int(os.getenv('QDRANT_PORT', '6333')),
         
         # Neo4j
-        'neo4j_host': os.getenv('STG_IP', '192.168.107.187'),
+        'neo4j_host': os.getenv('DATA_NODE_IP', '192.168.107.187'),
         'neo4j_bolt_port': int(os.getenv('NEO4J_BOLT_PORT', '7687')),
         'neo4j_user': os.getenv('NEO4J_USER', 'neo4j'),
         'neo4j_password': os.getenv('NEO4J_PASSWORD'),
         
         # Typesense
-        'typesense_host': os.getenv('STG_IP', '192.168.107.187'),
+        'typesense_host': os.getenv('DATA_NODE_IP', '192.168.107.187'),
         'typesense_port': int(os.getenv('TYPESENSE_PORT', '8108')),
         'typesense_api_key': os.getenv('TYPESENSE_API_KEY'),
     }
@@ -277,7 +275,7 @@ def test_redis_operations(config):
         # Clean up
         client.delete(test_key)
         
-        print(f"✓ Redis operations: SET/GET working")
+        print("✓ Redis operations: SET/GET working")
         
     finally:
         if client:
@@ -323,8 +321,9 @@ def test_qdrant_health(config):
         
         # Test that we can get collections (indicates service is healthy)
         collections = client.get_collections()
+        assert collections is not None
         
-        print(f"✓ Qdrant health check passed")
+        print("✓ Qdrant health check passed")
         
     except Exception as e:
         pytest.fail(f"Qdrant health check failed: {e}")
@@ -373,7 +372,7 @@ def test_neo4j_query(config):
             record = result.single()
             assert record['num'] == 1
             
-            print(f"✓ Neo4j query execution working")
+            print("✓ Neo4j query execution working")
         
     finally:
         if driver:
@@ -420,7 +419,7 @@ def test_typesense_auth(config):
         collections = response.json()
         assert isinstance(collections, list)
         
-        print(f"✓ Typesense authentication working")
+        print("✓ Typesense authentication working")
         print(f"  Collections: {len(collections)}")
         
     except requests.exceptions.RequestException as e:
@@ -447,14 +446,14 @@ def test_all_services_summary(config):
         r = redis.Redis(host=config['redis_host'], port=config['redis_port'], socket_connect_timeout=2)
         services_status['Redis'] = '✓' if r.ping() else '✗'
         r.close()
-    except:
+    except Exception:
         services_status['Redis'] = '✗'
     
     try:
         q = QdrantClient(host=config['qdrant_host'], port=config['qdrant_port'], timeout=2)
         q.get_collections()
         services_status['Qdrant'] = '✓'
-    except:
+    except Exception:
         services_status['Qdrant'] = '✗'
     
     try:
@@ -463,14 +462,14 @@ def test_all_services_summary(config):
         driver.verify_connectivity()
         services_status['Neo4j'] = '✓'
         driver.close()
-    except:
+    except Exception:
         services_status['Neo4j'] = '✗'
     
     try:
         url = f"http://{config['typesense_host']}:{config['typesense_port']}/health"
         resp = requests.get(url, timeout=2)
         services_status['Typesense'] = '✓' if resp.status_code == 200 else '✗'
-    except:
+    except Exception:
         services_status['Typesense'] = '✗'
     
     print("\n" + "="*60)

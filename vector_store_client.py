@@ -2,7 +2,6 @@
 
 import uuid
 from typing import List, Dict, Any, Optional, Union
-import numpy as np
 from qdrant_client import QdrantClient, models
 from sentence_transformers import SentenceTransformer
 

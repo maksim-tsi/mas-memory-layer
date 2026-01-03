@@ -292,7 +292,7 @@ async def test_measure_latencies(redis_adapter, session_id):
     print("\n" + "=" * 70)
     print("Summary")
     print("=" * 70)
-    print(f"Redis adapter meets all performance targets:")
+    print("Redis adapter meets all performance targets:")
     print(f"  ✓ Store:    {statistics.mean(store_times):.3f}ms (target: <2ms)")
     print(f"  ✓ Retrieve: {statistics.mean(retrieve_times):.3f}ms (target: <1ms)")
     print(f"  ✓ Search:   {statistics.mean(search_times):.3f}ms (target: <1ms)")
