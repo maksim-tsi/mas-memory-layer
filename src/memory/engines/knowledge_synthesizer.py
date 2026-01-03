@@ -14,7 +14,7 @@ Architecture:
 
 import logging
 from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import hashlib
 import yaml
 from pathlib import Path
@@ -492,7 +492,7 @@ Synthesized Response:"""
         except Exception as e:
             logger.error(f"LLM synthesis failed: {e}")
             # Fallback: Return concatenated document titles and content
-            fallback = f"Relevant knowledge (LLM unavailable):\n\n"
+            fallback = "Relevant knowledge (LLM unavailable):\n\n"
             for i, doc in enumerate(documents):
                 fallback += f"{i+1}. {doc.title}: {doc.content[:200]}...\n\n"
             return fallback

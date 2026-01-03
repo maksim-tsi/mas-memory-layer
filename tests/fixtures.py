@@ -311,7 +311,7 @@ def qdrant_config():
     return {
         'url': f'http://{stg_ip}:{qdrant_port}',
         'collection_name': 'test_semantic_memory',
-        'vector_size': 384,
+        'vector_size': 768,
         'metrics': {'enabled': True}
     }
 

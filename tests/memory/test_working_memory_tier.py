@@ -226,6 +226,7 @@ class TestWorkingMemoryTierRetrieve:
         await tier.initialize()
         
         fact = await tier.retrieve('fact-001')
+        assert fact is not None
         
         # Verify recency boost increased
         update_data = postgres_adapter.update.call_args[1]['data']

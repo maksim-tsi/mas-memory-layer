@@ -59,6 +59,32 @@ mistralai==1.0.3         # Official Mistral AI SDK for advanced reasoning models
                         # Rate limits: 60 RPM (1 RPS), fair use policy
                         # Documentation: https://docs.mistral.ai/
 
+# --- Observability & Tracing (Arize Phoenix) ---
+arize-phoenix>=4.0.0                              # Phoenix LLM observability SDK
+                                                 # Provides: Trace visualization, embedding analysis, latency debugging
+                                                 # Documentation: https://docs.arize.com/phoenix
+openinference-instrumentation-google-genai>=0.1.0 # Auto-instrumentation for Google GenAI SDK
+                                                 # Traces: generate_content, embed_content calls
+opentelemetry-exporter-otlp>=1.20.0               # OTLP exporter for sending traces to Phoenix
+                                                 # Supports: HTTP (/v1/traces) and gRPC (port 4317)
+
+# --- Agent Integration & Orchestration (Phase 3) ---
+langgraph>=0.1.0         # LangGraph for multi-agent state graphs and orchestration
+                        # Used for: Supervisor + Sub-Graph topology, state management
+                        # Documentation: https://langchain-ai.github.io/langgraph/
+                        
+langchain-core>=0.2.0    # LangChain core components for agent tools and memory
+                        # Used for: Tool interfaces, message structures, callbacks
+                        # Documentation: https://python.langchain.com/docs/get_started/introduction
+
+fastapi>=0.100.0         # Modern web framework for building agent wrapper API
+                        # Used for: /run_turn endpoint, async request handling
+                        # Documentation: https://fastapi.tiangolo.com/
+
+uvicorn>=0.23.0          # ASGI server for FastAPI applications
+                        # Used for: Running the agent API server
+                        # Documentation: https://www.uvicorn.org/
+
 # --- Development & Testing Utilities ---
 fakeredis==2.23.1        # A mock Redis client, useful for running tests without a live Redis server.
 # Note: For the __main__ demo block in memory_system.py to run self-contained.

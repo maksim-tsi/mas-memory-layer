@@ -5,16 +5,16 @@ Convenience script to run storage adapter benchmarks.
 This script provides a simple interface to run benchmarks and analyze results.
 """
 
-import sys
 import asyncio
+import sys
 from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from tests.benchmarks.bench_storage_adapters import main as run_benchmark
-from tests.benchmarks.results_analyzer import main as analyze_results
+from tests.benchmarks.bench_storage_adapters import main as run_benchmark  # noqa: E402
+from tests.benchmarks.results_analyzer import main as analyze_results  # noqa: E402
 
 
 def print_banner():

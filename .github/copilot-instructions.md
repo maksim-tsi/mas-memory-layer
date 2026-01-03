@@ -9,13 +9,13 @@ This is a **four-tier cognitive memory system** for Multi-Agent Systems (MAS), d
 ### Four-Tier Memory Architecture (ADR-003)
 
 ```
-L1: Active Context (Redis) → 10-20 recent turns, 24h TTL
-L2: Working Memory (PostgreSQL) → Significant facts filtered by CIAR score
+L1: Active Context (Redis) → 10-20 raw turns, 24h TTL (no pre-processing, hot path)
+L2: Working Memory (PostgreSQL) → CIAR-filtered facts (batch-processed via Groq/Gemini)
 L3: Episodic Memory (Qdrant + Neo4j) → Consolidated episodes with dual indexing
 L4: Semantic Memory (Typesense) → Distilled knowledge patterns
 ```
 
-**Information Flow**: L1 raw turns → [Promotion Engine] → L2 facts → [Consolidation Engine] → L3 episodes → [Distillation Engine] → L4 knowledge
+**Information Flow**: L1 raw turns → [Promotion Engine: batch compression/segmentation via Fast Inference LLMs] → L2 facts → [Consolidation Engine] → L3 episodes → [Distillation Engine] → L4 knowledge
 
 ## Core Architectural Principles
 
@@ -39,8 +39,9 @@ This project is guided by five core principles. All new code and refactoring sho
 - **Data Models**: `Fact`, `Episode`, `KnowledgeDocument` in `src/memory/models.py` (Pydantic)
 - **CIAR Scorer**: Calculation logic in `src/memory/ciar_scorer.py` (Certainty × Impact × Age × Recency)
 - **Metrics System**: Comprehensive observability in `src/storage/metrics/` (timing, throughput, percentiles)
-- **LLM Connectivity**: 7 models tested (Gemini, Groq, Mistral) but not integrated
+- **LLM Connectivity**: 7 models tested (Gemini, Groq, Mistral) with structured output validated
 - **LLM Client**: `src/utils/llm_client.py` - multi-provider abstraction with fallback
+- **Gemini Structured Output**: Native `types.Schema` format validated with `gemini-3-flash-preview` (see `tests/utils/test_gemini_structured_output.py`)
 
 ## What's Missing ❌
 
@@ -105,6 +106,11 @@ Detailed implementation patterns are organized by directory:
 /home/max/code/mas-memory-layer/scripts/run_memory_integration_tests.sh > /tmp/copilot.out 2>&1; cat /tmp/copilot.out
 ```
 
+**Markers and real LLM/provider checks**
+- Unit/mocked: `-m "not integration and not llm_real"`
+- Integration: `-m "integration"`
+- Real LLM/provider: `-m "llm_real"` (requires `GOOGLE_API_KEY` from `.env`; do not use `GEMINI_API_KEY`). Use `scripts/grade_phase5_readiness.sh --mode full` to include, or `--skip-llm` to suppress even when the key is set.
+
 Tests use `pytest` with `pytest-asyncio`. See `.github/instructions/testing.instructions.md` for complete testing guidelines.
 
 ### Running Benchmarks
@@ -125,7 +131,10 @@ Tests use `pytest` with `pytest-asyncio`. See `.github/instructions/testing.inst
 Copy `.env.example` to `.env` with:
 - PostgreSQL: `DATA_NODE_IP`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
 - Neo4j: `DATA_NODE_IP`, `NEO4J_USER`, `NEO4J_PASSWORD`
-- LLM APIs: `GOOGLE_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`
+- LLM APIs: **`GOOGLE_API_KEY`** (for Gemini - NOT `GEMINI_API_KEY`), `GROQ_API_KEY`, `MISTRAL_API_KEY`
+  - **CRITICAL**: All code and tests MUST use `GOOGLE_API_KEY` environment variable
+  - API keys are sourced from `.env` file in repository root
+  - See `tests/integration/test_llmclient_real.py` and `tests/utils/test_gemini_structured_output.py` for correct usage
 - Detailed host-detection and bootstrap steps live in `docs/environment-guide.md`; follow that guide before running commands.
 
 ## External Tool: Gemini CLI (Future Use)

@@ -61,5 +61,5 @@ async def test_neo4j_metrics_integration():
     finally:
         try:
             await adapter.disconnect()
-        except:
+        except Exception:
             pass

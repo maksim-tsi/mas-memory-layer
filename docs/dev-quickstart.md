@@ -57,3 +57,16 @@ Safety/Caution
 --------------
 - These scripts perform real API calls when keys are present and may be billable.
 - Keep tokens and calls minimal during development and monitor usage in provider dashboards.
+- Run secret scanning before committing: install pre-commit in the project virtual environment and enable the gitleaks hook to block hardcoded secrets.
+
+Secret scanning (gitleaks pre-commit)
+-------------------------------------
+Install and run the secret-scanning hook locally to prevent committing credentials:
+
+```bash
+/home/max/code/mas-memory-layer/.venv/bin/pip install pre-commit
+/home/max/code/mas-memory-layer/.venv/bin/pre-commit install
+/home/max/code/mas-memory-layer/.venv/bin/pre-commit run --all-files
+```
+
+The hook uses gitleaks (verbose, redacted) and runs automatically on each commit after installation.

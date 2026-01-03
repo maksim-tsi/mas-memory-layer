@@ -47,6 +47,7 @@ from .base import (
     validate_required_fields,
 )
 from .metrics import OperationTimer
+from src.memory.namespace import NamespaceManager
 
 logger = logging.getLogger(__name__)
 
@@ -330,8 +331,22 @@ class RedisAdapter(StorageAdapter):
                 raise StorageDataError(f"Failed to encode data: {e}") from e
     
     def _make_key(self, session_id: str) -> str:
-        """Generate Redis key for session"""
-        return f"session:{session_id}:turns"
+        """
+        Generate Redis key for session with Hash Tag for Cluster safety.
+        
+        Uses NamespaceManager to ensure consistent Hash Tag formatting:
+        {session:ID}:turns
+        
+        Hash Tags enable atomic MULTI/EXEC and Lua operations across
+        session keys by guaranteeing they colocate to the same Redis node.
+        
+        Args:
+            session_id: Unique session identifier
+            
+        Returns:
+            Redis key with Hash Tag: {session:ID}:turns
+        """
+        return NamespaceManager.l1_turns(session_id)
     
     async def retrieve(self, id: str) -> Optional[Dict[str, Any]]:
         """
@@ -339,7 +354,7 @@ class RedisAdapter(StorageAdapter):
         
         If refresh_ttl_on_read is enabled, extends session TTL on access.
         
-        ID format: "session:{session_id}:turns:{turn_id}"
+        ID format: "{session:{session_id}}:turns:{turn_id}"
         
         Args:
             id: Turn identifier from store()
@@ -607,3 +622,97 @@ class RedisAdapter(StorageAdapter):
         except redis.RedisError as e:
             logger.error(f"Failed to refresh TTL: {e}", exc_info=True)
             raise StorageQueryError(f"Failed to refresh TTL: {e}") from e
+
+    async def scan_keys(self, pattern: str) -> List[str]:
+        """
+        Scan for keys matching a pattern.
+        
+        Uses SCAN command for safe iteration over keyspace without blocking.
+        
+        Args:
+            pattern: Redis glob-style pattern (e.g., "*test-session*")
+        
+        Returns:
+            List of matching key names
+            
+        Raises:
+            StorageConnectionError: If not connected
+            StorageQueryError: If Redis operation fails
+        """
+        if not self._connected or not self.client:
+            raise StorageConnectionError("Not connected to Redis")
+        
+        try:
+            keys = []
+            cursor = 0
+            while True:
+                cursor, batch = await self.client.scan(cursor, match=pattern, count=100)
+                keys.extend([k.decode() if isinstance(k, bytes) else k for k in batch])
+                if cursor == 0:
+                    break
+            logger.debug(f"Scanned {len(keys)} keys matching pattern '{pattern}'")
+            return keys
+        except redis.RedisError as e:
+            logger.error(f"Redis scan failed: {e}", exc_info=True)
+            raise StorageQueryError(f"Failed to scan keys: {e}") from e
+
+    async def delete_keys(self, keys: List[str]) -> int:
+        """
+        Delete multiple keys in a single operation.
+        
+        Uses DEL command with multiple keys for efficiency.
+        
+        Args:
+            keys: List of key names to delete
+        
+        Returns:
+            Number of keys actually deleted
+            
+        Raises:
+            StorageConnectionError: If not connected
+            StorageQueryError: If Redis operation fails
+        """
+        if not self._connected or not self.client:
+            raise StorageConnectionError("Not connected to Redis")
+        
+        if not keys:
+            return 0
+        
+        try:
+            deleted = await self.client.delete(*keys)
+            logger.debug(f"Deleted {deleted} keys")
+            return deleted
+        except redis.RedisError as e:
+            logger.error(f"Redis delete_keys failed: {e}", exc_info=True)
+            raise StorageQueryError(f"Failed to delete keys: {e}") from e
+
+    # Proxy methods for direct Redis commands (used by ActiveContextTier)
+    async def lpush(self, key: str, *values: str) -> int:
+        """Push values to head of list."""
+        if not self.client:
+            raise StorageConnectionError("Not connected to Redis")
+        return await self.client.lpush(key, *values)
+
+    async def ltrim(self, key: str, start: int, stop: int) -> bool:
+        """Trim list to specified range."""
+        if not self.client:
+            raise StorageConnectionError("Not connected to Redis")
+        return await self.client.ltrim(key, start, stop)
+
+    async def lrange(self, key: str, start: int, stop: int) -> List[bytes]:
+        """Get range of elements from list."""
+        if not self.client:
+            raise StorageConnectionError("Not connected to Redis")
+        return await self.client.lrange(key, start, stop)
+
+    async def llen(self, key: str) -> int:
+        """Get length of list."""
+        if not self.client:
+            raise StorageConnectionError("Not connected to Redis")
+        return await self.client.llen(key)
+
+    async def expire(self, key: str, seconds: int) -> bool:
+        """Set TTL on key."""
+        if not self.client:
+            raise StorageConnectionError("Not connected to Redis")
+        return await self.client.expire(key, seconds)

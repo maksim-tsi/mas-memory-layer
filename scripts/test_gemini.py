@@ -7,20 +7,20 @@ This script validates:
 - Gemini API is accessible
 - Basic chat completion works
 - Token usage tracking
-- Multiple model variants (2.5 Flash, 2.0 Flash, 2.5 Flash-Lite)
+- Gemini 3 models (3-flash-preview, 3-pro-preview)
 """
 
 import os
 import sys
 from pathlib import Path
 
-# Add project root to path
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+
+# Add project root to path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 # Load environment variables
 load_dotenv()
@@ -107,9 +107,8 @@ def test_gemini():
         
         # Test each model variant
         models = [
-            ("gemini-2.5-flash", "Gemini 2.5 Flash (Primary - Complex Tasks)"),
-            ("gemini-2.0-flash-exp", "Gemini 2.0 Flash (High-Volume Tasks)"),
-            ("gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite (Fast Tasks)"),
+            ("gemini-3-flash-preview", "Gemini 3 Flash Preview (Primary - 64K output)"),
+            ("gemini-3-pro-preview", "Gemini 3 Pro Preview (Reasoning/Multimodal)"),
         ]
         
         results = {}
@@ -126,19 +125,16 @@ def test_gemini():
             print(f"{status} - {description}")
         
         print("\n" + "=" * 60)
-        print("Rate Limits (Free Tier - Per Model):")
-        print("  Gemini 2.5 Flash:")
-        print("    • 10 requests per minute")
-        print("    • 250,000 tokens per minute")
-        print("    • 1,000,000 token context window")
-        print("  Gemini 2.0 Flash:")
-        print("    • 15 requests per minute")
-        print("    • 1,000,000 tokens per minute")
-        print("    • 1,000,000 token context window")
-        print("  Gemini 2.5 Flash-Lite:")
-        print("    • 15 requests per minute")
-        print("    • 250,000 tokens per minute")
-        print("    • 1,000,000 token context window")
+        print("Rate Limits (Free Tier):")
+        print("  Gemini 3 Flash Preview:")
+        print("    • Primary model for structured output")
+        print("    • 64K output token limit")
+        print("    • Native types.Schema support")
+        print("  Gemini 3 Pro Preview:")
+        print("    • Advanced reasoning and multimodal")
+        print("    • Use for complex synthesis tasks")
+        print("\nNote: Gemini 2.x models deprecated in favor of Gemini 3 family")
+        print("See docs/ADR/006-free-tier-llm-strategy.md for full details")
         print("=" * 60)
         
         return all(results.values())

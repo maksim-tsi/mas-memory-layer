@@ -67,6 +67,10 @@ class Fact(BaseModel):
     source_uri: Optional[str] = None
     source_type: str = Field(default="extracted")
     
+    # Topic Segmentation (ADR-003: batch processing context)
+    topic_segment_id: Optional[str] = None  # Links to source TopicSegment
+    topic_label: Optional[str] = None       # Brief topic from segment
+    
     # Classification
     fact_type: Optional[FactType] = None
     fact_category: Optional[FactCategory] = None
@@ -123,6 +127,14 @@ class Fact(BaseModel):
             (self.certainty * self.impact) * self.age_decay * self.recency_boost,
             4
         )
+
+    # Provide lightweight dict-style access for compatibility with callers that
+    # expect mapping semantics from Fact instances.
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)
     
     def to_db_dict(self) -> Dict[str, Any]:
         """Convert to database-compatible dictionary."""
@@ -138,6 +150,8 @@ class Fact(BaseModel):
             'recency_boost': self.recency_boost,
             'source_uri': self.source_uri,
             'source_type': self.source_type,
+            'topic_segment_id': self.topic_segment_id,
+            'topic_label': self.topic_label,
             'fact_type': self.fact_type.value if isinstance(self.fact_type, FactType) else self.fact_type,
             'fact_category': self.fact_category.value if isinstance(self.fact_category, FactCategory) else self.fact_category,
             'metadata': json.dumps(self.metadata) if self.metadata else '{}',
@@ -240,7 +254,10 @@ class Episode(BaseModel):
             'importanceScore': self.importance_score,
             'vectorId': self.vector_id,
             'consolidatedAt': self.consolidated_at.isoformat(),
-            'consolidationMethod': self.consolidation_method
+            'consolidationMethod': self.consolidation_method,
+            # Duplicate snake_case properties for compatibility with legacy queries
+            'session_id': self.session_id,
+            'episode_id': self.episode_id
         }
 
 
@@ -253,6 +270,7 @@ class KnowledgeDocument(BaseModel):
     """
     
     knowledge_id: str
+    session_id: Optional[str] = None
     
     # Content
     title: str = Field(..., min_length=5, max_length=500)
@@ -288,6 +306,7 @@ class KnowledgeDocument(BaseModel):
         """Convert to Typesense document format."""
         return {
             'id': self.knowledge_id,
+            'session_id': self.session_id or '',
             'title': self.title,
             'content': self.content,
             'knowledge_type': self.knowledge_type,
@@ -323,3 +342,154 @@ class KnowledgeQuery(BaseModel):
     tags: Optional[List[str]] = None
     min_confidence: Optional[float] = Field(default=0.0, ge=0.0, le=1.0)
     limit: int = Field(default=10, ge=1, le=100)
+
+
+class SearchWeights(BaseModel):
+    """
+    Configuration for hybrid cross-tier search weighting.
+    
+    Controls how results from different memory tiers are weighted
+    when merged into a unified result set. Weights must sum to 1.0.
+    """
+    l2_weight: float = Field(default=0.3, ge=0.0, le=1.0, description="Weight for L2 Working Memory results")
+    l3_weight: float = Field(default=0.5, ge=0.0, le=1.0, description="Weight for L3 Episodic Memory results")
+    l4_weight: float = Field(default=0.2, ge=0.0, le=1.0, description="Weight for L4 Semantic Memory results")
+    
+    @field_validator('l4_weight')
+    @classmethod
+    def validate_weights_sum(cls, v: float, info) -> float:
+        """Ensure weights sum to 1.0."""
+        values = info.data
+        if 'l2_weight' in values and 'l3_weight' in values:
+            total = values['l2_weight'] + values['l3_weight'] + v
+            if abs(total - 1.0) > 0.01:
+                raise ValueError(f"Weights must sum to 1.0, got {total}")
+        return v
+    
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {"l2_weight": 0.3, "l3_weight": 0.5, "l4_weight": 0.2},
+                {"l2_weight": 0.4, "l3_weight": 0.4, "l4_weight": 0.2}
+            ]
+        }
+    }
+
+
+class ContextBlock(BaseModel):
+    """
+    Assembled context for prompt injection into agent conversations.
+    
+    Contains recent L1 turns and high-significance L2 facts filtered
+    by CIAR score threshold. Used by agents to retrieve focused context
+    without overwhelming the prompt window.
+    """
+    session_id: str
+    
+    # L1 Active Context (recent turns)
+    recent_turns: List[Dict[str, Any]] = Field(default_factory=list, description="Recent conversation turns from L1")
+    turn_count: int = Field(default=0, ge=0)
+    
+    # L2 Working Memory (CIAR-filtered facts)
+    significant_facts: List[Fact] = Field(default_factory=list, description="High-CIAR facts from L2")
+    fact_count: int = Field(default=0, ge=0)
+    min_ciar_threshold: float = Field(default=0.6, ge=0.0, le=1.0, description="Minimum CIAR score used for filtering")
+    
+    # Metadata
+    assembled_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    l1_time_window_hours: float = Field(default=24.0, description="Time window for L1 turns retrieval")
+    estimated_tokens: Optional[int] = Field(default=None, description="Rough token count estimate for LLM context")
+    
+    # Optional L3/L4 summary
+    episode_summaries: List[str] = Field(default_factory=list, description="Optional episode summaries from L3")
+    knowledge_snippets: List[str] = Field(default_factory=list, description="Optional knowledge from L4")
+    
+    def to_prompt_string(self, include_metadata: bool = False) -> str:
+        """
+        Convert context block to formatted string for LLM prompt injection.
+        
+        Args:
+            include_metadata: Include metadata like timestamps and CIAR scores
+            
+        Returns:
+            Formatted context string ready for prompt injection
+        """
+        sections = []
+        
+        # Recent conversation
+        if self.recent_turns:
+            sections.append("## Recent Conversation")
+            for i, turn in enumerate(self.recent_turns[-10:], 1):  # Last 10 turns
+                role = turn.get('role', 'unknown')
+                content = turn.get('content', '')
+                if include_metadata:
+                    timestamp = turn.get('timestamp', 'N/A')
+                    sections.append(f"{i}. [{role.upper()}] ({timestamp}): {content}")
+                else:
+                    sections.append(f"{i}. [{role.upper()}]: {content}")
+        
+        # Significant facts
+        if self.significant_facts:
+            sections.append("\n## Key Facts (Working Memory)")
+            for i, fact in enumerate(self.significant_facts, 1):
+                if include_metadata:
+                    sections.append(f"{i}. {fact.content} [CIAR: {fact.ciar_score:.2f}, Type: {fact.fact_type or 'N/A'}]")
+                else:
+                    sections.append(f"{i}. {fact.content}")
+        
+        # Episode summaries
+        if self.episode_summaries:
+            sections.append("\n## Related Episodes (Episodic Memory)")
+            for i, summary in enumerate(self.episode_summaries, 1):
+                sections.append(f"{i}. {summary}")
+        
+        # Knowledge snippets
+        if self.knowledge_snippets:
+            sections.append("\n## Relevant Knowledge (Semantic Memory)")
+            for i, snippet in enumerate(self.knowledge_snippets, 1):
+                sections.append(f"{i}. {snippet}")
+        
+        return "\n".join(sections)
+    
+    def estimate_token_count(self, chars_per_token: float = 4.0) -> int:
+        """
+        Estimate token count for context block using character-based heuristic.
+        
+        Args:
+            chars_per_token: Average characters per token (default: 4.0 for GPT models)
+            
+        Returns:
+            Estimated token count
+        """
+        total_chars = 0
+        
+        # Count turn content
+        for turn in self.recent_turns:
+            total_chars += len(turn.get('content', ''))
+        
+        # Count fact content
+        for fact in self.significant_facts:
+            total_chars += len(fact.content)
+        
+        # Count summaries
+        total_chars += sum(len(s) for s in self.episode_summaries)
+        total_chars += sum(len(s) for s in self.knowledge_snippets)
+        
+        estimated = int(total_chars / chars_per_token)
+        self.estimated_tokens = estimated
+        return estimated
+
+
+# Export all models
+__all__ = [
+    'FactType',
+    'FactCategory',
+    'Fact',
+    'FactQuery',
+    'Episode',
+    'EpisodeQuery',
+    'KnowledgeDocument',
+    'KnowledgeQuery',
+    'SearchWeights',
+    'ContextBlock'
+]

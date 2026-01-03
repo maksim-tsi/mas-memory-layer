@@ -102,11 +102,14 @@ class CIARScorer:
             >>> score = scorer.calculate(fact)
             >>> assert 0.0 <= score <= 1.5
         """
-        # Convert Fact model to dict if needed
+        # Convert Fact model to dict if needed, preserving whether impact was explicitly set
         if isinstance(fact, Fact):
             fact_dict = fact.model_dump()
+            fact_dict["_impact_set_explicitly"] = "impact" in getattr(fact, "model_fields_set", set())
         else:
             fact_dict = fact
+            if isinstance(fact_dict, dict) and 'impact' in fact_dict:
+                fact_dict = {**fact_dict, "_impact_set_explicitly": True}
         
         # Calculate components
         certainty = self._calculate_certainty(fact_dict)
@@ -169,6 +172,18 @@ class CIARScorer:
         Returns:
             float: Impact score (0.0-1.0)
         """
+        explicit_flag = fact.get("_impact_set_explicitly")
+        if explicit_flag is None:
+            explicit_flag = 'impact' in fact
+
+        # If caller provided an explicit impact score, trust it (bounded)
+        if explicit_flag and 'impact' in fact and fact['impact'] is not None:
+            try:
+                return max(0.0, min(1.0, float(fact['impact'])))
+            except (TypeError, ValueError):
+                # Fall back to heuristics if the explicit value is unusable
+                pass
+
         fact_type = fact.get('fact_type', 'mention').lower()
         
         # Look up impact weight for this fact type
@@ -288,11 +303,14 @@ class CIARScorer:
                 - temporal_score: age_decay × recency_boost
                 - final_score: base_score × temporal_score
         """
-        # Convert Fact model to dict if needed
+        # Convert Fact model to dict if needed, preserving whether impact was explicitly set
         if isinstance(fact, Fact):
             fact_dict = fact.model_dump()
+            fact_dict["_impact_set_explicitly"] = "impact" in getattr(fact, "model_fields_set", set())
         else:
             fact_dict = fact
+            if isinstance(fact_dict, dict) and 'impact' in fact_dict:
+                fact_dict = {**fact_dict, "_impact_set_explicitly": True}
         
         certainty = self._calculate_certainty(fact_dict)
         impact = self._calculate_impact(fact_dict)

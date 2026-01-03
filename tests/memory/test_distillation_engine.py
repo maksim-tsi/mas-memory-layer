@@ -4,7 +4,7 @@ Tests for DistillationEngine (L3 → L4 Knowledge Creation)
 
 import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from src.memory.engines.distillation_engine import DistillationEngine
 from src.memory.models import Episode, KnowledgeDocument
