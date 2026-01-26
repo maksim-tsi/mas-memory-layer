@@ -239,8 +239,15 @@ This protocol ensures your file interactions are portable, safe, and predictable
 
 ### **8.1 Pathing Protocol**
 
-* **Protocol:** All file paths used in tool calls (read\_file 22, edit\_file 30) or generated code *must* be relative to the project root (e.g., src/main.py, tests/test\_api.py). This is a documented best practice for agent instructions.31  
-* **Forbidden:** Paths starting with /, \~/, C:\\, or any other absolute path identifier are strictly forbidden. Using absolute paths makes the instructions non-portable and will cause failures when running in different environments.32
+* **Protocol (Read-Only Operations):** Absolute paths are **permitted** for read-only tool operations (e.g., `read_file`, `grep_search`, `list_dir`) when required by the VSCode tool implementation. Many VSCode tools expect absolute paths starting with `/` to function correctly.
+  
+* **Protocol (Write/Edit Operations):** All file paths used in edit operations (`edit_file`, `replace_string_in_file`, `create_file`) or generated code *must* be relative to the project root (e.g., `src/main.py`, `tests/test_api.py`) to ensure portability.31
+
+* **Protocol (Terminal Commands):** Terminal commands (via `run_in_terminal`) *must* use absolute paths when referencing the Python virtual environment on the managed remote host (`/home/max/code/mas-memory-layer/.venv/bin/python`) to ensure stateless shell execution works correctly. See Protocol 3.0 for environment setup requirements.
+
+* **Rationale:** VSCode's Language Server Protocol (LSP) and workspace tools operate with absolute file paths to maintain consistency across multi-folder workspaces and remote SSH sessions. Read-only operations do not affect portability since they do not modify the codebase structure. Edit operations remain restricted to relative paths to preserve cross-platform compatibility.
+
+* **Forbidden (Legacy Rule):** The blanket prohibition on absolute paths (original Protocol 8.1) is superseded by this context-aware approach. Paths starting with `C:\\`, `\~/`, or other platform-specific prefixes remain forbidden for edit operations only.
 
 ### **8.2 Protected Files and Directories**
 
