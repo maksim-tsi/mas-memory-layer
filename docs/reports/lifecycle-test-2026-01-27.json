@@ -1,6 +1,6 @@
 {
   "date": "2026-01-27",
-  "total_tests": 24,
+  "total_tests": 28,
   "tests": [
     {
       "test_name": "test_l1_to_l2_promotion_with_ciar_filtering",
@@ -941,6 +941,163 @@
             }
           ],
           "elapsed_ms": 2717.9552630004764
+        }
+      }
+    },
+    {
+      "test_name": "test_l1_to_l2_promotion_with_ciar_filtering",
+      "timestamp": "2026-01-27T16:17:53.696493+00:00",
+      "latencies_ms": {
+        "l1_store_ms": 72.57034499889414,
+        "promotion_ms": 15146.720306000134
+      },
+      "llm_provider": "google",
+      "passed": true,
+      "metadata": {
+        "turns_stored": 12,
+        "facts_promoted": 1,
+        "promotion_stats": {
+          "session_id": "test-c64eca591f50",
+          "turns_retrieved": 12,
+          "segments_created": 1,
+          "segments_promoted": 0,
+          "facts_extracted": 1,
+          "facts_promoted": 1,
+          "facts_filtered": 0,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "test_name": "test_l2_to_l3_consolidation_with_episode_clustering",
+      "timestamp": "2026-01-27T16:18:01.242179+00:00",
+      "latencies_ms": {
+        "l2_store_ms": 242.0584859992232,
+        "consolidation_ms": 2940.647973000523
+      },
+      "llm_provider": "google",
+      "passed": true,
+      "metadata": {
+        "facts_stored": 50,
+        "episodes_created": 1,
+        "qdrant_episodes": 1,
+        "neo4j_episodes": 1,
+        "common_episodes": 1
+      }
+    },
+    {
+      "test_name": "test_l3_to_l4_distillation_with_knowledge_synthesis",
+      "timestamp": "2026-01-27T16:18:09.004768+00:00",
+      "latencies_ms": {
+        "l3_store_ms": 75.0681869994878,
+        "distillation_ms": 3334.747824999795
+      },
+      "llm_provider": "google",
+      "passed": true,
+      "metadata": {
+        "episodes_created": 5,
+        "knowledge_docs_created": 5,
+        "distillation_stats": {
+          "status": "success",
+          "processed_episodes": 5,
+          "created_documents": 5,
+          "knowledge_documents_created": 5,
+          "documents": [
+            {
+              "id": "f7f50fe3-8c5e-4125-8976-2b85ad8c526f",
+              "type": "summary",
+              "episode_count": 5
+            },
+            {
+              "id": "02a0019a-6a68-4d72-adb8-ed2257c46975",
+              "type": "insight",
+              "episode_count": 5
+            },
+            {
+              "id": "49ab767e-3fbd-42c1-84d0-1c5e5a283d6b",
+              "type": "pattern",
+              "episode_count": 5
+            },
+            {
+              "id": "ee97d81b-5976-4878-99c7-b7ed2f9acc6e",
+              "type": "recommendation",
+              "episode_count": 5
+            },
+            {
+              "id": "04f252fa-d8a4-40a1-8bf1-6170a08d29cc",
+              "type": "rule",
+              "episode_count": 5
+            }
+          ],
+          "elapsed_ms": 3334.606903999884
+        }
+      }
+    },
+    {
+      "test_name": "test_full_lifecycle_end_to_end",
+      "timestamp": "2026-01-27T16:18:36.790933+00:00",
+      "latencies_ms": {
+        "l1_store_ms": 222.5699770006031,
+        "promotion_ms": 15181.214408001324,
+        "consolidation_ms": 3344.384418998743,
+        "distillation_ms": 2794.077078000555
+      },
+      "llm_provider": "google",
+      "passed": true,
+      "metadata": {
+        "l1_turns": 50,
+        "l2_facts": 1,
+        "l3_episodes": 1,
+        "l4_knowledge_docs": 5,
+        "promotion_stats": {
+          "session_id": "test-bd6ac008f2f3",
+          "turns_retrieved": 20,
+          "segments_created": 1,
+          "segments_promoted": 0,
+          "facts_extracted": 1,
+          "facts_promoted": 1,
+          "facts_filtered": 0,
+          "errors": 0
+        },
+        "consolidation_stats": {
+          "session_id": "test-bd6ac008f2f3",
+          "facts_retrieved": 1,
+          "episodes_created": 1,
+          "errors": 0
+        },
+        "distillation_stats": {
+          "status": "success",
+          "processed_episodes": 1,
+          "created_documents": 5,
+          "knowledge_documents_created": 5,
+          "documents": [
+            {
+              "id": "d62da532-a1a2-4170-b38d-c7cef9d2866d",
+              "type": "summary",
+              "episode_count": 1
+            },
+            {
+              "id": "ed7ea425-81a7-4fc4-bb9c-8089a6f42e74",
+              "type": "insight",
+              "episode_count": 1
+            },
+            {
+              "id": "963c9700-cf1d-4994-95d9-3c46b9514d54",
+              "type": "pattern",
+              "episode_count": 1
+            },
+            {
+              "id": "7579b56b-3fe2-485c-aebd-701d2d85d718",
+              "type": "recommendation",
+              "episode_count": 1
+            },
+            {
+              "id": "06cb6267-6f56-4934-b34e-5702e7ac877e",
+              "type": "rule",
+              "episode_count": 1
+            }
+          ],
+          "elapsed_ms": 2793.949253999017
         }
       }
     }

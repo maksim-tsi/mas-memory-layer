@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from src.agents.base_agent import BaseAgent
 from src.agents.models import RunTurnRequest, RunTurnResponse
@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 class FullContextAgent(BaseAgent):
     """Agent that uses expanded L1/L2 context for full-context baselines."""
+
+    MAX_TOKENS = 120_000
+    MIN_RECENT_TURNS = 10
 
     def __init__(
         self,
@@ -48,8 +51,9 @@ class FullContextAgent(BaseAgent):
                 max_facts=self._max_facts,
             )
             if isinstance(context_block, ContextBlock):
-                context_text = context_block.to_prompt_string(
-                    include_metadata=self._include_metadata
+                context_text = self._build_context_from_block(
+                    context_block,
+                    user_input=request.content,
                 )
             elif hasattr(context_block, "to_prompt_string"):
                 context_text = context_block.to_prompt_string(
@@ -99,3 +103,81 @@ class FullContextAgent(BaseAgent):
         sections.append(f"## User\n{user_input}")
         sections.append("## Assistant")
         return "\n\n".join(sections)
+
+    def _estimate_tokens(self, text: str) -> int:
+        """Estimate token count using conservative heuristic (4 chars/token)."""
+        return int(len(text) * 0.25)
+
+    def _build_context_from_block(self, context_block: ContextBlock, user_input: str) -> str:
+        """Build truncated context text from a context block."""
+        turn_lines = self._format_turns(context_block.recent_turns)
+        fact_lines = self._format_facts(context_block.significant_facts)
+
+        turn_lines = self._truncate_turns_if_needed(turn_lines, fact_lines, user_input)
+
+        sections: List[str] = []
+        if turn_lines:
+            sections.append("## Recent Conversation")
+            sections.extend(turn_lines)
+        if fact_lines:
+            sections.append("\n## Key Facts (Working Memory)")
+            sections.extend(fact_lines)
+        return "\n".join(sections)
+
+    def _format_turns(self, recent_turns: List[Dict[str, Any]]) -> List[str]:
+        """Format recent turns for full-context prompts."""
+        formatted: List[str] = []
+        for turn in recent_turns:
+            role = turn.get("role", "unknown").upper()
+            content = turn.get("content", "")
+            if self._include_metadata:
+                timestamp = turn.get("timestamp", "N/A")
+                formatted.append(f"[{timestamp}] {role}: {content}")
+            else:
+                formatted.append(f"{role}: {content}")
+        return formatted
+
+    def _format_facts(self, facts: List[Any]) -> List[str]:
+        """Format fact entries for prompt context."""
+        formatted: List[str] = []
+        for fact in facts:
+            content = getattr(fact, "content", None)
+            if content is None and isinstance(fact, dict):
+                content = fact.get("content", "")
+            if self._include_metadata:
+                ciar = getattr(fact, "ciar_score", None)
+                ciar_text = f" (CIAR: {ciar:.2f})" if isinstance(ciar, float) else ""
+                formatted.append(f"{content}{ciar_text}")
+            else:
+                formatted.append(f"{content}")
+        return formatted
+
+    def _truncate_turns_if_needed(
+        self,
+        turn_lines: List[str],
+        fact_lines: List[str],
+        user_input: str,
+    ) -> List[str]:
+        """Truncate oldest turns if context exceeds max token budget."""
+        if not turn_lines:
+            return turn_lines
+
+        total_text = "\n".join(turn_lines + fact_lines + [user_input])
+        estimated_tokens = self._estimate_tokens(total_text)
+        if estimated_tokens <= self.MAX_TOKENS:
+            return turn_lines
+
+        truncated = list(turn_lines)
+        while (
+            len(truncated) > self.MIN_RECENT_TURNS
+            and self._estimate_tokens("\n".join(truncated + fact_lines + [user_input])) > self.MAX_TOKENS
+        ):
+            truncated.pop(0)
+
+        logger.warning(
+            "Context overflow: truncated from %d to %d turns (estimated_tokens=%d)",
+            len(turn_lines),
+            len(truncated),
+            estimated_tokens,
+        )
+        return truncated

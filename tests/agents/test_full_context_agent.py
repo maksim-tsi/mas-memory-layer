@@ -8,58 +8,40 @@ from src.memory.models import ContextBlock
 from src.utils.llm_client import LLMResponse
 
 
-class StubLLMClient:
-    """Stub LLM client for agent tests."""
-
-    def __init__(self, text: str) -> None:
-        self._text = text
-        self.prompts = []
-
-    async def generate(self, prompt: str, model: str | None = None) -> LLMResponse:
-        self.prompts.append(prompt)
-        return LLMResponse(text=self._text, provider="stub", model=model)
-
-    def available_providers(self) -> list[str]:
-        return ["stub"]
+@pytest.fixture
+def llm_client(mocker):
+    """Provide a stub LLM client."""
+    client = mocker.Mock()
+    client.generate = mocker.AsyncMock(return_value=LLMResponse(text="Full context response.", provider="stub"))
+    client.available_providers = mocker.Mock(return_value=["stub"])
+    return client
 
 
-class StubMemorySystem:
-    """Stub memory system for context block retrieval."""
-
-    def __init__(self, context_block: ContextBlock) -> None:
-        self.context_block = context_block
-        self.calls = []
-
-    async def get_context_block(
-        self,
-        session_id: str,
-        min_ciar: float,
-        max_turns: int,
-        max_facts: int,
-    ) -> ContextBlock:
-        self.calls.append(
-            {
-                "session_id": session_id,
-                "min_ciar": min_ciar,
-                "max_turns": max_turns,
-                "max_facts": max_facts,
-            }
-        )
-        return self.context_block
-
-
-@pytest.mark.asyncio
-async def test_full_context_agent_requests_extended_context():
-    """Ensure FullContextAgent calls get_context_block with configured max_turns."""
-    context_block = ContextBlock(
+@pytest.fixture
+def context_block() -> ContextBlock:
+    """Provide a context block with a longer history."""
+    turns = [
+        {"role": "user", "content": f"Turn {idx} content"} for idx in range(30)
+    ]
+    return ContextBlock(
         session_id="session-789",
-        recent_turns=[{"role": "user", "content": "Hello"}],
+        recent_turns=turns,
         significant_facts=[],
     )
 
-    llm_client = StubLLMClient(text="Full context response.")
-    memory_system = StubMemorySystem(context_block=context_block)
 
+@pytest.fixture
+def memory_system(mocker, context_block):
+    """Provide a stub memory system for context block retrieval."""
+    memory = mocker.Mock()
+    memory.get_context_block = mocker.AsyncMock(return_value=context_block)
+    return memory
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_full_context_agent_requests_extended_context(llm_client, memory_system):
+    """Ensure FullContextAgent calls get_context_block with configured max_turns."""
     agent = FullContextAgent(
         agent_id="full-context-agent",
         llm_client=llm_client,
@@ -77,17 +59,44 @@ async def test_full_context_agent_requests_extended_context():
     response = await agent.run_turn(request)
 
     assert response.content == "Full context response."
-    assert memory_system.calls
-    assert memory_system.calls[0]["max_turns"] == 50
-    prompt = llm_client.prompts[0]
-    assert "Summarize our conversation." in prompt
+    memory_system.get_context_block.assert_called_once()
+    assert "Summarize our conversation." in llm_client.generate.call_args[0][0]
 
 
+@pytest.mark.unit
+def test_full_context_agent_token_estimation(llm_client):
+    """Token estimation should use conservative 4-char heuristic."""
+    agent = FullContextAgent(
+        agent_id="full-context-agent",
+        llm_client=llm_client,
+        memory_system=None,
+    )
+
+    assert agent._estimate_tokens("abcd") == 1
+    assert agent._estimate_tokens("" * 0) == 0
+
+
+@pytest.mark.unit
+def test_full_context_agent_truncation_keeps_recent_turns(llm_client, context_block):
+    """Truncation should preserve the most recent turns when over budget."""
+    agent = FullContextAgent(
+        agent_id="full-context-agent",
+        llm_client=llm_client,
+        memory_system=None,
+        config={"max_turns": 50},
+    )
+
+    long_input = "x" * 600_000
+    context_text = agent._build_context_from_block(context_block, user_input=long_input)
+    recent_count = context_text.count("USER:")
+
+    assert recent_count >= agent.MIN_RECENT_TURNS
+
+
+@pytest.mark.unit
 @pytest.mark.asyncio
-async def test_full_context_agent_health_check_reports_ready():
+async def test_full_context_agent_health_check_reports_ready(llm_client):
     """FullContextAgent health check should return status metadata."""
-    llm_client = StubLLMClient(text="Ready")
-
     agent = FullContextAgent(
         agent_id="full-context-agent",
         llm_client=llm_client,

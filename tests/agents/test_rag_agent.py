@@ -7,39 +7,38 @@ from src.agents.rag_agent import RAGAgent
 from src.utils.llm_client import LLMResponse
 
 
-class StubLLMClient:
-    """Stub LLM client for agent tests."""
-
-    def __init__(self, text: str) -> None:
-        self._text = text
-        self.prompts = []
-
-    async def generate(self, prompt: str, model: str | None = None) -> LLMResponse:
-        self.prompts.append(prompt)
-        return LLMResponse(text=self._text, provider="stub", model=model)
-
-    def available_providers(self) -> list[str]:
-        return ["stub"]
+@pytest.fixture
+def llm_client(mocker):
+    """Provide a stub LLM client."""
+    client = mocker.Mock()
+    client.generate = mocker.AsyncMock(return_value=LLMResponse(text="Here are the details.", provider="stub"))
+    client.available_providers = mocker.Mock(return_value=["stub"])
+    return client
 
 
-class StubMemorySystem:
-    """Stub memory system for retrieval queries."""
-
-    def __init__(self, retrievals: list[dict[str, str]]) -> None:
-        self.retrievals = retrievals
-        self.calls = []
-
-    async def query_memory(self, session_id: str, query: str, limit: int) -> list[dict[str, str]]:
-        self.calls.append({"session_id": session_id, "query": query, "limit": limit})
-        return self.retrievals
+@pytest.fixture
+def vector_store(mocker):
+    """Provide a stub vector store client."""
+    store = mocker.Mock()
+    store.add_documents = mocker.Mock()
+    store.query_similar = mocker.Mock(return_value=[{"content": "Order #42 is pending."}])
+    return store
 
 
+@pytest.fixture
+def memory_system(mocker, vector_store):
+    """Provide a stub memory system with knowledge manager."""
+    memory = mocker.Mock()
+    knowledge_manager = mocker.Mock()
+    knowledge_manager.vector_store = vector_store
+    memory.knowledge_manager = knowledge_manager
+    return memory
+
+
+@pytest.mark.unit
 @pytest.mark.asyncio
-async def test_rag_agent_run_turn_queries_memory():
-    """Ensure RAGAgent queries memory and uses retrievals in prompt."""
-    llm_client = StubLLMClient(text="Here are the details.")
-    memory_system = StubMemorySystem(retrievals=[{"content": "Order #42 is pending."}])
-
+async def test_rag_agent_run_turn_indexes_and_queries(llm_client, memory_system, vector_store):
+    """Ensure RAGAgent indexes the turn and uses retrievals in prompt."""
     agent = RAGAgent(
         agent_id="rag-agent",
         llm_client=llm_client,
@@ -57,18 +56,19 @@ async def test_rag_agent_run_turn_queries_memory():
     response = await agent.run_turn(request)
 
     assert response.content == "Here are the details."
-    assert memory_system.calls
-    assert llm_client.prompts
-    prompt = llm_client.prompts[0]
+    vector_store.add_documents.assert_called_once()
+    vector_store.query_similar.assert_called_once_with(query_text=request.content, top_k=5)
+    llm_client.generate.assert_called_once()
+
+    prompt = llm_client.generate.call_args[0][0]
     assert "Order #42 is pending." in prompt
     assert "What is the status of my order?" in prompt
 
 
+@pytest.mark.unit
 @pytest.mark.asyncio
-async def test_rag_agent_health_check_reports_ready():
+async def test_rag_agent_health_check_reports_ready(llm_client):
     """RAGAgent health check should return status metadata."""
-    llm_client = StubLLMClient(text="Ready")
-
     agent = RAGAgent(
         agent_id="rag-agent",
         llm_client=llm_client,

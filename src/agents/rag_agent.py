@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from src.agents.base_agent import BaseAgent
@@ -36,12 +37,18 @@ class RAGAgent(BaseAgent):
         await self.ensure_initialized()
 
         retrievals: List[Dict[str, Any]] = []
-        if self._memory_system and hasattr(self._memory_system, "query_memory"):
+        vector_store = self._get_vector_store()
+        if vector_store:
+            await self._index_turn(vector_store, request)
+            retrievals = await self._query_similar(vector_store, request)
+        elif self._memory_system and hasattr(self._memory_system, "query_memory"):
             retrievals = await self._memory_system.query_memory(
                 session_id=request.session_id,
                 query=request.content,
                 limit=self._top_k,
             )
+        else:
+            logger.warning("No vector store available for RAGAgent '%s'", self.agent_id)
 
         prompt = self._build_prompt(retrievals=retrievals, user_input=request.content)
         response_text = await self._generate_response(prompt)
@@ -90,3 +97,38 @@ class RAGAgent(BaseAgent):
         sections.append(f"## User\n{user_input}")
         sections.append("## Assistant")
         return "\n\n".join(sections)
+
+    def _get_vector_store(self) -> Optional[Any]:
+        """Return vector store client for RAG indexing if available."""
+        if not self._memory_system:
+            return None
+        knowledge_manager = getattr(self._memory_system, "knowledge_manager", None)
+        if knowledge_manager and hasattr(knowledge_manager, "vector_store"):
+            return knowledge_manager.vector_store
+        return None
+
+    async def _index_turn(self, vector_store: Any, request: RunTurnRequest) -> None:
+        """Index the current turn into the vector store."""
+        document = {
+            "id": f"{request.session_id}:{request.turn_id}",
+            "content": request.content,
+            "session_id": request.session_id,
+            "role": request.role,
+            "turn_id": request.turn_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            vector_store.add_documents([document])
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.warning("Failed to index turn in vector store: %s", exc)
+
+    async def _query_similar(self, vector_store: Any, request: RunTurnRequest) -> List[Dict[str, Any]]:
+        """Retrieve similar documents from the vector store."""
+        try:
+            return vector_store.query_similar(
+                query_text=request.content,
+                top_k=self._top_k,
+            )
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.warning("Vector store query failed: %s", exc)
+            return []
