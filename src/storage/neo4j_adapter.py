@@ -11,21 +11,127 @@ Features:
 - Graph traversal operations
 """
 
-from neo4j import AsyncGraphDatabase, AsyncDriver
-from typing import Dict, Any, List, Optional
+import asyncio
+from contextlib import asynccontextmanager
 import logging
+from typing import Dict, Any, List, Optional
 import uuid
+
+import redis.asyncio as redis
+from neo4j import AsyncGraphDatabase, AsyncDriver
 
 from .base import (
     StorageAdapter,
     StorageConnectionError,
     StorageQueryError,
     StorageDataError,
+    StorageTimeoutError,
     validate_required_fields,
 )
 from .metrics import OperationTimer
 
 logger = logging.getLogger(__name__)
+
+
+class Neo4jLockManager:
+    """Redis-backed lock manager with auto-renewal for Neo4j operations."""
+
+    def __init__(
+        self,
+        redis_client: redis.Redis,
+        ttl_seconds: int = 30,
+        renewal_interval: int = 10,
+        owns_client: bool = False,
+    ) -> None:
+        self.redis = redis_client
+        self.ttl_seconds = ttl_seconds
+        self.renewal_interval = renewal_interval
+        self._owns_client = owns_client
+        self._active_locks: set[str] = set()
+        self._renewal_task: Optional[asyncio.Task] = None
+        self._lock_guard = asyncio.Lock()
+
+    async def start(self) -> None:
+        """Start the background lock renewal task."""
+        if self._renewal_task:
+            return
+        self._renewal_task = asyncio.create_task(self._renewal_loop())
+
+    async def stop(self) -> None:
+        """Stop renewal task and release any active locks."""
+        if self._renewal_task:
+            self._renewal_task.cancel()
+            try:
+                await self._renewal_task
+            except asyncio.CancelledError:
+                pass
+            self._renewal_task = None
+
+        async with self._lock_guard:
+            for session_id in list(self._active_locks):
+                await self._release_internal(session_id)
+
+        if self._owns_client:
+            close = getattr(self.redis, "aclose", None)
+            if callable(close):
+                await close()
+            else:
+                await self.redis.close()
+
+    async def acquire(self, session_id: str, ttl_seconds: Optional[int] = None) -> str:
+        """Acquire a distributed lock for a session."""
+        lock_key = f"neo4j:{session_id}"
+        ttl = ttl_seconds or self.ttl_seconds
+        acquired = await self.redis.set(lock_key, "1", nx=True, ex=ttl)
+        if not acquired:
+            raise StorageTimeoutError(
+                f"Failed to acquire Neo4j lock for session '{session_id}'."
+            )
+
+        async with self._lock_guard:
+            self._active_locks.add(session_id)
+
+        logger.info("Acquired Neo4j lock: %s", session_id)
+        return lock_key
+
+    async def release(self, session_id: str) -> None:
+        """Release a distributed lock for a session."""
+        async with self._lock_guard:
+            await self._release_internal(session_id)
+
+    async def _release_internal(self, session_id: str) -> None:
+        lock_key = f"neo4j:{session_id}"
+        await self.redis.delete(lock_key)
+        self._active_locks.discard(session_id)
+        logger.info("Released Neo4j lock: %s", session_id)
+
+    async def _renewal_loop(self) -> None:
+        while True:
+            try:
+                await asyncio.sleep(self.renewal_interval)
+                async with self._lock_guard:
+                    for session_id in list(self._active_locks):
+                        lock_key = f"neo4j:{session_id}"
+                        renewed = await self.redis.expire(lock_key, self.ttl_seconds)
+                        if not renewed:
+                            logger.warning(
+                                "Lock renewal failed for %s; lock may have expired",
+                                session_id,
+                            )
+                            self._active_locks.discard(session_id)
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("Error in Neo4j lock renewal loop")
+
+    @asynccontextmanager
+    async def lock(self, session_id: str):
+        """Context manager that acquires and releases a session lock."""
+        await self.acquire(session_id)
+        try:
+            yield
+        finally:
+            await self.release(session_id)
 
 
 class Neo4jAdapter(StorageAdapter):
@@ -82,9 +188,30 @@ class Neo4jAdapter(StorageAdapter):
         self.password: str = config.get('password', '')
         self.database: str = config.get('database', 'neo4j')
         self.driver: Optional[AsyncDriver] = None
+        self.lock_manager: Optional[Neo4jLockManager] = None
+        lock_redis_client = config.get('lock_redis_client')
+        lock_redis_url = config.get('lock_redis_url')
+        lock_ttl = int(config.get('lock_ttl_seconds', 30))
+        lock_renewal = int(config.get('lock_renewal_interval', 10))
         
         if not self.uri or not self.password:
             raise StorageDataError("Neo4j URI and password required")
+
+        if lock_redis_client is not None:
+            self.lock_manager = Neo4jLockManager(
+                lock_redis_client,
+                ttl_seconds=lock_ttl,
+                renewal_interval=lock_renewal,
+                owns_client=False,
+            )
+        elif lock_redis_url:
+            redis_client = redis.from_url(lock_redis_url, decode_responses=True)
+            self.lock_manager = Neo4jLockManager(
+                redis_client,
+                ttl_seconds=lock_ttl,
+                renewal_interval=lock_renewal,
+                owns_client=True,
+            )
         
         logger.info(f"Neo4jAdapter initialized (uri: {self.uri})")
     
@@ -108,6 +235,9 @@ class Neo4jAdapter(StorageAdapter):
                 
                 self._connected = True
                 logger.info(f"Connected to Neo4j at {self.uri}")
+
+                if self.lock_manager:
+                    await self.lock_manager.start()
                 
             except Exception as e:
                 logger.error(f"Neo4j connection failed: {e}", exc_info=True)
@@ -116,25 +246,42 @@ class Neo4jAdapter(StorageAdapter):
     async def disconnect(self) -> None:
         """Close Neo4j connection"""
         async with OperationTimer(self.metrics, 'disconnect'):
+            if self.lock_manager:
+                await self.lock_manager.stop()
             if self.driver:
                 await self.driver.close()
                 self.driver = None
                 self._connected = False
                 logger.info("Disconnected from Neo4j")
 
-    async def execute_query(self, cypher: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    async def execute_query(
+        self,
+        cypher: str,
+        params: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """Execute arbitrary Cypher and return result data."""
         async with OperationTimer(self.metrics, 'execute_query'):
             if not self.driver:
                 raise StorageConnectionError("Not connected to Neo4j")
 
             try:
-                async with self.driver.session(database=self.database) as session:
-                    result = await session.run(cypher, params or {})
-                    return await result.data()
+                if session_id and self.lock_manager:
+                    async with self.lock_manager.lock(session_id):
+                        return await self._execute_query_internal(cypher, params)
+                return await self._execute_query_internal(cypher, params)
             except Exception as e:
                 logger.error(f"Neo4j query failed: {e}", exc_info=True)
                 raise StorageQueryError(f"Query failed: {e}") from e
+
+    async def _execute_query_internal(
+        self,
+        cypher: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        async with self.driver.session(database=self.database) as session:
+            result = await session.run(cypher, params or {})
+            return await result.data()
     
     async def store(self, data: Dict[str, Any]) -> str:
         """
@@ -159,16 +306,22 @@ class Neo4jAdapter(StorageAdapter):
             validate_required_fields(data, ['type'])
             
             try:
-                if data['type'] == 'entity':
-                    return await self._store_entity(data)
-                elif data['type'] == 'relationship':
-                    return await self._store_relationship(data)
-                else:
-                    raise StorageDataError(f"Unknown type: {data['type']}")
+                session_id = data.get('session_id')
+                if session_id and self.lock_manager:
+                    async with self.lock_manager.lock(session_id):
+                        return await self._store_by_type(data)
+                return await self._store_by_type(data)
                     
             except Exception as e:
                 logger.error(f"Neo4j store failed: {e}", exc_info=True)
                 raise StorageQueryError(f"Store failed: {e}") from e
+
+    async def _store_by_type(self, data: Dict[str, Any]) -> str:
+        if data['type'] == 'entity':
+            return await self._store_entity(data)
+        if data['type'] == 'relationship':
+            return await self._store_relationship(data)
+        raise StorageDataError(f"Unknown type: {data['type']}")
     
     async def _store_entity(self, data: Dict[str, Any]) -> str:
         """Store entity node"""

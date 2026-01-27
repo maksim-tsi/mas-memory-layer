@@ -515,7 +515,8 @@ class EpisodicMemoryTier(BaseTier):
             {
                 'episode_id': episode.episode_id,
                 'properties': episode.to_neo4j_properties()
-            }
+            },
+            session_id=episode.session_id,
         )
         
         # Create entity nodes and relationships
@@ -547,7 +548,8 @@ class EpisodicMemoryTier(BaseTier):
                     'fact_valid_to': episode.fact_valid_to.isoformat() if episode.fact_valid_to else None,
                     'source_timestamp': episode.source_observation_timestamp.isoformat(),
                     'confidence': entity.get('confidence', 1.0)
-                }
+                },
+                session_id=episode.session_id,
             )
         
         return episode.episode_id
@@ -565,5 +567,6 @@ class EpisodicMemoryTier(BaseTier):
             {
                 'episode_id': episode.episode_id,
                 'vector_id': episode.vector_id
-            }
+            },
+            session_id=episode.session_id,
         )

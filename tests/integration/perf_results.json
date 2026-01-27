@@ -1,7 +1,7 @@
 {
-  "redis_p95": 0.53,
-  "postgres_p95": 6.87,
-  "qdrant_p95": 4.42,
-  "neo4j_p95": 7.33,
-  "typesense_p95": 4.7
+  "redis_p95": 0.52,
+  "postgres_p95": 7.47,
+  "qdrant_p95": 6.24,
+  "neo4j_p95": 7.58,
+  "typesense_p95": 5.8
 }

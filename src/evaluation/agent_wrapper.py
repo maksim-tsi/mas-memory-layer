@@ -241,7 +241,13 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
     )
 
     postgres_l1 = PostgresAdapter({"url": config.postgres_url, "table": "active_context"})
-    postgres_l2 = PostgresAdapter({"url": config.postgres_url, "table": "working_memory"})
+    postgres_l2 = PostgresAdapter(
+        {
+            "url": config.postgres_url,
+            "table": "working_memory",
+            "lock_writes": True,
+        }
+    )
 
     l1_tier = ActiveContextTier(
         redis_adapter=redis_adapter,

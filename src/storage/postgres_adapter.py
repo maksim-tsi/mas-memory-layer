@@ -98,6 +98,7 @@ class PostgresAdapter(StorageAdapter):
         self.min_size = config.get('min_size', 2)
         self.timeout = config.get('timeout', 5)
         self.table = config.get('table', 'active_context')
+        self.lock_writes = bool(config.get('lock_writes', False))
         self.pool: Optional[AsyncConnectionPool] = None
         
         logger.info(
@@ -282,6 +283,11 @@ class PostgresAdapter(StorageAdapter):
         
         async with self.pool.connection() as conn:  # type: ignore
             async with conn.cursor() as cur:
+                if self.lock_writes:
+                    lock_query = sql.SQL(
+                        "LOCK TABLE {} IN SHARE ROW EXCLUSIVE MODE"
+                    ).format(sql.Identifier(self.table))
+                    await cur.execute(lock_query)
                 await cur.execute(
                     query,
                     (
