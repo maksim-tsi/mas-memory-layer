@@ -5,9 +5,11 @@ Provides convenient access to MAS Memory Layer components via
 the LangChain ToolRuntime pattern (ADR-007).
 """
 
-from typing import Optional, Any, Dict, TYPE_CHECKING
+from typing import Optional, Any, Dict, TYPE_CHECKING, TypedDict, Annotated, List
 from dataclasses import dataclass
 import inspect
+
+from langgraph.graph import add_messages
 
 if TYPE_CHECKING:
     # For type hints only
@@ -37,6 +39,25 @@ class MASContext:
     enable_l1_cache: bool = True
     enable_ciar_filtering: bool = True
     default_min_ciar: float = 0.6
+
+
+class AgentState(TypedDict):
+    """LangGraph state for MAS agents."""
+
+    messages: Annotated[List[Dict[str, Any]], add_messages]
+    session_id: str
+    turn_id: int
+
+    # Memory tier content
+    active_context: List[str]
+    working_facts: List[Any]
+    episodic_chunks: List[str]
+    entity_graph: Dict[str, Any]
+    semantic_knowledge: List[Any]
+
+    # Agent output
+    response: str
+    confidence: float
 
 
 class MASToolRuntime:

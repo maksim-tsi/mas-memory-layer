@@ -1,6 +1,6 @@
 {
   "date": "2026-01-27",
-  "total_tests": 16,
+  "total_tests": 24,
   "tests": [
     {
       "test_name": "test_l1_to_l2_promotion_with_ciar_filtering",
@@ -627,6 +627,320 @@
             }
           ],
           "elapsed_ms": 3377.3055520000526
+        }
+      }
+    },
+    {
+      "test_name": "test_l1_to_l2_promotion_with_ciar_filtering",
+      "timestamp": "2026-01-27T15:58:48.042320+00:00",
+      "latencies_ms": {
+        "l1_store_ms": 63.757463000001735,
+        "promotion_ms": 15157.353504999264
+      },
+      "llm_provider": "google",
+      "passed": true,
+      "metadata": {
+        "turns_stored": 12,
+        "facts_promoted": 1,
+        "promotion_stats": {
+          "session_id": "test-b1abbac3ae4a",
+          "turns_retrieved": 12,
+          "segments_created": 1,
+          "segments_promoted": 0,
+          "facts_extracted": 1,
+          "facts_promoted": 1,
+          "facts_filtered": 0,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "test_name": "test_l2_to_l3_consolidation_with_episode_clustering",
+      "timestamp": "2026-01-27T15:58:55.437844+00:00",
+      "latencies_ms": {
+        "l2_store_ms": 172.92318799991335,
+        "consolidation_ms": 2886.890752000909
+      },
+      "llm_provider": "google",
+      "passed": true,
+      "metadata": {
+        "facts_stored": 50,
+        "episodes_created": 1,
+        "qdrant_episodes": 1,
+        "neo4j_episodes": 1,
+        "common_episodes": 1
+      }
+    },
+    {
+      "test_name": "test_l3_to_l4_distillation_with_knowledge_synthesis",
+      "timestamp": "2026-01-27T15:59:03.146897+00:00",
+      "latencies_ms": {
+        "l3_store_ms": 122.36875300004613,
+        "distillation_ms": 3244.2369330001384
+      },
+      "llm_provider": "google",
+      "passed": true,
+      "metadata": {
+        "episodes_created": 5,
+        "knowledge_docs_created": 5,
+        "distillation_stats": {
+          "status": "success",
+          "processed_episodes": 5,
+          "created_documents": 5,
+          "knowledge_documents_created": 5,
+          "documents": [
+            {
+              "id": "aee0cfdd-c50b-408e-840c-1fdbeac5f620",
+              "type": "summary",
+              "episode_count": 5
+            },
+            {
+              "id": "6aa5c36d-34a4-408f-a245-fd39d1bb3d22",
+              "type": "insight",
+              "episode_count": 5
+            },
+            {
+              "id": "3a07ab9b-2278-48ef-9ce0-935e4b62b6ab",
+              "type": "pattern",
+              "episode_count": 5
+            },
+            {
+              "id": "2b9e6377-6ec7-4e6c-9eb3-07f41e982676",
+              "type": "recommendation",
+              "episode_count": 5
+            },
+            {
+              "id": "6e6cf08a-c410-45a4-852d-502838c2064d",
+              "type": "rule",
+              "episode_count": 5
+            }
+          ],
+          "elapsed_ms": 3244.049033999545
+        }
+      }
+    },
+    {
+      "test_name": "test_full_lifecycle_end_to_end",
+      "timestamp": "2026-01-27T15:59:30.198376+00:00",
+      "latencies_ms": {
+        "l1_store_ms": 238.41639399870473,
+        "promotion_ms": 15154.363084000579,
+        "consolidation_ms": 2701.7346339998767,
+        "distillation_ms": 2682.2721030002867
+      },
+      "llm_provider": "google",
+      "passed": true,
+      "metadata": {
+        "l1_turns": 50,
+        "l2_facts": 1,
+        "l3_episodes": 1,
+        "l4_knowledge_docs": 5,
+        "promotion_stats": {
+          "session_id": "test-afdff91555f2",
+          "turns_retrieved": 20,
+          "segments_created": 1,
+          "segments_promoted": 0,
+          "facts_extracted": 1,
+          "facts_promoted": 1,
+          "facts_filtered": 0,
+          "errors": 0
+        },
+        "consolidation_stats": {
+          "session_id": "test-afdff91555f2",
+          "facts_retrieved": 1,
+          "episodes_created": 1,
+          "errors": 0
+        },
+        "distillation_stats": {
+          "status": "success",
+          "processed_episodes": 1,
+          "created_documents": 5,
+          "knowledge_documents_created": 5,
+          "documents": [
+            {
+              "id": "fec192bd-aeae-4c12-b74c-e5d83a2c4de1",
+              "type": "summary",
+              "episode_count": 1
+            },
+            {
+              "id": "4913dcdb-494e-4d42-9dba-e1e1e72dda82",
+              "type": "insight",
+              "episode_count": 1
+            },
+            {
+              "id": "bba37b39-7ce2-455a-93e2-fa0b6d4579c9",
+              "type": "pattern",
+              "episode_count": 1
+            },
+            {
+              "id": "54f01009-f68f-432b-a4e1-a10a8867a38f",
+              "type": "recommendation",
+              "episode_count": 1
+            },
+            {
+              "id": "2d22572a-1395-4694-b350-9c5469714f0d",
+              "type": "rule",
+              "episode_count": 1
+            }
+          ],
+          "elapsed_ms": 2682.1482209998067
+        }
+      }
+    },
+    {
+      "test_name": "test_l1_to_l2_promotion_with_ciar_filtering",
+      "timestamp": "2026-01-27T16:02:43.213546+00:00",
+      "latencies_ms": {
+        "l1_store_ms": 75.40075699944282,
+        "promotion_ms": 15151.713405999544
+      },
+      "llm_provider": "google",
+      "passed": true,
+      "metadata": {
+        "turns_stored": 12,
+        "facts_promoted": 1,
+        "promotion_stats": {
+          "session_id": "test-1237ee347170",
+          "turns_retrieved": 12,
+          "segments_created": 1,
+          "segments_promoted": 0,
+          "facts_extracted": 1,
+          "facts_promoted": 1,
+          "facts_filtered": 0,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "test_name": "test_l2_to_l3_consolidation_with_episode_clustering",
+      "timestamp": "2026-01-27T16:02:52.376449+00:00",
+      "latencies_ms": {
+        "l2_store_ms": 205.0612959992577,
+        "consolidation_ms": 2809.33664999975
+      },
+      "llm_provider": "google",
+      "passed": true,
+      "metadata": {
+        "facts_stored": 50,
+        "episodes_created": 1,
+        "qdrant_episodes": 1,
+        "neo4j_episodes": 1,
+        "common_episodes": 1
+      }
+    },
+    {
+      "test_name": "test_l3_to_l4_distillation_with_knowledge_synthesis",
+      "timestamp": "2026-01-27T16:02:59.932364+00:00",
+      "latencies_ms": {
+        "l3_store_ms": 74.13682999867888,
+        "distillation_ms": 3180.8150289998594
+      },
+      "llm_provider": "google",
+      "passed": true,
+      "metadata": {
+        "episodes_created": 5,
+        "knowledge_docs_created": 5,
+        "distillation_stats": {
+          "status": "success",
+          "processed_episodes": 5,
+          "created_documents": 5,
+          "knowledge_documents_created": 5,
+          "documents": [
+            {
+              "id": "3963d32e-1519-4df2-945b-49ed445b96a6",
+              "type": "summary",
+              "episode_count": 5
+            },
+            {
+              "id": "82374448-9d49-4133-85d4-84bd928fc0d2",
+              "type": "insight",
+              "episode_count": 5
+            },
+            {
+              "id": "e8af7bee-b266-42f5-9707-75c69e3eb0b2",
+              "type": "pattern",
+              "episode_count": 5
+            },
+            {
+              "id": "e5c42c2d-11b5-4dff-bfa0-14e607787588",
+              "type": "recommendation",
+              "episode_count": 5
+            },
+            {
+              "id": "9bc55f18-8f13-4674-9696-46c62751e288",
+              "type": "rule",
+              "episode_count": 5
+            }
+          ],
+          "elapsed_ms": 3180.675349000012
+        }
+      }
+    },
+    {
+      "test_name": "test_full_lifecycle_end_to_end",
+      "timestamp": "2026-01-27T16:03:28.060790+00:00",
+      "latencies_ms": {
+        "l1_store_ms": 253.64297499982058,
+        "promotion_ms": 15153.477944999395,
+        "consolidation_ms": 3779.9984609991952,
+        "distillation_ms": 2718.0849550004496
+      },
+      "llm_provider": "google",
+      "passed": true,
+      "metadata": {
+        "l1_turns": 50,
+        "l2_facts": 1,
+        "l3_episodes": 1,
+        "l4_knowledge_docs": 5,
+        "promotion_stats": {
+          "session_id": "test-b8008999d160",
+          "turns_retrieved": 20,
+          "segments_created": 1,
+          "segments_promoted": 0,
+          "facts_extracted": 1,
+          "facts_promoted": 1,
+          "facts_filtered": 0,
+          "errors": 0
+        },
+        "consolidation_stats": {
+          "session_id": "test-b8008999d160",
+          "facts_retrieved": 1,
+          "episodes_created": 1,
+          "errors": 0
+        },
+        "distillation_stats": {
+          "status": "success",
+          "processed_episodes": 1,
+          "created_documents": 5,
+          "knowledge_documents_created": 5,
+          "documents": [
+            {
+              "id": "95f6161a-89a0-4d0f-8dfd-df25b355a159",
+              "type": "summary",
+              "episode_count": 1
+            },
+            {
+              "id": "210b4e16-5f91-4ac5-8b04-1eb5c968c60c",
+              "type": "insight",
+              "episode_count": 1
+            },
+            {
+              "id": "b8c44d02-77e9-4c6a-8286-ed19d29fa049",
+              "type": "pattern",
+              "episode_count": 1
+            },
+            {
+              "id": "e0866a9c-5400-4131-b454-52a7ce9f9cbb",
+              "type": "recommendation",
+              "episode_count": 1
+            },
+            {
+              "id": "d5f6a9f6-68d1-413e-a2ae-e1d7499e5543",
+              "type": "rule",
+              "episode_count": 1
+            }
+          ],
+          "elapsed_ms": 2717.9552630004764
         }
       }
     }
