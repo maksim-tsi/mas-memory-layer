@@ -297,12 +297,19 @@ def create_app(config: WrapperConfig) -> FastAPI:
 async def _store_turn(state: AgentWrapperState, message: Any, role: str) -> None:
     """Store a user or assistant turn in L1 for context assembly."""
 
+    def _encode_turn_id(turn_id: int, message_role: str) -> int:
+        """Encode turn IDs so user/assistant turns do not collide in storage."""
+        if message_role == "assistant":
+            return (turn_id * 2) + 1
+        return turn_id * 2
+
     timestamp = getattr(message, "timestamp", None) or datetime.now(timezone.utc)
     metadata = getattr(message, "metadata", None) or {}
+    stored_turn_id = _encode_turn_id(int(message.turn_id), role)
     await state.l1_tier.store(
         {
             "session_id": message.session_id,
-            "turn_id": str(message.turn_id),
+            "turn_id": str(stored_turn_id),
             "role": role,
             "content": message.content,
             "timestamp": timestamp,

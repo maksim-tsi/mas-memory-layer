@@ -476,10 +476,10 @@ tests/agents/test_full_context_agent.py
 **Acceptance Criteria**:
 - [ ] Startup health checks prevent service start if DB unavailable (partial: Redis only).
 - [x] All three agent types work with same wrapper code (agent factory pattern).
-- [ ] Session isolation verified with `redis_key_validator` assertions in integration tests.
+- [x] Session isolation verified with `redis_key_validator` assertions in integration tests.
 - [ ] Instrumentation captures adapter-level timing.
-- [ ] Unit test suite passing (12+ tests, reports in `tests/reports/unit/`).
-- [ ] Integration test suite passing (Redis key validation, reports in `tests/reports/integration/`).
+- [x] Unit test suite passing (12+ tests, reports in `tests/reports/unit/`).
+- [x] Integration test suite passing (Redis key validation, reports in `tests/reports/integration/`).
 
 **Test Report Preservation**: Test reports are gitignored by default. After milestone executions,
 manually copy the relevant XML/HTML reports to `docs/reports/test_runs/YYYYMMDD/` for archival.

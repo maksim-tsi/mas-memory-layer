@@ -4,12 +4,33 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import sys
+import types
 
 import pytest
 from fastapi.testclient import TestClient
 
 from src.agents.models import RunTurnRequest, RunTurnResponse
-from src.evaluation import agent_wrapper
+
+
+def _install_memory_system_stub() -> None:
+    """Install a minimal memory_system stub for import isolation."""
+    if "memory_system" in sys.modules:
+        return
+    module = types.ModuleType("memory_system")
+
+    class _UnifiedMemorySystem:  # pragma: no cover - minimal stub
+        def __init__(self, *args, **kwargs) -> None:
+            self.args = args
+            self.kwargs = kwargs
+
+    module.UnifiedMemorySystem = _UnifiedMemorySystem
+    sys.modules["memory_system"] = module
+
+
+_install_memory_system_stub()
+
+from src.evaluation import agent_wrapper  # noqa: E402
 
 
 @dataclass
@@ -85,7 +106,8 @@ def test_client(mocker: pytest.MockFixture, wrapper_config, wrapper_state):
     mocker.patch("src.evaluation.agent_wrapper.initialize_state", new=mocker.AsyncMock(return_value=wrapper_state))
     mocker.patch("src.evaluation.agent_wrapper.shutdown_state", new=mocker.AsyncMock())
     app = agent_wrapper.create_app(wrapper_config)
-    return TestClient(app)
+    with TestClient(app) as client:
+        yield client
 
 
 @pytest.mark.unit

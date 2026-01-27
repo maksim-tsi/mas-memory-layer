@@ -5,7 +5,6 @@ This module provides shared pytest configuration and fixtures for all tests.
 """
 
 import os
-import subprocess
 import sys
 
 import pytest
@@ -86,19 +85,8 @@ def redis_key_validator():
         redis_url = os.environ.get("REDIS_URL")
         if not redis_url:
             pytest.skip("REDIS_URL not set; skipping Redis key validation.")
-
-        result = subprocess.run(
-            ["redis-cli", "-u", redis_url, "KEYS", pattern],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise AssertionError(
-                f"redis-cli failed with code {result.returncode}: {result.stderr.strip()}"
-            )
-
-        keys = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        client = redis.StrictRedis.from_url(redis_url, decode_responses=True)
+        keys = client.keys(pattern)
         assert len(keys) == expected_count, (
             f"Expected {expected_count} Redis keys for pattern '{pattern}', "
             f"found {len(keys)}. Keys: {keys}"
@@ -119,10 +107,10 @@ def cleanup_test_redis_keys():
     try:
         client = redis.StrictRedis.from_url(redis_url, decode_responses=True)
         patterns = [
-            "test:*",
-            "session:full:test-*",
-            "session:rag:test-*",
-            "session:full_context:test-*",
+            "l1:session:test-*",
+            "l1:session:full:test-*",
+            "l1:session:rag:test-*",
+            "l1:session:full_context:test-*",
         ]
         for pattern in patterns:
             keys = client.keys(pattern)

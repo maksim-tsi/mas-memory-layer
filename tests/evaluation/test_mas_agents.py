@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -12,10 +13,59 @@ import pytest
 @pytest.fixture(scope="module")
 def mas_agents_module():
     """Load the MAS agent module from the benchmark workspace."""
+    _install_litellm_stub()
     benchmark_root = Path(__file__).resolve().parents[2] / "benchmarks" / "goodai-ltm-benchmark"
     if str(benchmark_root) not in sys.path:
         sys.path.insert(0, str(benchmark_root))
     return importlib.import_module("model_interfaces.mas_agents")
+
+
+def _install_litellm_stub() -> None:
+    """Provide a minimal litellm stub for benchmark imports."""
+    if "litellm" in sys.modules:
+        return
+
+    litellm_stub = types.ModuleType("litellm")
+    litellm_stub.modify_params = True
+    litellm_stub.model_alias_map = {}
+    litellm_stub.model_cost = {}
+    litellm_stub.openai_key = None
+    litellm_stub.anthropic_key = None
+
+    def _token_counter(*_args, **_kwargs):
+        return 1
+
+    def _get_max_tokens(*_args, **_kwargs):
+        return 0
+
+    def _completion_cost(*_args, **_kwargs):
+        return 0.0
+
+    class _Choice:
+        def __init__(self) -> None:
+            self.message = types.SimpleNamespace(content="stub")
+
+    class _Response:
+        def __init__(self) -> None:
+            self.choices = [_Choice()]
+
+    def _completion(*_args, **_kwargs):
+        return _Response()
+
+    litellm_stub.token_counter = _token_counter
+    litellm_stub.get_max_tokens = _get_max_tokens
+    litellm_stub.completion_cost = _completion_cost
+    litellm_stub.completion = _completion
+
+    exceptions_stub = types.ModuleType("litellm.exceptions")
+
+    class ContextWindowExceededError(Exception):
+        """Stub exception used by benchmark tokenizer."""
+
+    exceptions_stub.ContextWindowExceededError = ContextWindowExceededError
+
+    sys.modules["litellm"] = litellm_stub
+    sys.modules["litellm.exceptions"] = exceptions_stub
 
 
 @pytest.fixture

@@ -6,12 +6,34 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import os
+import sys
+import types
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
 
 from src.agents.models import RunTurnResponse
-from src.evaluation import agent_wrapper
+
+
+def _install_memory_system_stub() -> None:
+    """Install a minimal memory_system stub for import isolation."""
+    if "memory_system" in sys.modules:
+        return
+    module = types.ModuleType("memory_system")
+
+    class _UnifiedMemorySystem:  # pragma: no cover - minimal stub
+        def __init__(self, *args, **kwargs) -> None:
+            self.args = args
+            self.kwargs = kwargs
+
+    module.UnifiedMemorySystem = _UnifiedMemorySystem
+    sys.modules["memory_system"] = module
+
+
+_install_memory_system_stub()
+
+from src.evaluation import agent_wrapper  # noqa: E402
 
 
 @dataclass
@@ -67,8 +89,9 @@ def test_full_wrapper_session_isolation(redis_key_validator, mocker):
 
     with TestClient(app) as client:
         _patch_agent_for_tests(client.app.state.wrapper, mocker)
+        session_id = f"test-session-{uuid.uuid4().hex}"
         payload = {
-            "session_id": "test-session-iso",
+            "session_id": session_id,
             "role": "user",
             "content": "Hello",
             "turn_id": 0,
@@ -76,9 +99,14 @@ def test_full_wrapper_session_isolation(redis_key_validator, mocker):
         response = client.post("/run_turn", json=payload)
         assert response.status_code == 200
 
-    redis_key_validator("session:full:test-session-iso:turns", expected_count=1)
-    redis_key_validator("session:rag:test-session-iso:turns", expected_count=0)
-    redis_key_validator("session:full_context:test-session-iso:turns", expected_count=0)
+    prefixed_id = f"full:{session_id}"
+    redis_key_validator(f"l1:session:{prefixed_id}", expected_count=1)
+    redis_key_validator(f"l1:session:rag:{session_id}", expected_count=0)
+    redis_key_validator(f"l1:session:full_context:{session_id}", expected_count=0)
+
+    with TestClient(app) as client:
+        cleanup = client.post("/cleanup_force", params={"session_id": session_id})
+        assert cleanup.status_code == 200
 
 
 @pytest.mark.integration

@@ -15,6 +15,7 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 **Phase 3 (Redis Infrastructure + Agent Tools):** ✅ 100% Complete  
 **Phase 4 (Integration Hardening):** ✅ 100% Complete — All lifecycle tests passing, Qdrant scroll() method added  
 **Full Test Suite (2026-01-27):** ✅ **580 passed, 12 skipped, 0 failed** (592 total) in 2m 23s
+**Wrapper Test Run (2026-01-27):** ✅ **19 passed, 0 failed** (17 unit + 2 integration) with XML/HTML reports
 
 **Integration Test Status:**
 - ✅ All 4 lifecycle integration tests passing (L1→L2→L3→L4)
@@ -44,7 +45,7 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 **What's Next**: 
 - ✅ **Phase 5B**: BaseAgent + Memory/RAG/Full-Context agents (baseline implementations)
 - ✅ **Phase 5C (partial)**: FastAPI wrapper + GoodAI benchmark interfaces
-- 🚧 **Phase 5C (remaining)**: Database isolation locks, instrumentation, wrapper tests
+- 🚧 **Phase 5C (remaining)**: Database isolation locks, instrumentation
 - 🚧 **Phase 5D**: Subset execution orchestration and analysis
 
 **See**: 
@@ -126,6 +127,13 @@ Implemented the Phase 5 evaluation boundary between the MAS memory system and th
 Key deliverables include a FastAPI wrapper for MAS agents with session prefixing and a GoodAI model
 interface module that proxies benchmark turns to the wrapper endpoints. See [docs/integrations/goodai-benchmark-setup.md](docs/integrations/goodai-benchmark-setup.md)
 for execution guidance and [src/evaluation/agent_wrapper.py](src/evaluation/agent_wrapper.py) for API details.
+
+### 2026-01-27 — Wrapper Test Suite + Reporting Automation
+
+Added unit and integration coverage for the wrapper and GoodAI interface modules, including Redis
+namespace isolation checks and timestamped XML/HTML reporting. Test execution is automated via
+[scripts/run_wrapper_tests.sh](scripts/run_wrapper_tests.sh), with reports emitted to
+tests/reports/unit/ and tests/reports/integration/.
 
 ### 2025-11-15 — Demo: File Output & Test Coverage
 
