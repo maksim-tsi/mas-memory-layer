@@ -786,7 +786,379 @@ benchmarks/results/goodai_ltm/subset_baseline_YYYYMMDD/analysis_report.md
 
 ---
 
-## Appendix A: Key Implementation Decisions
+## Appendix A: Detailed Implementation Specification (2026-01-27)
+
+### Conservative Rate Limiting Strategy
+
+**Per-Agent Rate Limits** (enforced locally per wrapper instance):
+- **RPM**: 100 requests per minute (vs. 4,000 available from Gemini)
+- **TPM**: 1,000,000 tokens per minute (vs. 4M available from Gemini)
+- **Minimum Delay**: 600ms between turns (ensures < 100 RPM even with bursts)
+
+**Rationale**: Conservative 40:1 safety margin provides protection against:
+- Concurrent wrapper instances accidentally running in parallel
+- Burst traffic during graph/vector operations
+- Fair use policy triggers from aggressive quota usage
+
+**Implementation** (`RateLimiter` class in `agent_wrapper.py`):
+```python
+class RateLimiter:
+    def __init__(self, rpm: int = 100, tpm: int = 1_000_000, min_delay: float = 0.6):
+        self.rpm = rpm
+        self.tpm = tpm
+        self.min_delay = min_delay
+        self.request_times: List[datetime] = []
+        self.token_usage: List[Tuple[datetime, int]] = []
+        self.consecutive_429s = 0
+        self.log_file = None  # Set in __init__ to logs/rate_limiter_{agent}_{timestamp}.jsonl
+    
+    async def wait_if_needed(self, estimated_tokens: int):
+        """Enforce RPM/TPM limits with sliding window + min delay + circuit breaker."""
+        # Remove stale entries (> 60s old)
+        now = datetime.now()
+        self.request_times = [t for t in self.request_times if (now - t).total_seconds() < 60]
+        self.token_usage = [(t, tokens) for t, tokens in self.token_usage if (now - t).total_seconds() < 60]
+        
+        # Enforce minimum delay per turn (600ms)
+        await asyncio.sleep(self.min_delay)
+        
+        # Check RPM limit
+        if len(self.request_times) >= self.rpm:
+            wait_time = 60 - (now - self.request_times[0]).total_seconds()
+            await asyncio.sleep(max(0, wait_time))
+        
+        # Check TPM limit
+        current_tpm = sum(tokens for _, tokens in self.token_usage)
+        if current_tpm + estimated_tokens >= self.tpm:
+            # Wait for sliding window to clear
+            await asyncio.sleep(60)
+        
+        # Circuit breaker: After 3 consecutive 429s, pause for 60s
+        if self.consecutive_429s >= 3:
+            logger.warning("Circuit breaker triggered: 3 consecutive 429 errors, pausing 60s")
+            await asyncio.sleep(60)
+            self.consecutive_429s = 0
+        
+        # Log rate limiter state to JSONL file
+        self._log_state(now, estimated_tokens, len(self.request_times), current_tpm)
+        
+        self.request_times.append(now)
+        self.token_usage.append((now, estimated_tokens))
+    
+    def _log_state(self, timestamp: datetime, estimated_tokens: int, current_rpm: int, current_tpm: int):
+        """Write rate limiter state to JSONL file."""
+        if self.log_file:
+            log_entry = {
+                "timestamp": timestamp.isoformat(),
+                "estimated_tokens": estimated_tokens,
+                "current_rpm": current_rpm,
+                "current_tpm": current_tpm,
+                "delay_applied": self.min_delay,
+                "circuit_breaker_active": self.consecutive_429s >= 3
+            }
+            with open(self.log_file, 'a') as f:
+                f.write(json.dumps(log_entry) + '\n')
+```
+
+**Token Estimation Heuristic**:
+```python
+def _estimate_tokens(text: str) -> int:
+    """Conservative heuristic: 4 chars per token (0.25 multiplier)."""
+    return int(len(text) * 0.25)
+```
+
+**Logging Strategy**: File-based logging to `logs/rate_limiter_{agent_type}_{timestamp}.jsonl`:
+- No Phoenix metrics export (reduces overhead)
+- JSONL format for easy parsing and analysis
+- Captures: timestamp, RPM/TPM usage, delays applied, circuit breaker triggers
+
+---
+
+### Phoenix Observability Configuration
+
+**Separate Projects per Agent Type**:
+- `mlm-mas-dev-full` (MemoryAgent)
+- `mlm-mas-dev-rag` (RAGAgent)
+- `mlm-mas-dev-full-context` (FullContextAgent)
+
+**Implementation**:
+1. **Wrapper CLI**: Add `--agent-type` argument to set `AGENT_TYPE` environment variable
+2. **Observability Module** (`src/utils/observability.py`): Read `AGENT_TYPE` from env, set `PHOENIX_PROJECT_NAME=mlm-mas-dev-{agent_type}`
+3. **Custom Span Attributes** (added to all LLM/embedding calls):
+   - `agent.type`: Agent type (full/rag/full_context)
+   - `agent.session_id`: Full session ID with prefix (e.g., `full:abc123`)
+   - `agent.turn_id`: Turn number within session
+
+**Environment Variables** (add to `.env`):
+```bash
+PHOENIX_COLLECTOR_ENDPOINT=http://192.168.107.172:6006/v1/traces
+PHOENIX_PROJECT_NAME=mlm-mas-dev-full  # Set dynamically by wrapper based on --agent-type
+AGENT_TYPE=full  # Set by wrapper CLI argument
+```
+
+**Cross-Project Queries**: Custom span attributes enable filtering across projects in Phoenix UI:
+```
+agent.type = "full" AND agent.session_id LIKE "full:%"
+```
+
+---
+
+### Neo4j Distributed Lock with Auto-Renewal
+
+**Problem**: Long-running graph operations (>30s) could exceed lock TTL and cause race conditions.
+
+**Solution**: Lifetime background task renews locks every 10s while held.
+
+**Implementation** (`Neo4jLockManager` in `src/storage/graph_adapter.py`):
+
+```python
+class Neo4jLockManager:
+    def __init__(self, redis_client: redis.StrictRedis):
+        self.redis = redis_client
+        self.active_locks: Dict[str, float] = {}  # session_id -> acquire_time
+        self.renewal_task: Optional[asyncio.Task] = None
+        self.lock = asyncio.Lock()  # Protects active_locks dict
+    
+    async def start(self):
+        """Start lifetime renewal background task."""
+        self.renewal_task = asyncio.create_task(self._renewal_loop())
+    
+    async def stop(self):
+        """Stop renewal task and release all locks."""
+        if self.renewal_task:
+            self.renewal_task.cancel()
+            try:
+                await self.renewal_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Release all remaining locks
+        async with self.lock:
+            for session_id in list(self.active_locks.keys()):
+                await self._release_internal(session_id)
+    
+    async def _renewal_loop(self):
+        """Renew all active locks every 10 seconds."""
+        while True:
+            try:
+                await asyncio.sleep(10)
+                async with self.lock:
+                    for session_id in list(self.active_locks.keys()):
+                        lock_key = f"neo4j:{session_id}"
+                        renewed = await self.redis.expire(lock_key, 30)
+                        if not renewed:
+                            logger.warning(f"Lock renewal failed for {session_id}, lock may have expired")
+                            del self.active_locks[session_id]
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in lock renewal loop: {e}")
+    
+    async def acquire(self, session_id: str, timeout: int = 30) -> str:
+        """Acquire Neo4j lock for session (30s TTL)."""
+        lock_key = f"neo4j:{session_id}"
+        acquired = await self.redis.set(lock_key, "1", nx=True, ex=timeout)
+        if not acquired:
+            raise LockAcquisitionError(f"Failed to acquire lock for {session_id}")
+        
+        async with self.lock:
+            self.active_locks[session_id] = time.time()
+        
+        logger.info(f"Acquired Neo4j lock: {session_id}")
+        return lock_key
+    
+    async def release(self, session_id: str):
+        """Release Neo4j lock for session."""
+        async with self.lock:
+            await self._release_internal(session_id)
+    
+    async def _release_internal(self, session_id: str):
+        """Internal release without lock (assumes caller holds self.lock)."""
+        lock_key = f"neo4j:{session_id}"
+        await self.redis.delete(lock_key)
+        if session_id in self.active_locks:
+            del self.active_locks[session_id]
+        logger.info(f"Released Neo4j lock: {session_id}")
+    
+    @asynccontextmanager
+    async def lock(self, session_id: str):
+        """Context manager for Neo4j lock acquisition/release."""
+        await self.acquire(session_id)
+        try:
+            yield
+        finally:
+            await self.release(session_id)
+```
+
+**Usage Pattern**:
+```python
+async with graph_adapter.lock_manager.lock(session_id):
+    # Neo4j write operations here
+    await graph_adapter.store_entity_relation(...)
+```
+
+**Integration Test** (`tests/integration/test_lock_renewal.py`):
+```python
+async def test_lock_renewal_prevents_expiration():
+    """Verify lock remains valid after 35s (> 30s TTL)."""
+    lock_manager = Neo4jLockManager(redis_client)
+    await lock_manager.start()
+    
+    session_id = "test_long_operation"
+    lock_key = f"neo4j:{session_id}"
+    
+    # Acquire lock
+    await lock_manager.acquire(session_id)
+    
+    # Verify lock exists
+    assert await redis_client.exists(lock_key) == 1
+    
+    # Sleep 35 seconds (longer than 30s TTL)
+    await asyncio.sleep(35)
+    
+    # Verify lock still exists (renewed by background task)
+    assert await redis_client.exists(lock_key) == 1
+    
+    # Release and verify deletion
+    await lock_manager.release(session_id)
+    assert await redis_client.exists(lock_key) == 0
+    
+    await lock_manager.stop()
+```
+
+---
+
+### LangGraph StateGraph Implementation
+
+**AgentState TypedDict** (create in `benchmarks/goodai-ltm-benchmark/agents/runtime.py`):
+
+```python
+from typing import TypedDict, Annotated, List, Optional
+from langgraph.graph import add_messages
+
+class AgentState(TypedDict):
+    """State for LangGraph-based agents."""
+    messages: Annotated[List[dict], add_messages]  # Reducer for parallel updates
+    session_id: str
+    turn_id: int
+    
+    # Memory tier content
+    active_context: List[str]        # L1 recent turns
+    working_facts: List[dict]        # L2 session facts
+    episodic_chunks: List[str]       # L3 retrieved from Qdrant
+    entity_graph: dict               # L3 retrieved from Neo4j
+    semantic_knowledge: List[dict]   # L4 distilled patterns
+    
+    # Agent output
+    response: str
+    confidence: float
+```
+
+**MemoryAgent Graph Structure** (update in `benchmarks/goodai-ltm-benchmark/agents/memory_agent.py`):
+
+```python
+from langgraph.graph import StateGraph, END
+
+class MemoryAgent(BaseAgent):
+    def _build_graph(self) -> CompiledGraph:
+        workflow = StateGraph(AgentState)
+        
+        # Add nodes
+        workflow.add_node("perceive", self._perceive_node)
+        workflow.add_node("retrieve", self._retrieve_node)
+        workflow.add_node("reason", self._reason_node)
+        workflow.add_node("update", self._update_node)
+        workflow.add_node("respond", self._respond_node)
+        
+        # Wire edges (linear pipeline)
+        workflow.set_entry_point("perceive")
+        workflow.add_edge("perceive", "retrieve")
+        workflow.add_edge("retrieve", "reason")
+        workflow.add_edge("reason", "update")
+        workflow.add_edge("update", "respond")
+        workflow.add_edge("respond", END)
+        
+        return workflow.compile()
+    
+    async def _perceive_node(self, state: AgentState) -> AgentState:
+        """Load agent state from L1 and parse incoming message."""
+        # Implementation: Query L1 for recent turns, populate active_context
+        pass
+    
+    async def _retrieve_node(self, state: AgentState) -> AgentState:
+        """Query L2/L3/L4 via UnifiedMemorySystem."""
+        # Implementation: Call memory_system.retrieve_context(), populate working_facts/episodic_chunks/entity_graph
+        pass
+    
+    async def _reason_node(self, state: AgentState) -> AgentState:
+        """Synthesize context and generate response via LLM."""
+        # Implementation: Call LLM with tools, generate response
+        pass
+    
+    async def _update_node(self, state: AgentState) -> AgentState:
+        """Write to L1 and trigger async promotion."""
+        # Implementation: Store turn in L1, trigger PromotionEngine
+        pass
+    
+    async def _respond_node(self, state: AgentState) -> AgentState:
+        """Format final response."""
+        # Implementation: Format response dict, return state
+        pass
+```
+
+**Isolated Node Tests** (full state mocking in `tests/evaluation/test_memory_agent.py`):
+
+```python
+@pytest.fixture
+def mock_agent_state():
+    """Complete AgentState fixture with all fields populated."""
+    return AgentState(
+        messages=[{"role": "user", "content": "Test message"}],
+        session_id="full:test123",
+        turn_id=1,
+        active_context=["Previous turn 1", "Previous turn 2"],
+        working_facts=[{"fact": "User prefers morning meetings", "ciar": 0.8}],
+        episodic_chunks=["Chunk from L3 Qdrant"],
+        entity_graph={"user": {"name": "Alice", "role": "manager"}},
+        semantic_knowledge=[{"pattern": "Meeting scheduling", "confidence": 0.9}],
+        response="",
+        confidence=0.0
+    )
+
+async def test_retrieve_node_populates_episodic_chunks(memory_agent, mock_agent_state):
+    """Verify _retrieve_node adds episodic_chunks to state."""
+    # Call retrieve node
+    updated_state = await memory_agent._retrieve_node(mock_agent_state)
+    
+    # Verify episodic_chunks populated
+    assert len(updated_state["episodic_chunks"]) > 0
+    assert updated_state["entity_graph"] is not None
+```
+
+---
+
+### Testing Strategy Summary
+
+**Isolated Node Tests** (full state mocking):
+- Test each LangGraph node independently with complete `AgentState` fixtures
+- Verify state transformations (e.g., `_retrieve_node` populates `episodic_chunks`)
+- Mock all external dependencies (UnifiedMemorySystem, LLMClient)
+- Target: 12+ tests per agent for full node coverage
+
+**Integration Tests**:
+- Neo4j lock renewal: Long-running operation (35s) verifies lock remains valid
+- Wrapper isolation: Redis key validation ensures session prefixes don't leak
+- End-to-end: Single agent run with real backends validates full pipeline
+
+**Test Infrastructure**:
+- pytest-mock for fixture management
+- pytest-html for timestamped reports
+- pytest-asyncio for async test support
+- Reports saved to `tests/reports/{unit,integration}/` with timestamps
+
+---
+
+## Appendix B: Key Implementation Decisions
 
 ### Decision Log
 
@@ -797,6 +1169,30 @@ benchmarks/results/goodai_ltm/subset_baseline_YYYYMMDD/analysis_report.md
 2. **gemini-2.5-flash-lite Selection** (2026-01-26):
    - **Rationale**: 4K RPM (vs. 10 RPM for gemini-3-flash-preview) allows serial execution without rate limit stalls.
    - **Impact**: Estimated 3-5 hour completion time vs. 30+ hours with frequent rate limit retries.
+
+3. **Conservative Rate Limiting (100 RPM, 1M TPM)** (2026-01-27):
+   - **Rationale**: 40:1 safety margin protects against concurrent instances, burst traffic, and fair use policy triggers.
+   - **Impact**: 600ms minimum delay per turn ensures safe operation well under Gemini limits.
+
+4. **Per-Turn Delay Enforcement** (2026-01-27):
+   - **Rationale**: Proactive throttling prevents quota exhaustion vs. reactive circuit breaker approach.
+   - **Impact**: Slower execution (10-20% overhead) but eliminates risk of rate limit failures mid-run.
+
+5. **Conservative Token Heuristic (0.25 multiplier)** (2026-01-27):
+   - **Rationale**: 4 chars/token is conservative (typical: 3-3.5), reduces risk of TPM limit violations.
+   - **Impact**: Rate limiter may be overly cautious, but prevents underestimation errors.
+
+6. **Neo4j Lock Renewal (Lifetime Task)** (2026-01-27):
+   - **Rationale**: Long-running graph operations (>30s) would expire locks without renewal.
+   - **Impact**: Background task renews every 10s, prevents race conditions on complex queries.
+
+7. **Phoenix Separate Projects per Agent** (2026-01-27):
+   - **Rationale**: Isolates traces by agent type for easier debugging and comparison.
+   - **Impact**: Custom span attributes enable cross-project queries when needed.
+
+8. **File-Based Rate Limiter Logging** (2026-01-27):
+   - **Rationale**: Phoenix metrics export adds overhead; JSONL files are lightweight and sufficient.
+   - **Impact**: Rate limiter state captured for post-execution analysis without runtime cost.
 
 3. **Isolated FastAPI Services** (2026-01-26):
    - **Rationale**: Database contention risk with parallel agent execution.
