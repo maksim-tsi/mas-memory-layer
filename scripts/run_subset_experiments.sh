@@ -128,7 +128,7 @@ function force_cleanup() {
 function run_benchmark() {
     agent_name="$1"
     echo -e "${BLUE}Running benchmark for ${agent_name}...${NC}"
-    "$BENCH_PYTHON" -m goodai_ltm_benchmark.run -a "$agent_name" -c "$BENCH_CONFIG"
+    "$BENCH_PYTHON" "$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark/runner/run_benchmark.py" -a "$agent_name" -c "$BENCH_CONFIG"
 }
 
 function copy_results() {

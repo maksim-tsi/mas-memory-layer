@@ -1,0 +1,9 @@
+{"timestamp": "2026-01-28T19:24:15.724273+00:00", "estimated_tokens": 34, "current_rpm": 1, "current_tpm": 34, "delay_applied": 0.6, "circuit_breaker_active": false}
+{"timestamp": "2026-01-28T19:28:19.606792+00:00", "estimated_tokens": 76, "current_rpm": 1, "current_tpm": 76, "delay_applied": 0.6, "circuit_breaker_active": false}
+{"timestamp": "2026-01-28T19:28:20.899801+00:00", "estimated_tokens": 30, "current_rpm": 2, "current_tpm": 106, "delay_applied": 0.6, "circuit_breaker_active": false}
+{"timestamp": "2026-01-28T19:28:22.343165+00:00", "estimated_tokens": 50, "current_rpm": 3, "current_tpm": 156, "delay_applied": 0.6, "circuit_breaker_active": false}
+{"timestamp": "2026-01-28T19:28:23.362237+00:00", "estimated_tokens": 60, "current_rpm": 4, "current_tpm": 216, "delay_applied": 0.6, "circuit_breaker_active": false}
+{"timestamp": "2026-01-28T19:28:24.664942+00:00", "estimated_tokens": 90, "current_rpm": 5, "current_tpm": 306, "delay_applied": 0.6, "circuit_breaker_active": false}
+{"timestamp": "2026-01-28T19:28:26.078912+00:00", "estimated_tokens": 63, "current_rpm": 6, "current_tpm": 369, "delay_applied": 0.6, "circuit_breaker_active": false}
+{"timestamp": "2026-01-28T19:28:27.109006+00:00", "estimated_tokens": 60, "current_rpm": 7, "current_tpm": 429, "delay_applied": 0.6, "circuit_breaker_active": false}
+{"timestamp": "2026-01-28T19:28:28.511588+00:00", "estimated_tokens": 18, "current_rpm": 8, "current_tpm": 447, "delay_applied": 0.6, "circuit_breaker_active": false}
