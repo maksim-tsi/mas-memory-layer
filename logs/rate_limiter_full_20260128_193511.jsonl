@@ -1,0 +1,4 @@
+{"timestamp": "2026-01-28T19:35:20.746012+00:00", "estimated_tokens": 76, "current_rpm": 1, "current_tpm": 76, "delay_applied": 0.6, "circuit_breaker_active": false}
+{"timestamp": "2026-01-28T19:35:21.700912+00:00", "estimated_tokens": 30, "current_rpm": 2, "current_tpm": 106, "delay_applied": 0.6, "circuit_breaker_active": false}
+{"timestamp": "2026-01-28T19:35:22.734763+00:00", "estimated_tokens": 56, "current_rpm": 3, "current_tpm": 162, "delay_applied": 0.6, "circuit_breaker_active": false}
+{"timestamp": "2026-01-28T19:35:23.833666+00:00", "estimated_tokens": 688, "current_rpm": 4, "current_tpm": 850, "delay_applied": 0.6, "circuit_breaker_active": false}

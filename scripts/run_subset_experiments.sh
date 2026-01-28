@@ -30,6 +30,17 @@ BENCH_LOG_DIR="$PROJECT_ROOT/logs"
 RESULTS_ROOT="$PROJECT_ROOT/benchmarks/results/goodai_ltm"
 BENCH_CONFIG="$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark/configurations/mas_subset_32k.yml"
 
+ENV_FILE="$PROJECT_ROOT/.env"
+
+if [ -f "$ENV_FILE" ]; then
+    set -a
+    . "$ENV_FILE"
+    set +a
+fi
+
+PYTHONPATH="$PROJECT_ROOT:$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark${PYTHONPATH:+:$PYTHONPATH}"
+export PYTHONPATH
+
 WRAPPER_PIDS=""
 POLL_PIDS=""
 
@@ -54,7 +65,7 @@ function check_prerequisites() {
 
 function run_wrapper_tests() {
     echo -e "${BLUE}Running wrapper tests...${NC}"
-    "$SCRIPT_DIR/run_wrapper_tests.sh"
+    bash "$SCRIPT_DIR/run_wrapper_tests.sh"
 }
 
 function start_wrapper() {
@@ -63,7 +74,7 @@ function start_wrapper() {
     log_file="$WRAPPER_LOG_DIR/wrapper_${agent_type}.log"
 
     echo -e "${YELLOW}Starting wrapper ${agent_type} on port ${port}...${NC}"
-    "$PYTHON" "$PROJECT_ROOT/src/evaluation/agent_wrapper.py" --agent-type "$agent_type" --port "$port" \
+    PYTHONPATH="$PROJECT_ROOT" "$PYTHON" "$PROJECT_ROOT/src/evaluation/agent_wrapper.py" --agent-type "$agent_type" --port "$port" \
         > "$log_file" 2>&1 &
     WRAPPER_PIDS="$WRAPPER_PIDS $!"
 }
@@ -128,7 +139,8 @@ function force_cleanup() {
 function run_benchmark() {
     agent_name="$1"
     echo -e "${BLUE}Running benchmark for ${agent_name}...${NC}"
-    "$BENCH_PYTHON" "$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark/runner/run_benchmark.py" -a "$agent_name" -c "$BENCH_CONFIG"
+    PYTHONPATH="$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark" \
+        "$BENCH_PYTHON" "$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark/runner/run_benchmark.py" -a "$agent_name" -c "$BENCH_CONFIG"
 }
 
 function copy_results() {
