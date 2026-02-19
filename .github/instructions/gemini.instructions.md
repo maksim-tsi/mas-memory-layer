@@ -17,11 +17,12 @@ and Vertex AI) as of 2025. Do not use legacy libraries and SDKs.
 -   **Python Package:** `google-genai`
 -   **Legacy Library**: (`google-generativeai`) is deprecated.
 
-**Installation:**
+**Dependencies (Repo Harness):**
 
--   **Incorrect:** `pip install google-generativeai`
--   **Incorrect:** `pip install google-ai-generativelanguage`
--   **Correct:** `pip install google-genai`
+- This repository uses **Poetry** for dependency management.
+- Do **not** run `pip install ...` in this repo.
+- Do **not** edit `pyproject.toml` / `poetry.lock` unless the user explicitly authorizes the specific change.
+- If `google-genai` is missing, ask for approval first; if approved, use Poetry (e.g., `poetry add google-genai`).
 
 **APIs and Usage:**
 

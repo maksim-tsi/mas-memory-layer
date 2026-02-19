@@ -6,6 +6,17 @@ This is a **four-tier cognitive memory system** for Multi-Agent Systems (MAS), d
 
 **For current implementation status**, refer to `DEVLOG.md` for phase-by-phase progress tracking.
 
+## Instruction Entrypoint (Harness-First)
+
+This file is a **Gemini-facing overview**. It must remain consistent with the repository harness:
+
+- Canonical workflow + safety invariants: `AGENTS.MD`
+- Copilot entrypoint: `.github/copilot-instructions.md`
+- Path-scoped rules: `.github/instructions/*.md`
+- System-of-record: `docs/` (ADRs, specs, plans)
+
+If you find a conflict, stop and ask the user to resolve it.
+
 ### Four-Tier Memory Architecture (ADR-003)
 
 ```
@@ -30,9 +41,18 @@ All development work must adhere to these five principles:
 ## General Instructions
 
 ### Critical Distinction
+- This repository contains **two different “agent” concepts**:
+  - **Runtime MAS agents** (LangGraph/AutoGen/CrewAI/Claude Desktop/Codex as assistants using YAAM).
+  - **Development-time coding assistants** (Copilot/Codex CLI/Gemini CLI/Claude Code) used to modify this repo.
+  Do not mix these in documentation: “agents” in code/architecture usually means **runtime MAS agents**.
 - **Storage Adapters** (in `src/storage/`) = Database clients for L1-L4 tiers
 - **Memory Tiers** (in `src/memory/tiers/`) = Intelligent memory managers with CIAR-based promotion logic
 - **Lifecycle Engines** (planned in `src/memory/engines/`) = Autonomous information flow between tiers
+
+### Skills v1 (Mechanism vs Policy)
+- **Mechanism (frozen-by-default):** low-level connectors/adapters (e.g. `src/storage/`).
+- **Policy (iterated):** prompt/instruction packages (“Skills”) that describe *how* to use mechanism safely and effectively.
+- See `docs/ADR/010-mechanism-policy-split-and-skills-v1.md` for the canonical decision and terminology.
 
 **Implementation status**: Check `DEVLOG.md` for the latest completion percentages and active development phases.
 
@@ -51,7 +71,7 @@ All development work must adhere to these five principles:
 
 ## Technology Stack
 
-**Language**: Python 3.12.3  
+**Language**: Python (see `pyproject.toml`)  
 **Virtual Environment**: `.venv/` (Poetry-managed, in-project via `virtualenvs.in-project = true`)  
 **Key Dependencies**:
 - `pydantic==2.8.2` - Data validation and models
@@ -77,18 +97,20 @@ Consult `docs/environment-guide.md` for examples of expected output.
 - If on the managed remote host (Linux + hostname like `skz-dev-lv`), use **absolute executable paths**:
   - `/home/max/code/mas-memory-layer/.venv/bin/python`
   - `/home/max/code/mas-memory-layer/.venv/bin/pytest`
-  - `/home/max/code/mas-memory-layer/.venv/bin/pip`
+  - `/home/max/code/mas-memory-layer/.venv/bin/ruff`
 - If on a local macOS/Linux checkout, use **relative paths** for portability:
   - `./.venv/bin/python`
   - `./.venv/bin/pytest`
-  - `./.venv/bin/pip`
+  - `./.venv/bin/ruff`
 
 ```bash
 # CORRECT (local)
+./.venv/bin/ruff check .
 ./.venv/bin/python script.py
 ./.venv/bin/pytest tests/ -v
 
 # CORRECT (remote)
+/home/max/code/mas-memory-layer/.venv/bin/ruff check .
 /home/max/code/mas-memory-layer/.venv/bin/pytest tests/ -v
 
 # WRONG - Do NOT use these
@@ -97,10 +119,12 @@ python script.py           # May use wrong interpreter
 ```
 
 **Two-Environment Architecture**: This repository contains two separate Poetry projects:
-1. **MAS Memory Layer** (root): `poetry install --with test,dev` creates `.venv/`
-2. **GoodAI Benchmark** (`benchmarks/goodai-ltm-benchmark/`): `poetry install` creates `.venv/` in that subdirectory
+1. **YAAM root project** (repo root): Python version is defined in `pyproject.toml` (currently `>=3.12,<3.14`).
+2. **GoodAI benchmark** (`benchmarks/goodai-ltm-benchmark/`): Python version is defined in its own `pyproject.toml` (currently `>=3.11,<3.13`).
 
 These environments are intentionally isolated due to incompatible langchain versions.
+
+**Dependency changes require explicit approval**: do not add/remove/update dependencies (Poetry, `pyproject.toml`, lockfiles) unless the user authorizes the specific change.
 
 ## Multi-Host Development Guidance
 
@@ -216,6 +240,9 @@ docs/
 
 ### Running Tests
 ```bash
+# Lint first
+./.venv/bin/ruff check .
+
 # All tests
 ./.venv/bin/pytest tests/ -v
 
@@ -232,7 +259,8 @@ docs/
 
 ### Real LLM/provider checks
 - Real Gemini checks use the `llm_real` marker. Run via `./scripts/grade_phase5_readiness.sh --mode full` to include them.
-- Requires `GOOGLE_API_KEY` exported in the shell (loaded from `.env`, not committed). No `GEMINI_API_KEY` variable is used anywhere.
+- Requires `GOOGLE_API_KEY` available in the environment. No `GEMINI_API_KEY` variable is used anywhere.
+- It is OK to keep keys in a local `.env` file (not committed), but do not open/print `.env` contents.
 - Use `--skip-llm` with the grading script to omit real-provider calls even when the key is present.
 
 ### Running Benchmarks
@@ -248,7 +276,7 @@ docs/
 ```
 
 ### Environment Setup
-Configuration in `.env` (NOT tracked in git):
+Configuration is provided via environment variables (commonly stored in a local `.env`, NOT tracked in git; do not open/print it):
 - PostgreSQL: `DATA_NODE_IP`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
 - Neo4j: `DATA_NODE_IP`, `NEO4J_USER`, `NEO4J_PASSWORD`
 - LLM APIs: `GOOGLE_API_KEY`, `GROQ_API_KEY`, `MISTRAL_API_KEY`
