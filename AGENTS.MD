@@ -17,6 +17,20 @@ encyclopedia. If you need detail, follow the pointers in **Where to look**.
 If you find a conflict between any of the above, **stop** and ask the user to resolve it, then record
 the resolution in `docs/lessons-learned.md`.
 
+## Clarifications for Codex (Sandbox + Network)
+
+These notes exist because the **Codex app/CLI runtime** may be sandboxed differently than VS Code
+agents or other CLIs.
+
+- **Network access:** If a command requires network access, Codex may need explicit user approval
+  even when it would normally work on your machine.
+- **Allowed network usage (user-approved):**
+  - Local network access is allowed for DBMS connector integration tests.
+  - Public internet access is allowed for LLM provider tests/runtime calls.
+  - If you expect to exceed **10 requests/minute** to an LLM provider or **1000 requests/day**,
+    stop and ask first.
+- **Git operations:** some `git` commands may require explicit approval because they write to `.git/`.
+
 ## Where to Look (Progressive Disclosure)
 
 - Architecture: `docs/ADR/003-four-layers-memory.md`, `docs/ADR/007-agent-integration-layer.md`
