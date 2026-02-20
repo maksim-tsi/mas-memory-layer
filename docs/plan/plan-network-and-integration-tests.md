@@ -32,6 +32,14 @@ The dominant failures are network connectivity issues, including:
 These failure modes are consistent with environment constraints and should not be treated as
 evidence of mechanism-layer regressions.
 
+## 2.1 Codex Sandbox Note (Socket Restrictions)
+
+In the default Codex sandbox configuration, network sockets may be blocked. In such environments:
+
+- integration tests may fail with “Operation not permitted” even when service endpoints are valid;
+- enabling network access via an explicit sandbox escalation is required to obtain signal from
+  DBMS connector integration tests.
+
 ## 3. Local-Only Default Policy
 
 Default execution of:
@@ -44,6 +52,21 @@ MUST:
 
 - pass without requiring any external services, and
 - skip tests marked as `integration`, `slow`, or `llm_real` unless explicitly enabled.
+
+## 3.1 Empirical Baseline (Network-Enabled Host)
+
+When network access is available (including LAN access to the DBMS cluster and public Internet
+access for provider calls), the following command set is expected to provide a minimal smoke
+baseline:
+
+```bash
+./.venv/bin/pytest -v --run-integration tests/integration/test_connectivity.py
+./.venv/bin/pytest -v --run-integration -m integration tests/storage
+./.venv/bin/pytest -v --run-integration --run-slow tests/integration/test_groq_provider.py::test_groq_provider_real_call
+./.venv/bin/pytest -v --run-integration --run-slow tests/integration/test_mistral_provider.py::test_mistral_provider_real_call
+./.venv/bin/pytest -v --run-integration --run-slow tests/integration/test_llmclient_real.py::test_llmclient_real_providers
+./.venv/bin/pytest -v --run-slow -m llm_real tests/utils/test_gemini_structured_output.py::test_fact_extraction_with_native_schema
+```
 
 ## 4. Opt-In Execution for Networked Environments
 
