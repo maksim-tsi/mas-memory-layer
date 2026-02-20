@@ -16,30 +16,11 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 # Load environment variables from .env file
-# Load environment variables from .env file
 dotenv_path = os.path.join(project_root, ".env")
 load_dotenv(dotenv_path, override=True)
 
-
-def pytest_addoption(parser):
-    """Add command-line options for integration/slow tests."""
-    parser.addoption(
-        "--run-integration",
-        action="store_true",
-        default=False,
-        help="Run integration tests that require network/external services.",
-    )
-    parser.addoption(
-        "--run-slow",
-        action="store_true",
-        default=False,
-        help="Run slow tests (e.g., real provider calls).",
-    )
-
-
 def pytest_collection_modifyitems(config, items):
     """Modify test collection to skip tests based on markers and flags"""
-    # Options are defined in root conftest.py
     run_integration = config.getoption("--run-integration")
     run_slow = config.getoption("--run-slow")
 
