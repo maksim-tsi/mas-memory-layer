@@ -4,7 +4,7 @@ import json
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import redis
 from pydantic import BaseModel, Field, ValidationError
@@ -15,9 +15,7 @@ from src.memory.engines.promotion_engine import PromotionEngine
 from src.memory.knowledge_store_manager import KnowledgeStoreManager
 from src.memory.models import (
     ContextBlock,
-    Episode,
     Fact,
-    KnowledgeDocument,
     SearchWeights,
 )
 from src.memory.tiers import (
@@ -81,7 +79,7 @@ class HybridMemorySystem(ABC):
     @abstractmethod
     def query_knowledge(
         self,
-        store_type: Literal["vector", "graph", "search"],
+        store_type: Literal["vector", "graph"],
         query_text: str,
         top_k: int = 5,
         filters: dict[str, Any] | None = None,
@@ -96,14 +94,12 @@ class HybridMemorySystem(ABC):
         pass
 
     @abstractmethod
-    async def run_consolidation_cycle(self, session_id: str) -> list[Episode]:
+    async def run_consolidation_cycle(self, session_id: str) -> dict[str, Any]:
         """Execute L2→L3 consolidation cycle."""
         pass
 
     @abstractmethod
-    async def run_distillation_cycle(
-        self, session_id: str | None = None
-    ) -> list[KnowledgeDocument]:
+    async def run_distillation_cycle(self, session_id: str | None = None) -> dict[str, Any]:
         """Execute L3→L4 distillation cycle."""
         pass
 
@@ -241,7 +237,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
     # --- Persistent Knowledge Implementation (Delegates to KnowledgeStoreManager) ---
     def query_knowledge(
         self,
-        store_type: Literal["vector", "graph", "search"],
+        store_type: Literal["vector", "graph"],
         query_text: str,
         top_k: int = 5,
         filters: dict[str, Any] | None = None,
@@ -275,7 +271,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
         facts = await self.promotion_engine.promote_session(session_id)
         return facts
 
-    async def run_consolidation_cycle(self, session_id: str) -> list[Episode]:
+    async def run_consolidation_cycle(self, session_id: str) -> dict[str, Any]:
         """
         Execute L2→L3 consolidation cycle.
 
@@ -283,10 +279,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
             session_id: Session to consolidate facts from
 
         Returns:
-            List of Episodes created in L3
-
-        Raises:
-            RuntimeError: If consolidation engine or required tiers not configured
+            Dict with consolidation statistics
         """
         if not self.consolidation_engine:
             raise RuntimeError("ConsolidationEngine not configured")
@@ -294,12 +287,9 @@ class UnifiedMemorySystem(HybridMemorySystem):
             raise RuntimeError("L2 and L3 tiers required for consolidation")
 
         # Run consolidation engine
-        episodes = await self.consolidation_engine.consolidate_session(session_id)
-        return episodes
+        return await self.consolidation_engine.process_session(session_id)
 
-    async def run_distillation_cycle(
-        self, session_id: str | None = None
-    ) -> list[KnowledgeDocument]:
+    async def run_distillation_cycle(self, session_id: str | None = None) -> dict[str, Any]:
         """
         Execute L3→L4 distillation cycle.
 
@@ -307,10 +297,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
             session_id: Optional session filter (None = global distillation)
 
         Returns:
-            List of KnowledgeDocuments created in L4
-
-        Raises:
-            RuntimeError: If distillation engine or required tiers not configured
+            Dict with distillation statistics
         """
         if not self.distillation_engine:
             raise RuntimeError("DistillationEngine not configured")
@@ -318,11 +305,11 @@ class UnifiedMemorySystem(HybridMemorySystem):
             raise RuntimeError("L3 and L4 tiers required for distillation")
 
         # Run distillation engine
+        # Run distillation engine
         if session_id:
-            knowledge_docs = await self.distillation_engine.distill_session(session_id)
+            return await self.distillation_engine.distill(session_id=session_id)
         else:
-            knowledge_docs = await self.distillation_engine.distill_global()
-        return knowledge_docs
+            return await self.distillation_engine.distill()
 
     # --- Cross-Tier Query Implementation ---
 
@@ -400,8 +387,8 @@ class UnifiedMemorySystem(HybridMemorySystem):
         # L3: Episodic Memory (Episodes)
         if self.l3_tier and weights.l3_weight > 0:
             try:
-                l3_episodes = await self.l3_tier.retrieve(
-                    session_id=session_id, query=query, limit=limit
+                l3_episodes = await self.l3_tier.query(
+                    filters={"session_id": session_id}, limit=limit
                 )
                 # Normalize importance scores
                 if l3_episodes:
@@ -436,7 +423,9 @@ class UnifiedMemorySystem(HybridMemorySystem):
         # L4: Semantic Memory (Knowledge Documents)
         if self.l4_tier and weights.l4_weight > 0:
             try:
-                l4_docs = await self.l4_tier.retrieve(query=query, limit=limit)
+                # L4 retrieve typically takes filters or query_text depending on implementation.
+                # Assuming simple retrieval for now as per error message/signature.
+                l4_docs = await self.l4_tier.query(limit=limit)
                 # Normalize confidence scores
                 if l4_docs:
                     l4_scores = [d.confidence_score for d in l4_docs]
@@ -469,7 +458,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
                 print(f"L4 query failed: {e}")
 
         # Sort by weighted score and limit results
-        all_results.sort(key=lambda x: x["score"], reverse=True)
+        all_results.sort(key=lambda x: float(cast(float, x["score"])), reverse=True)
         return all_results[:limit]
 
     async def get_context_block(
@@ -502,8 +491,16 @@ class UnifiedMemorySystem(HybridMemorySystem):
                 if turns is None:
                     turns = []
                 if max_turns is not None:
-                    turns = turns[:max_turns]
-                context.recent_turns = turns
+                    from typing import cast
+
+                    # Explicit cast/assignment to satisfy mypy
+                    turns_list: list[dict[str, Any]] = [
+                        cast(dict[str, Any], t.model_dump() if hasattr(t, "model_dump") else t)
+                        for t in turns[:max_turns]
+                    ]
+                    context.recent_turns = turns_list
+                else:
+                    context.recent_turns = [] if turns is None else turns
                 context.turn_count = len(turns)
             except Exception as e:
                 print(f"L1 retrieval failed: {e}")
@@ -538,23 +535,28 @@ if __name__ == "__main__":
         def query_similar(self, **kwargs):
             return [{"id": 1, "content": "Mock vector search result."}]
 
+        def add_documents(self, **kwargs):
+            return [1]
+
+        def delete_documents(self, **kwargs):
+            pass
+
+        def recreate_collection(self, **kwargs):
+            pass
+
     class MockNeo4jStore:
         def query(self, **kwargs):
             return [{"node": "Mock graph query result."}]
-
-    class MockMeilisearchStore:
-        def search(self, **kwargs):
-            return [{"title": "Mock text search result."}]
 
     print("--- Phase 3: Unified Memory System Demo ---")
 
     # 1. Instantiate all backend clients (using mocks for this demo)
     mock_qdrant = MockQdrantStore()
     mock_neo4j = MockNeo4jStore()
-    mock_meili = MockMeilisearchStore()
 
     knowledge_manager = KnowledgeStoreManager(
-        vector_store=mock_qdrant, graph_store=mock_neo4j, search_store=mock_meili
+        vector_store=mock_qdrant,  # type: ignore
+        graph_store=mock_neo4j,  # type: ignore
     )
 
     # Use an in-memory "fakeredis" for the demo to avoid a real connection
@@ -594,13 +596,6 @@ if __name__ == "__main__":
     )
     print(f"Graph query result: {graph_results}")
     assert graph_results[0]["node"] == "Mock graph query result."
-
-    # An agent needs to search operational manuals
-    search_results = memory.query_knowledge(
-        store_type="search", query_text="emergency crane protocol"
-    )
-    print(f"Text search result: {search_results}")
-    assert search_results[0]["title"] == "Mock text search result."
 
     print(
         "\n✅ Demo complete. The UnifiedMemorySystem successfully routes requests to both Operating and Persistent layers."

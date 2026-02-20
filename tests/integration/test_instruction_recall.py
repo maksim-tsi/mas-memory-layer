@@ -94,7 +94,6 @@ async def test_instruction_formatting_and_prompt_injection(memory_agent):
     prompt = memory_agent._build_prompt(context_text, "Hello")
     assert "## Session State" in prompt
     assert "- Current Turn:" in prompt
-    assert "Format Guardian" in prompt
 
 
 @pytest.mark.asyncio

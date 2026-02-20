@@ -56,9 +56,7 @@ class MemoryAgent(BaseAgent):
         await self.ensure_initialized()
 
         messages = (
-            list(history)
-            if history
-            else [{"role": request.role, "content": request.content}]
+            list(history) if history else [{"role": request.role, "content": request.content}]
         )
         initial_state: AgentState = {
             "messages": messages,
