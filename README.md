@@ -75,7 +75,7 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 - Successfully extracted 7 facts: relationships, entities, constraints, mentions
 - Impact scoring: 0.50-0.80 (high-impact facts correctly identified)
 - Zero JSON truncation errors (harmony format issue eliminated)
-- Model routing: gemini-3-flash-preview automatically routed to google provider
+- Model routing: gemini-2.5-flash-lite and gemini-3-flash-preview automatically routed to google provider
 
 **Key Benefits**:
 - ✅ Eliminates JSON truncation from harmony-format models (openai/gpt-oss-120b)

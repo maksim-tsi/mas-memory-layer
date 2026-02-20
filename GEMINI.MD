@@ -336,7 +336,7 @@ Gemini's native structured output using `types.Schema` format is validated and w
 2. **Native Schema Format**: Use `genai.types.Schema` with `types.Type.OBJECT/ARRAY/STRING/NUMBER`
 3. **System Instructions**: Pass as list of `types.Part.from_text()` in `GenerateContentConfig`
 4. **Response Format**: Set `response_mime_type="application/json"` with `response_schema` parameter
-5. **Model**: Use `gemini-3-flash-preview` (64K output tokens) as default
+5. **Model**: Use `gemini-2.5-flash-lite` as the default; use `gemini-3-flash-preview` only explicitly
 
 **Working Code Pattern**:
 ```python
