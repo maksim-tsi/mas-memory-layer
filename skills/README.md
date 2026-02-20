@@ -14,7 +14,11 @@ operational knowledge at once.
 
 ## Skill Format
 
-Each skill is a folder:
+Runtime skills are folders directly under `skills/`. Development-time skills
+live under `skills/dev/` to avoid mixing authoring instructions with runtime
+policy artifacts.
+
+Each runtime skill is a folder:
 
 - `skills/<skill_slug>/SKILL.md` (required)
 - `skills/<skill_slug>/references/` (optional; schemas, examples, invariants)
@@ -61,3 +65,7 @@ AutoGen-based runtimes can treat each skill as:
 - `skill-selection`
 - `retrieval-reasoning-gap-mitigation`
 - `knowledge-lifecycle-distillation`
+
+## Development-Time Skills
+
+- `dev/skillbuilder`
