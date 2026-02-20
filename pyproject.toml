@@ -28,7 +28,6 @@ sentence-transformers = "3.0.1"
 neo4j = "5.22.0"
 
 # Search Store Client
-meilisearch = "0.28.0"
 
 # LLM Providers (ADR-006: Free-Tier Multi-Provider Strategy)
 google-genai = "1.2.0"
