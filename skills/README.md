@@ -26,13 +26,13 @@ Each skill is a folder:
 - `version`
 - `compatibility` (e.g., LangGraph ToolRuntime, AutoGen function calling)
 
-This format is intentionally compatible with common “agent skills” loaders. citeturn5view1turn5view0
+This format is intentionally compatible with common “agent skills” loaders.
 
 ## Authoring Guidelines (Codex / Claude Code Friendly)
 
 - **Single intent:** one skill should solve one class of tasks (avoid “kitchen sink” skills).
 - **High-signal description:** include concrete keywords and avoid generic phrases; many routers use
-  descriptions for matching. citeturn3view0
+  descriptions for matching.
 - **Tool-first recipes:** describe *which tools to call* and *in what order*; include input/output
   expectations and safe defaults.
 - **Guardrails:** document what the agent must **not** do (e.g., no raw Cypher, no direct DB access,
@@ -50,3 +50,14 @@ AutoGen-based runtimes can treat each skill as:
 - a **system instruction** block (from `SKILL.md`), plus
 - a **tool subset** to expose for the current turn (from `allowed-tools` and the “Tools” section).
 
+## Initial Skill Inventory (v1)
+
+- `context-block-retrieval`
+- `l2-fact-lookup`
+- `l3-similar-episodes`
+- `l3-graph-templates`
+- `l4-knowledge-synthesis`
+- `ciar-scoring-and-promotion`
+- `skill-selection`
+- `retrieval-reasoning-gap-mitigation`
+- `knowledge-lifecycle-distillation`
