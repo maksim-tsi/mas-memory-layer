@@ -16,6 +16,59 @@ Each entry should include:
 
 ## Log Entries
 
+### 2026-02-21 - Skills v1 Scaffolding + Offline-by-Default Tests + Skill Loader 📊
+
+**Status:** ✅ Complete
+
+**Summary:**
+Implemented an offline-by-default development harness for tests, added a Skills v1 store aligned
+with ADR-010 (Mechanism/Policy split and progressive disclosure), and introduced a minimal skills
+loader to support manual skill selection and toolset gating without introducing a router.
+
+**Key Findings:**
+
+- Integration/provider tests fail in sandboxed environments primarily due to network/socket
+  restrictions; therefore, network-dependent suites must be explicitly opt-in.
+- A minimal, dependency-free skills loader can provide progressive disclosure and tool gating while
+  keeping the policy surface versioned and legible.
+
+**✅ What's Complete:**
+
+- **Offline-by-default pytest policy:** Added a repo-level pytest policy to skip `integration`,
+  `slow`, and `llm_real` tests unless explicitly enabled via flags.
+- **Network test follow-up plan:** Documented how to run integration and real-provider tests on
+  network-enabled hosts and how to triage environment vs mechanism failures.
+- **Skills v1 store:** Added `skills/` with a template, a runtime skill inventory, and a separate
+  `skills/dev/` namespace for development-time authoring guidance.
+- **Executive Function skills:** Added skills for skill selection, retrieval-reasoning gap
+  mitigation, and knowledge lifecycle distillation.
+- **Mechanism boundary enforcement:** Added a structural test enforcing dependency direction for
+  `src/storage/` (no imports from policy layers).
+- **Minimal skills loader:** Implemented `src/skills/` helpers to list skills, load manifests/bodies,
+  and filter tools by `allowed-tools`.
+
+**Key Artifacts (Added/Updated):**
+
+- **Offline-by-default pytest policy:** `conftest.py`
+- **Network plan:** `docs/plan/plan-network-and-integration-tests.md`
+- **Skills store:** `skills/README.md`, `skills/_template/SKILL.md`, runtime skills under `skills/*`,
+  dev-time skills under `skills/dev/*`
+- **Boundary test:** `tests/test_mechanism_dependency_direction.py`
+- **Skills loader:** `src/skills/loader.py`, `src/skills/__init__.py`, `tests/test_skill_loader.py`
+
+**Verification:**
+```bash
+./.venv/bin/ruff check .
+./.venv/bin/pytest tests/ -q
+```
+
+**❌ What's Missing (Next Steps):**
+
+- **Manual injector wiring:** Integrate the loader into a runtime agent path (e.g., `MemoryAgent`)
+  to load a selected skill per turn and gate tool exposure to `allowed-tools` (no router).
+- **Maturity matrix:** Add a mechanism maturity report per adapter aligned to
+  `docs/specs/spec-mechanism-maturity-and-freeze.md` and tie gaps to evidence.
+
 ### 2026-02-18 - Agent-First Harness + Skills v1 Documentation & Guardrails ✅
 
 **Status:** ✅ Complete
