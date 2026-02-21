@@ -495,7 +495,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         help="Variant identifier for research runs (used for session isolation and logging).",
     )
     parser.add_argument("--port", type=int, required=True)
-    parser.add_argument("--model", type=str, default="gemini-2.5-flash-lite")
+    parser.add_argument("--model", type=str, default="gemini-3-flash-preview")
     return parser.parse_args(argv)
 
 

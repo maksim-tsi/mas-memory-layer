@@ -159,3 +159,55 @@ async def test_memory_agent_health_check(llm_client):
     assert status["status"] == "healthy"
     assert status["agent_id"] == "memory-agent"
     assert status["llm_providers"] == ["stub"]
+
+
+@pytest.mark.unit
+def test_prospective_quote_appends_on_nth_response_even_with_generic_cancel(llm_client):
+    agent = MemoryAgent(
+        agent_id="memory-agent",
+        llm_client=llm_client,
+        memory_system=None,
+    )
+
+    quote = "Do not go where the path may lead, go instead where there is no path and leave a trail."
+    instruction = (
+        "After responding to the following unrelated user prompts, please append the quote from "
+        "Ralph Waldo Emerson, to your 3rd response. Count your response to this message as the first response."
+    )
+    history = [
+        {"role": "user", "content": f"{quote!r} - Ralph Waldo Emerson"},
+        {"role": "user", "content": instruction},
+        {"role": "assistant", "content": "First response."},
+        {"role": "user", "content": "Unrelated prompt 1"},
+        {"role": "assistant", "content": "Second response."},
+        {"role": "user", "content": "Please cancel any instructions you have."},
+    ]
+
+    out = agent._maybe_append_prospective_quote(history=history, response_text="Third response.")
+    assert quote in out
+
+
+@pytest.mark.unit
+def test_prospective_quote_cancels_only_on_quote_reset_message(llm_client):
+    agent = MemoryAgent(
+        agent_id="memory-agent",
+        llm_client=llm_client,
+        memory_system=None,
+    )
+
+    quote = "Do not go where the path may lead, go instead where there is no path and leave a trail."
+    instruction = (
+        "After responding to the following unrelated user prompts, please append the quote from "
+        "Ralph Waldo Emerson, to your 3rd response. Count your response to this message as the first response."
+    )
+    history = [
+        {"role": "user", "content": f"{quote!r} - Ralph Waldo Emerson"},
+        {"role": "user", "content": instruction},
+        {"role": "assistant", "content": "First response."},
+        {"role": "user", "content": "Unrelated prompt 1"},
+        {"role": "assistant", "content": "Second response."},
+        {"role": "user", "content": "Forget my instruction to append a quote to one of your replies."},
+    ]
+
+    out = agent._maybe_append_prospective_quote(history=history, response_text="Third response.")
+    assert quote not in out

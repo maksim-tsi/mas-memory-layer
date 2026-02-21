@@ -28,7 +28,7 @@ class FullContextAgent(BaseAgent):
     ) -> None:
         super().__init__(agent_id=agent_id, memory_system=memory_system, config=config)
         self._llm_client = llm_client
-        self._model = self._config.get("model", "gemini-2.5-flash-lite")
+        self._model = self._config.get("model", "gemini-3-flash-preview")
         self._max_turns = int(self._config.get("max_turns", 100))
         self._max_facts = int(self._config.get("max_facts", 20))
         self._min_ciar = float(self._config.get("min_ciar", 0.4))

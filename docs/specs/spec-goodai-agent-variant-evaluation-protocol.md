@@ -126,7 +126,7 @@ The API Wall service MUST support:
 - `MAS_AGENT_TYPE` (default: `full`)
 - `MAS_AGENT_VARIANT` (default: `baseline`)
 - `MAS_PORT` (default: `8080`)
-- `MAS_MODEL` (default: `gemini-2.5-flash-lite`)
+- `MAS_MODEL` (default: `gemini-3-flash-preview`)
 - `REDIS_URL` (required)
 - `POSTGRES_URL` (required)
 - `MAS_L1_WINDOW`, `MAS_L1_TTL_HOURS`, `MAS_MIN_CIAR` (optional)

@@ -235,7 +235,7 @@ Run config validator before execution:
 /home/max/code/mas-memory-layer/.venv/bin/python src/evaluation/agent_wrapper.py \
   --agent-type full \
   --port 8080 \
-  --model gemini-2.5-flash-lite &
+  --model gemini-3-flash-preview &
 
 # Wait for health check
 sleep 5

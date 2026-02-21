@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Detailed Report - {{ run_name | e }} - {{ agent_name | e }}</title>
+    <style>
+      :root {
+        --fg: #111827;
+        --muted: #6b7280;
+        --bg: #ffffff;
+        --card: #f9fafb;
+        --border: #e5e7eb;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+          "Courier New", monospace;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        color: var(--fg);
+        background: var(--bg);
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.4;
+      }
+      header {
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      header img {
+        height: 32px;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0;
+      }
+      main {
+        padding: 20px 24px 64px;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 12px;
+        margin: 16px 0;
+      }
+      .card {
+        border: 1px solid var(--border);
+        background: var(--card);
+        border-radius: 10px;
+        padding: 12px 14px;
+      }
+      .span-6 {
+        grid-column: span 6;
+      }
+      .span-4 {
+        grid-column: span 4;
+      }
+      .span-12 {
+        grid-column: span 12;
+      }
+      .kv {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        font-size: 14px;
+      }
+      .kv div {
+        min-width: 220px;
+      }
+      code,
+      pre {
+        font-family: var(--mono);
+        font-size: 13px;
+      }
+      details {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #fff;
+        margin-top: 10px;
+      }
+      summary {
+        cursor: pointer;
+        padding: 10px 12px;
+        font-weight: 600;
+      }
+      .details-body {
+        padding: 10px 12px 12px;
+        border-top: 1px solid var(--border);
+      }
+      .dataset {
+        margin-top: 18px;
+      }
+      .dataset h2 {
+        font-size: 16px;
+        margin: 0 0 6px;
+      }
+      .test {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #fff;
+        padding: 12px;
+        margin-top: 10px;
+      }
+      .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 12px;
+        border: 1px solid var(--border);
+        background: #fff;
+        margin-right: 6px;
+        font-family: var(--mono);
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .resp {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--card);
+        padding: 10px 12px;
+      }
+      .resp h4 {
+        margin: 0 0 6px;
+        font-size: 13px;
+      }
+      .resp pre {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      @media (max-width: 900px) {
+        .span-6,
+        .span-4 {
+          grid-column: span 12;
+        }
+        .row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <img alt="GoodAI" src="data:image/png;base64,{{ logo_b64 }}" />
+      <div>
+        <h1>Detailed Report</h1>
+        <div class="muted">{{ run_name | e }} · {{ agent_name | e }}</div>
+      </div>
+    </header>
+    <main>
+      <div class="grid">
+        <div class="card span-6">
+          <div class="kv">
+            <div><b>Score</b>: {{ achieved_score }} / {{ max_score }} (± {{ score_std }})</div>
+            <div><b>Duration</b>: {{ duration_str }}</div>
+            <div><b>Target memory span</b>: {{ target_memory_span }}</div>
+            <div>
+              <b>Token span</b>: min {{ min_gap }}, avg {{ avg_gap }}, max {{ max_gap }}
+              {% if overrun %}<span class="muted">(overrun present)</span>{% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="card span-6">
+          <div><b>Global metrics</b></div>
+          <ul>
+            {% for m in global_metrics %}
+            <li>
+              <b>{{ m.name | e }}</b>: {{ m.value }} {{ m.units | e }}
+              <span class="muted">{{ m.alt | e }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+
+      {% for _idx, dataset in enumerate(sorted(data_by_dataset.values(), key=lambda d: d["name"])) %}
+      <section class="dataset">
+        <h2>{{ dataset.name | e }}</h2>
+        <div class="muted">{{ dataset.description | e }}</div>
+        <div class="muted">Dataset score: {{ dataset.score }} (± {{ dataset.score_std }})</div>
+
+        {% for test in dataset.tests %}
+        <div class="test" style="border-left: 8px solid {{ test.color }};">
+          <div>
+            <span class="pill">score {{ test.score }}/{{ test.max_score }}</span>
+            {% if test.tokens is not none %}<span class="pill">tokens {{ test.tokens }}</span>{% endif %}
+            {% if test.characters is not none %}<span class="pill">chars {{ test.characters }}</span>{% endif %}
+            <span class="pill">needles {{ test.needles }}</span>
+          </div>
+
+          <details>
+            <summary>Responses</summary>
+            <div class="details-body">
+              {% for expected, actual, reasoning in test.responses %}
+              <div class="row" style="margin-top: 10px;">
+                <div class="resp">
+                  <h4>Expected</h4>
+                  <pre>{{ expected | e }}</pre>
+                </div>
+                <div class="resp">
+                  <h4>Actual</h4>
+                  <pre>{{ actual | e }}</pre>
+                </div>
+              </div>
+              <div class="resp" style="margin-top: 10px;">
+                <h4>Reasoning</h4>
+                <pre>{{ reasoning | e }}</pre>
+              </div>
+              {% endfor %}
+            </div>
+          </details>
+
+          <details>
+            <summary>Task log</summary>
+            <div class="details-body">
+              <div style="font-family: var(--mono); font-size: 13px;">
+                {% for line in test.task_log %}
+                <div>{{ line | safe }}</div>
+                {% endfor %}
+              </div>
+            </div>
+          </details>
+        </div>
+        {% endfor %}
+      </section>
+      {% endfor %}
+    </main>
+  </body>
+</html>
+

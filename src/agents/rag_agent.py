@@ -25,7 +25,7 @@ class RAGAgent(BaseAgent):
     ) -> None:
         super().__init__(agent_id=agent_id, memory_system=memory_system, config=config)
         self._llm_client = llm_client
-        self._model = self._config.get("model", "gemini-2.5-flash-lite")
+        self._model = self._config.get("model", "gemini-3-flash-preview")
         self._top_k = int(self._config.get("top_k", 8))
 
     async def initialize(self) -> None:

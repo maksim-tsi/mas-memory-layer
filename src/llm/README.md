@@ -16,7 +16,7 @@ This package contains the implementation of various LLM providers for the MAS Me
 Each provider has a specific default model configured based on current best practices and requirements.
 
 ### Google Gemini (`gemini.py`)
-- **Default Model**: `gemini-2.5-flash-lite`
+- **Default Model**: `gemini-3-flash-preview`
 - **Use Case**: General purpose, high throughput, low latency.
 - **Provider Class**: `GeminiProvider`
 - **Env Var**: `GOOGLE_API_KEY`

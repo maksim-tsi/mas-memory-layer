@@ -33,7 +33,7 @@ class MemoryAgent(BaseAgent):
     ) -> None:
         super().__init__(agent_id=agent_id, memory_system=memory_system, config=config)
         self._llm_client = llm_client
-        self._model = self._config.get("model", "gemini-2.5-flash-lite")
+        self._model = self._config.get("model", "gemini-3-flash-preview")
         self._agent_variant = str(self._config.get("agent_variant", "baseline"))
         self._skill_wiring_enabled = self._agent_variant.startswith("v1-")
         self._base_system_instruction = self._config.get("system_instruction") or (
@@ -224,7 +224,7 @@ class MemoryAgent(BaseAgent):
             re.IGNORECASE | re.DOTALL,
         )
         cancel_pat = re.compile(
-            r"\bforget my instruction to append a quote\b|\bcancel any instructions\b",
+            r"\bforget my instruction to append (?:a|the) quote\b",
             re.IGNORECASE,
         )
         quote_pat = re.compile(
@@ -256,12 +256,8 @@ class MemoryAgent(BaseAgent):
         if instr_idx is None or target_n is None:
             return response_text
 
-        # If there is a cancellation after the instruction (excluding the current user turn),
-        # do nothing.
-        cancel_scan_end = len(transcript)
-        if transcript and transcript[-1][0] == "user":
-            cancel_scan_end -= 1
-        for role, content in transcript[instr_idx + 1 : cancel_scan_end]:
+        # If there is a cancellation after the instruction, do nothing.
+        for role, content in transcript[instr_idx + 1 :]:
             if role == "user" and cancel_pat.search(content):
                 return response_text
 

@@ -26,7 +26,7 @@ class GeminiProvider(BaseProvider):
         # Use thread to call blocking SDK functions
         types = importlib.import_module("google.genai.types")
 
-        model = model or "gemini-2.5-flash-lite"
+        model = model or "gemini-3-flash-preview"
 
         def sync_call():
             # Build content

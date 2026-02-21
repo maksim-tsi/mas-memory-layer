@@ -244,7 +244,7 @@ def test_parse_args_valid():
     assert args.agent_type == "full"
     assert args.agent_variant == "baseline"
     assert args.port == 8080
-    assert args.model == "gemini-2.5-flash-lite"
+    assert args.model == "gemini-3-flash-preview"
 
 
 @pytest.mark.unit

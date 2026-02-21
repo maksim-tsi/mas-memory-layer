@@ -244,7 +244,6 @@ benchmarks/.venv-benchmark/
 # Benchmark data and results (can be large) - keep out of repo
 benchmarks/goodai-ltm-benchmark/data/
 benchmarks/results/
-benchmarks/goodai-ltm-benchmark/reporting/templates/
 
 # Frontend build artifacts and node modules for benchmark web UI
 benchmarks/goodai-ltm-benchmark/webui/frontend/node_modules/
