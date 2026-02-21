@@ -10,6 +10,8 @@ Closed pre-benchmark correctness gaps for ADR-011 operational readiness:
 
 - API Wall `/health` now reports `agent_type` and `agent_variant` in addition to subsystem health.
 - API Wall startup examples now use `uvicorn src.server:app` with explicit variant-specific ports.
+- Variant A policy wiring is now started in `MemoryAgent`: per-turn `skill_slug` selection,
+  skill-body system instruction injection, and `allowed-tools` preparation metadata.
 
 ## 1. Objective
 

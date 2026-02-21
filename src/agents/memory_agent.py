@@ -15,6 +15,7 @@ from src.agents.runtime import AgentState
 from src.agents.tools.unified_tools import UNIFIED_TOOLS
 from src.llm.client import LLMClient
 from src.memory.models import ContextBlock, TurnData
+from src.skills.loader import SkillLoadError, filter_tools_by_allowed_names, load_skill
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +33,14 @@ class MemoryAgent(BaseAgent):
         super().__init__(agent_id=agent_id, memory_system=memory_system, config=config)
         self._llm_client = llm_client
         self._model = self._config.get("model", "gemini-2.5-flash-lite")
-        if "system_instruction" not in self._config:
-            self._config["system_instruction"] = (
-                "You are the MAS Memory Agent. You have access to a user's long-term memory. "
-                "Always answer the user's questions based on the provided context. "
-                "Be direct and helpful."
-            )
+        self._agent_variant = str(self._config.get("agent_variant", "baseline"))
+        self._skill_wiring_enabled = self._agent_variant.startswith("v1-")
+        self._base_system_instruction = self._config.get("system_instruction") or (
+            "You are the MAS Memory Agent. You have access to a user's long-term memory. "
+            "Always answer the user's questions based on the provided context. "
+            "Be direct and helpful."
+        )
+        self._config["system_instruction"] = self._base_system_instruction
         self._min_ciar = float(self._config.get("min_ciar", 0.6))
         self._max_turns = int(self._config.get("max_turns", 20))
         self._max_facts = int(self._config.get("max_facts", 10))
@@ -62,7 +65,7 @@ class MemoryAgent(BaseAgent):
             "messages": messages,
             "session_id": request.session_id,
             "turn_id": request.turn_id,
-            "metadata": request.metadata or {},
+            "metadata": dict(request.metadata or {}),
             "active_context": [],
             "working_facts": [],
             "episodic_chunks": [],
@@ -80,6 +83,7 @@ class MemoryAgent(BaseAgent):
             role="assistant",
             content=response_text,
             turn_id=request.turn_id,
+            metadata=result_state.get("metadata"),
         )
 
     async def health_check(self) -> dict[str, Any]:
@@ -178,6 +182,7 @@ class MemoryAgent(BaseAgent):
         """Synthesize context and generate response via LLM."""
         state = self._ensure_state_defaults(state)
         user_input = self._extract_user_message(state)
+        skill_context = self._prepare_skill_context(user_input=user_input, state=state)
         context_text = self._format_context(state)
         turn_id = int(state.get("turn_id", 0))
         prompt = self._build_prompt(
@@ -186,6 +191,7 @@ class MemoryAgent(BaseAgent):
         response_text = await self._generate_response(
             prompt,
             agent_metadata=self._build_agent_metadata(state),
+            system_instruction=skill_context["system_instruction"],
         )
         state["response"] = response_text
         state["confidence"] = 0.0
@@ -245,6 +251,7 @@ class MemoryAgent(BaseAgent):
         self,
         prompt: str,
         agent_metadata: dict[str, Any] | None = None,
+        system_instruction: str | None = None,
     ) -> str:
         if not self._llm_client:
             logger.warning("No LLM client configured for MemoryAgent '%s'", self.agent_id)
@@ -253,9 +260,77 @@ class MemoryAgent(BaseAgent):
             prompt,
             model=self._model,
             agent_metadata=agent_metadata,
-            system_instruction=self._config.get("system_instruction"),
+            system_instruction=system_instruction or self._config.get("system_instruction"),
         )
         return llm_response.text
+
+    def _prepare_skill_context(self, user_input: str, state: AgentState) -> dict[str, Any]:
+        """Select/load a skill for v1 variants and record toolset gating metadata."""
+        metadata = state.get("metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+            state["metadata"] = metadata
+
+        metadata["agent_variant"] = self._agent_variant
+        if not self._skill_wiring_enabled:
+            return {"system_instruction": self._base_system_instruction}
+
+        selected_slug = self._select_skill_slug(user_input=user_input, metadata=metadata)
+        metadata["skill_slug"] = selected_slug
+
+        try:
+            skill = load_skill(selected_slug)
+        except SkillLoadError as exc:
+            logger.warning("Failed to load skill '%s': %s", selected_slug, exc)
+            metadata["skill_load_error"] = str(exc)
+            return {"system_instruction": self._base_system_instruction}
+
+        allowed_tools = list(skill.manifest.allowed_tools)
+        gated_tools = filter_tools_by_allowed_names(self._tools, allowed_tools)
+        gated_tool_names = [getattr(tool, "name", str(tool)) for tool in gated_tools]
+
+        metadata["skill_name"] = skill.manifest.name
+        metadata["skill_namespace"] = skill.namespace
+        metadata["allowed_tools"] = allowed_tools
+        metadata["gated_tool_names"] = gated_tool_names
+        metadata["skill_wiring_mode"] = "v1-min-skillwiring"
+
+        system_instruction = (
+            f"{self._base_system_instruction}\n\n"
+            "## Active Skill\n"
+            f"Skill slug: {selected_slug}\n"
+            f"Skill name: {skill.manifest.name}\n"
+            f"Allowed tools: {', '.join(allowed_tools) if allowed_tools else '(none)'}\n\n"
+            "## Skill Body\n"
+            f"{skill.body}"
+        )
+        return {"system_instruction": system_instruction}
+
+    def _select_skill_slug(self, user_input: str, metadata: dict[str, Any]) -> str:
+        """Select a runtime skill slug for the current user turn."""
+        requested_slug = metadata.get("skill_slug")
+        if isinstance(requested_slug, str) and requested_slug.strip():
+            return requested_slug.strip()
+
+        text = user_input.lower()
+        keyword_map = [
+            ("context-block-retrieval", ("recap", "summarize", "summary", "grounding")),
+            ("l2-fact-lookup", ("fact", "id", "exact", "lookup")),
+            ("l3-similar-episodes", ("similar", "precedent", "previous case")),
+            ("l3-graph-templates", ("relationship", "timeline", "causal", "cause")),
+            ("l4-knowledge-synthesis", ("best practice", "pattern", "general guidance")),
+            ("ciar-scoring-and-promotion", ("promote", "retain", "important to remember")),
+            (
+                "retrieval-reasoning-gap-mitigation",
+                ("ignored context", "contradiction", "retrieval reasoning"),
+            ),
+            ("knowledge-lifecycle-distillation", ("distill", "policy", "rule")),
+        ]
+        for slug, hints in keyword_map:
+            if any(hint in text for hint in hints):
+                return slug
+
+        return "skill-selection"
 
     def _build_prompt(self, context_text: str, user_input: str, turn_id: int = 0) -> str:
         sections = [
@@ -450,8 +525,15 @@ class MemoryAgent(BaseAgent):
 
     def _build_agent_metadata(self, state: AgentState) -> dict[str, Any]:
         """Build trace metadata for Phoenix span attributes."""
+        metadata = state.get("metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
         return {
             "agent.type": "full",
             "agent.session_id": state.get("session_id"),
             "agent.turn_id": state.get("turn_id"),
+            "agent.variant": self._agent_variant,
+            "agent.skill_slug": metadata.get("skill_slug"),
+            "agent.allowed_tools": metadata.get("allowed_tools"),
+            "agent.gated_tools": metadata.get("gated_tool_names"),
         }

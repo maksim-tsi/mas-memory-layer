@@ -272,7 +272,7 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
         agent_id=f"mas-{config.agent_type}__{config.agent_variant}",
         llm_client=llm_client,
         memory_system=memory_system,
-        config={"model": config.model},
+        config={"model": config.model, "agent_variant": config.agent_variant},
     )
 
     return AgentWrapperState(
