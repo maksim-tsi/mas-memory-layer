@@ -59,6 +59,7 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: list[ChatCompletionChoice]
     usage: dict[str, int] | None = None
+    metadata: dict[str, Any] | None = None
 
 
 def _parse_mock_time(value: str | None) -> datetime | None:
@@ -208,6 +209,7 @@ def create_app(config: agent_wrapper.WrapperConfig) -> FastAPI:
                 "completion_tokens": completion_tokens,
                 "total_tokens": estimated_total_tokens,
             },
+            metadata=response_metadata,
         )
 
     @app.post("/control/session/reset")

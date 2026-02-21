@@ -121,6 +121,19 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 
 ## Developer Updates
 
+### 2026-02-21 — ADR-011 Variant A Wiring (Skill-Selection-First) + API Wall Trace Metadata
+
+Completed the next Variant A milestone for benchmark-ready policy wiring:
+- `MemoryAgent` now uses an explicit `skill-selection`-first flow for `v1-*` variants, with
+  optional metadata override (`skill_slug` / `selected_skill`) for controlled experiments.
+- API Wall `/v1/chat/completions` now returns response `metadata`, including selected skill
+  fields (`skill_slug`, `allowed_tools`, `gated_tool_names`) and per-turn timing fields, so
+  GoodAI runs can be grouped directly by skill without additional log parsing.
+- Wrapper passes `agent_variant` into agent configuration to keep behavior variant-scoped.
+
+See `DEVLOG.md` (2026-02-21 entries) and
+`docs/plan/adr011-experiment-plan-agent-variants-skill-wiring.md` for execution tracking.
+
 ### 2026-01-27 — Phase 5 Wrapper + GoodAI Interfaces Implemented
 
 Implemented the Phase 5 evaluation boundary between the MAS memory system and the GoodAI LTM benchmark.

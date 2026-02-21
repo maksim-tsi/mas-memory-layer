@@ -68,6 +68,35 @@ Provide a short, factual summary:
 | Tool misuse | | | |
 | Infrastructure/network | | | |
 
+### 3.4 Variant A (`v1-min-skillwiring`) Skill Aggregation
+
+Use API Wall response metadata (`skill_slug`, `allowed_tools`, `gated_tool_names`,
+`storage_ms_pre`, `llm_ms`, `storage_ms_post`) to aggregate per-skill behavior.
+
+| skill_slug | Turns | Share of turns (%) | Avg score contribution | Notes |
+|---|---:|---:|---:|---|
+| `skill-selection` | | | | |
+| `context-block-retrieval` | | | | |
+| `l2-fact-lookup` | | | | |
+| `l3-similar-episodes` | | | | |
+| `l3-graph-templates` | | | | |
+| `l4-knowledge-synthesis` | | | | |
+| `ciar-scoring-and-promotion` | | | | |
+| `retrieval-reasoning-gap-mitigation` | | | | |
+| `knowledge-lifecycle-distillation` | | | | |
+
+### 3.5 Variant A Skill-Level Latency and Cost
+
+| skill_slug | Median `llm_ms` | P95 `llm_ms` | Median `storage_ms` | Prompt tokens (total) | Completion tokens (total) |
+|---|---:|---:|---:|---:|---:|
+| | | | | | |
+
+### 3.6 Variant A Skill-Level Error Distribution
+
+| skill_slug | Retrieval failures | Reasoning failures | Tool misuse | Infrastructure/network | Dominant failure mode |
+|---|---:|---:|---:|---:|---|
+| | | | | | |
+
 ## 4. Qualitative Analysis
 
 Summarize representative failure cases and why they occurred. For each case:
@@ -81,6 +110,7 @@ Summarize representative failure cases and why they occurred. For each case:
 - Raw benchmark outputs: `<path or URL>`
 - Wrapper logs: `<path>`
 - Rate limiter JSONL: `logs/rate_limiter_<agent_type>_<agent_variant>_<timestamp>.jsonl`
+- API Wall responses/trace extract for skill aggregation: `<path to parsed response metadata>`
 - GoodAI per-run console log: `<bench_run_path>/run_console.log`
 - GoodAI stuck watchdog error (if present): `<bench_run_path>/run_error.json`
 - GoodAI per-turn metrics (if enabled): `<bench_run_path>/turn_metrics.jsonl`

@@ -12,6 +12,9 @@ Closed pre-benchmark correctness gaps for ADR-011 operational readiness:
 - API Wall startup examples now use `uvicorn src.server:app` with explicit variant-specific ports.
 - Variant A policy wiring is now started in `MemoryAgent`: per-turn `skill_slug` selection,
   skill-body system instruction injection, and `allowed-tools` preparation metadata.
+- Variant A routing now defaults to `skill-selection` (executive-function first), and API Wall
+  responses include metadata fields (`skill_slug`, tool-gating metadata, timing) for benchmark
+  grouping and diagnostics.
 
 ## 1. Objective
 

@@ -16,6 +16,71 @@ Each entry should include:
 
 ## Log Entries
 
+### 2026-02-21 - ADR-011 Variant A Wiring: Skill-Selection-First + API Wall Trace Metadata 📊
+
+**Status:** ✅ Complete
+
+**Summary:**
+Completed the next ADR-011 Variant A step in the policy layer by making v1 routing
+`skill-selection`-first and exposing per-turn selection metadata at the API Wall response level.
+This improves benchmark observability and reproducibility without modifying mechanism/storage code.
+
+**Key Findings:**
+
+- Variant-scoped policy behavior can be activated cleanly from wrapper config by passing
+  `agent_variant` into `MemoryAgent`.
+- Returning response-level metadata from `/v1/chat/completions` enables direct grouping of
+  benchmark outcomes by selected skill without log scraping.
+
+**✅ What's Complete:**
+
+- `MemoryAgent` v1 routing now defaults to explicit executive-function flow (`skill-selection`)
+  unless an override (`skill_slug` / `selected_skill`) is provided in request metadata.
+- Skill body injection and `allowed-tools` preparation metadata remain active for v1 variants.
+- API Wall `ChatCompletionResponse` now includes `metadata`, including `skill_slug`,
+  `allowed_tools`, `gated_tool_names`, and per-turn timing fields.
+- Documentation progress updated in ADR-011 execution plan.
+
+**Key Artifacts (Added/Updated):**
+
+- `src/agents/memory_agent.py`
+- `src/evaluation/agent_wrapper.py`
+- `src/server.py`
+- `docs/plan/adr011-experiment-plan-agent-variants-skill-wiring.md`
+- `README.md`
+
+**Verification:**
+```bash
+./.venv/bin/ruff check .
+./.venv/bin/pytest tests/ -v
+```
+
+**❌ What's Missing (Next Steps):**
+
+- Add per-skill benchmark report aggregation (tables grouped by `skill_slug`) in the
+  GoodAI variant report workflow.
+- Implement Variant B hard runtime enforcement of `allowed-tools` (tool execution gate).
+
+### 2026-02-21 - Variant A Report Template: Skill-Level Aggregation Tables 📊
+
+**Status:** ✅ Complete
+
+**Summary:**
+Extended the GoodAI agent-variant report template with Variant A-specific analytics tables so
+benchmark outcomes can be analyzed by `skill_slug` using API Wall response metadata.
+
+**✅ What's Complete:**
+
+- Added per-skill aggregate table (`Turns`, share, score contribution).
+- Added per-skill latency/cost table (`llm_ms`, `storage_ms`, prompt/completion tokens).
+- Added per-skill error distribution table for failure taxonomy deltas.
+- Added explicit artifact slot for parsed API Wall metadata used in skill aggregation.
+
+**Key Artifacts (Added/Updated):**
+
+- `docs/reports/template-goodai-agent-variant-report.md`
+- `docs/reports/README.md`
+
 ### 2026-02-21 - Skills v1 Scaffolding + Offline-by-Default Tests + Skill Loader 📊
 
 **Status:** ✅ Complete

@@ -275,7 +275,7 @@ class MemoryAgent(BaseAgent):
         if not self._skill_wiring_enabled:
             return {"system_instruction": self._base_system_instruction}
 
-        selected_slug = self._select_skill_slug(user_input=user_input, metadata=metadata)
+        selected_slug = self._select_skill_slug(metadata=metadata)
         metadata["skill_slug"] = selected_slug
 
         try:
@@ -306,29 +306,19 @@ class MemoryAgent(BaseAgent):
         )
         return {"system_instruction": system_instruction}
 
-    def _select_skill_slug(self, user_input: str, metadata: dict[str, Any]) -> str:
-        """Select a runtime skill slug for the current user turn."""
+    def _select_skill_slug(self, metadata: dict[str, Any]) -> str:
+        """Select a runtime skill slug for the current user turn.
+
+        v1 uses explicit executive-function routing by default (`skill-selection`).
+        Callers can override by providing `skill_slug` in metadata.
+        """
         requested_slug = metadata.get("skill_slug")
         if isinstance(requested_slug, str) and requested_slug.strip():
             return requested_slug.strip()
 
-        text = user_input.lower()
-        keyword_map = [
-            ("context-block-retrieval", ("recap", "summarize", "summary", "grounding")),
-            ("l2-fact-lookup", ("fact", "id", "exact", "lookup")),
-            ("l3-similar-episodes", ("similar", "precedent", "previous case")),
-            ("l3-graph-templates", ("relationship", "timeline", "causal", "cause")),
-            ("l4-knowledge-synthesis", ("best practice", "pattern", "general guidance")),
-            ("ciar-scoring-and-promotion", ("promote", "retain", "important to remember")),
-            (
-                "retrieval-reasoning-gap-mitigation",
-                ("ignored context", "contradiction", "retrieval reasoning"),
-            ),
-            ("knowledge-lifecycle-distillation", ("distill", "policy", "rule")),
-        ]
-        for slug, hints in keyword_map:
-            if any(hint in text for hint in hints):
-                return slug
+        selected_skill = metadata.get("selected_skill")
+        if isinstance(selected_skill, str) and selected_skill.strip():
+            return selected_skill.strip()
 
         return "skill-selection"
 
