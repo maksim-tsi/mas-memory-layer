@@ -43,11 +43,12 @@ def wrapper_config() -> agent_wrapper.WrapperConfig:
     """Provide a wrapper configuration for unit tests."""
     return agent_wrapper.WrapperConfig(
         agent_type="full",
+        agent_variant="unit",
         port=8080,
         model="test-model",
         redis_url="redis://localhost:6379/0",
         postgres_url="postgresql://test:test@localhost:5432/test",
-        session_prefix="full",
+        session_prefix="full__unit",
         window_size=10,
         ttl_hours=24,
         min_ciar=0.5,
@@ -102,7 +103,9 @@ def wrapper_state(mocker: pytest.MockFixture) -> agent_wrapper.AgentWrapperState
         l1_tier=l1_tier,
         l2_tier=l2_tier,
         redis_client=redis_client,
-        session_prefix="full",
+        agent_type="full",
+        agent_variant="unit",
+        session_prefix="full__unit",
         rate_limiter=rate_limiter,
     )
 
@@ -125,7 +128,7 @@ def test_apply_prefix_idempotent(wrapper_state):
     """Ensure session prefixes are applied once and remain stable."""
     session_id = "test-session"
     prefixed = wrapper_state.apply_prefix(session_id)
-    assert prefixed == "full:test-session"
+    assert prefixed == "full__unit:test-session"
     assert wrapper_state.apply_prefix(prefixed) == prefixed
 
 
@@ -144,7 +147,7 @@ def test_run_turn_success(test_client, wrapper_state):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["session_id"] == "full:test-session"
+    assert body["session_id"] == "full__unit:test-session"
     assert body["role"] == "assistant"
     assert wrapper_state.agent.run_turn.await_count == 1
     assert wrapper_state.l1_tier.store.await_count == 2
@@ -181,7 +184,7 @@ def test_sessions_endpoint_tracks_prefixed_sessions(test_client):
     response = test_client.get("/sessions")
 
     assert response.status_code == 200
-    assert response.json()["sessions"] == ["full:test-session"]
+    assert response.json()["sessions"] == ["full__unit:test-session"]
 
 
 @pytest.mark.unit
@@ -198,7 +201,7 @@ def test_memory_state_counts(test_client, wrapper_state):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["session_id"] == "full:test-session"
+    assert payload["session_id"] == "full__unit:test-session"
     assert payload["l1_turns"] == 2
     assert payload["l2_facts"] == 3
 
@@ -206,14 +209,14 @@ def test_memory_state_counts(test_client, wrapper_state):
 @pytest.mark.unit
 def test_cleanup_force_all(test_client, wrapper_state):
     """Verify cleanup_force removes all sessions and returns deletion counts."""
-    wrapper_state.sessions.update({"full:alpha", "full:beta"})
+    wrapper_state.sessions.update({"full__unit:alpha", "full__unit:beta"})
     wrapper_state.l2_tier.query_by_session.return_value = [_FactStub("a"), _FactStub("b")]
 
     response = test_client.post("/cleanup_force", params={"session_id": "all"})
 
     assert response.status_code == 200
     results = response.json()["results"]
-    assert set(results.keys()) == {"full:alpha", "full:beta"}
+    assert set(results.keys()) == {"full__unit:alpha", "full__unit:beta"}
     assert wrapper_state.sessions == set()
 
 
@@ -225,6 +228,8 @@ def test_health_endpoint_reports_status(test_client):
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
+    assert body["agent_type"] == "full"
+    assert body["agent_variant"] == "unit"
     assert body["redis"] is True
     assert body["l1"] == {"status": "ok"}
     assert body["l2"] == {"status": "ok"}
@@ -237,6 +242,7 @@ def test_parse_args_valid():
     args = agent_wrapper.parse_args(["--agent-type", "full", "--port", "8080"])
 
     assert args.agent_type == "full"
+    assert args.agent_variant == "baseline"
     assert args.port == 8080
     assert args.model == "gemini-2.5-flash-lite"
 
@@ -255,7 +261,7 @@ def test_build_config_from_env(monkeypatch):
     )
     config = agent_wrapper.build_config(args)
 
-    assert config.session_prefix == "full"
+    assert config.session_prefix == "full__baseline"
     assert config.window_size == 15
     assert config.ttl_hours == 12
     assert config.min_ciar == 0.7

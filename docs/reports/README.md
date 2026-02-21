@@ -37,6 +37,7 @@ This directory contains technical reports, status updates, and debugging documen
 | [goodai_ltm_benchmark_reports_version-0.9_upto10feb2026.md](goodai_ltm_benchmark_reports_version-0.9_upto10feb2026.md) | Consolidated benchmark reports (version-0.9) |
 | [integration-tests-2025-11-12.md](integration-tests-2025-11-12.md) | Integration test results |
 | [goodai_ltm_benchmark_troubleshooting_upto10feb2026.md](goodai_ltm_benchmark_troubleshooting_upto10feb2026.md) | Consolidated benchmark troubleshooting notes |
+| [template-goodai-agent-variant-report.md](template-goodai-agent-variant-report.md) | Standard template for variant-based benchmark runs (ADR-011) |
 
 ## Naming Conventions
 
