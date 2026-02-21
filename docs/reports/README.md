@@ -38,6 +38,7 @@ This directory contains technical reports, status updates, and debugging documen
 | [integration-tests-2025-11-12.md](integration-tests-2025-11-12.md) | Integration test results |
 | [goodai_ltm_benchmark_troubleshooting_upto10feb2026.md](goodai_ltm_benchmark_troubleshooting_upto10feb2026.md) | Consolidated benchmark troubleshooting notes |
 | [template-goodai-agent-variant-report.md](template-goodai-agent-variant-report.md) | Standard template for variant-based benchmark runs (ADR-011), including Variant A (`v1-min-skillwiring`) skill-level aggregation tables (`skill_slug`, latency/tokens, error distribution) |
+| [2026-02-21-variant-a-smoke-runs.md](2026-02-21-variant-a-smoke-runs.md) | Variant A smoke run attempts (5 datasets x 1 example), observed failures, mitigations, and next iterations |
 
 ## Naming Conventions
 

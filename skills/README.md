@@ -65,6 +65,11 @@ AutoGen-based runtimes can treat each skill as:
 - `skill-selection`
 - `retrieval-reasoning-gap-mitigation`
 - `knowledge-lifecycle-distillation`
+- `roleplay-instruction-following`
+- `prospective-memory-followthrough`
+- `instruction-recall-and-formatting`
+- `triggered-response-conditions`
+- `clandestine-message-synthesis`
 
 ## Development-Time Skills
 

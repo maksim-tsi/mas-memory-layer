@@ -72,6 +72,12 @@ docker exec -w /app mas-memory-layer-benchmark-runner-1 \
   -a mas-remote
 ```
 
+For a quick 5-task smoke run (5 datasets x 1 example), you can use:
+
+```bash
+python -m runner.run_benchmark -c configurations/mas_variant_a_smoke_5.yml -a mas-remote
+```
+
 **Docker Architecture:**
 - `mas-agent`: FastAPI wrapper exposing MAS memory system (L1-L4)
 - `benchmark-runner`: Isolated benchmark environment with all datasets

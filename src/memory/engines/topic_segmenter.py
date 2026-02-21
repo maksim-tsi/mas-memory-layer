@@ -154,7 +154,14 @@ class TopicSegmenter:
 
         # Parse response; tolerate markdown fences from some providers
         try:
-            text = response.text.strip()
+            text = (response.text or "").strip()
+            if not text:
+                logger.warning(
+                    "LLM returned empty text for topic segmentation (provider=%s, model=%s). Using fallback.",
+                    getattr(response, "provider", None),
+                    getattr(response, "model", None),
+                )
+                return [self._create_fallback_segment(turns, metadata)]
             if text.startswith("```"):
                 text = text[3:]
                 if text.lower().startswith("json"):
@@ -200,8 +207,9 @@ class TopicSegmenter:
             return segments
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse LLM JSON response: {e}")
-            raise TopicSegmentationError(f"Invalid JSON from LLM: {e}") from e
+            # Do not fail the caller; this is a best-effort enrichment step.
+            logger.warning("Failed to parse LLM JSON response for topic segmentation: %s", e)
+            return [self._create_fallback_segment(turns, metadata)]
 
     def _format_conversation(self, turns: list[dict[str, Any]]) -> str:
         """Format turns into readable conversation text."""

@@ -10,6 +10,29 @@ This document describes how to set up and integrate the GoodAI LTM Benchmark for
 - System package: `python3-venv` (for Ubuntu/Debian)
 - Git
 
+## Local MacBook vs Remote Infra (skz-* Nodes)
+
+The default `.env.example` assumes the backing services live on the home-lab nodes:
+- Redis on `skz-dev-lv`
+- PostgreSQL/Qdrant/Neo4j/Typesense on `skz-data-lv`
+
+If you're running the API Wall locally on a MacBook, you must ensure network reachability to those
+services (VPN/LAN) or tunnel them.
+
+Runbook: `docs/runbooks/runbook-variant-a-smoke-macbook-to-skz.md`.
+
+Example: tunnel Redis from `skz-dev-lv` to localhost (adjust SSH host/user to your setup):
+
+```bash
+ssh -N -L 6379:localhost:6379 skz-dev-lv
+```
+
+Then, for the wrapper/API Wall process, override Redis to localhost (without changing `.env`):
+
+```bash
+REDIS_URL=redis://localhost:6379
+```
+
 ## Installation Steps
 
 ### 1. System Dependencies
@@ -160,6 +183,20 @@ To prevent collisions when multiple agents process the same GoodAI session, we p
 **Implementation**: Each FastAPI wrapper prepends its prefix to incoming `session_id` values before passing to `UnifiedMemorySystem`.
 
 ## Configuration Files
+
+### Run Modes (Historical)
+
+The benchmark config controls how many *examples per dataset* get generated, and which dataset
+generators are enabled for a run. In general:
+- Total examples generated = `dataset_examples * len(datasets)`
+- Definitions are generated and saved under `benchmarks/goodai-ltm-benchmark/data/tests/<run_name>/definitions/`
+  unless you pass `--dataset-path` to reuse existing `.def.json` files.
+
+Common configs in this repo:
+- `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`: `dataset_examples: 1` for `prospective_memory` (single-check)
+- `benchmarks/goodai-ltm-benchmark/configurations/mas_dry_run_5.yml`: `dataset_examples: 5` for `prospective_memory` (5-questions check)
+- `benchmarks/goodai-ltm-benchmark/configurations/mas_mixed_100.yml`: `dataset_examples: 5` across 13 datasets (mixed run)
+- `benchmarks/goodai-ltm-benchmark/configurations/mas_variant_a_smoke_5.yml`: `dataset_examples: 1` across 5 datasets (Variant A smoke)
 
 ### Subset Baseline Config
 

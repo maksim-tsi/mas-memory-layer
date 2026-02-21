@@ -1,0 +1,18 @@
+config:
+  debug: True
+  run_name: "MAS Variant A Smoke 5"
+
+datasets:
+  args:
+    # Keep this small for a quick correctness pass.
+    dataset_examples: 1
+    # Keep production-like context budget, but this can be lowered if needed.
+    memory_span: 32000
+
+  # Pick 5 different dataset generators that are currently enabled in DATASETS.
+  datasets:
+    - name: "prospective_memory"
+    - name: "instruction_recall"
+    - name: "trigger_response"
+    - name: "restaurant"
+    - name: "spy_meeting"

@@ -57,8 +57,6 @@ This improves benchmark observability and reproducibility without modifying mech
 
 **❌ What's Missing (Next Steps):**
 
-- Add per-skill benchmark report aggregation (tables grouped by `skill_slug`) in the
-  GoodAI variant report workflow.
 - Implement Variant B hard runtime enforcement of `allowed-tools` (tool execution gate).
 
 ### 2026-02-21 - Variant A Report Template: Skill-Level Aggregation Tables 📊
@@ -80,6 +78,87 @@ benchmark outcomes can be analyzed by `skill_slug` using API Wall response metad
 
 - `docs/reports/template-goodai-agent-variant-report.md`
 - `docs/reports/README.md`
+
+### 2026-02-21 - Variant A Smoke Prep: Dataset Run Modes + Topic Segmenter Resilience
+
+**Status:** ✅ Complete
+
+**Summary:**
+Captured how GoodAI datasets/configs map to generated task definitions for single-check, 5-question,
+and mixed runs; added a minimal 5-dataset smoke config for Variant A; and reduced false-alarm noise
+from topic segmentation when LLM structured output returns empty/non-JSON.
+
+**✅ What's Complete:**
+
+- Documented the historical run modes and definition generation behavior for the GoodAI runner.
+- Added a small, current-datasets-only smoke configuration: 5 datasets x 1 example.
+- Topic segmentation now degrades gracefully (fallback segment) without emitting an error-level log
+  on empty/non-JSON LLM responses.
+
+**Key Artifacts (Added/Updated):**
+
+- `src/memory/engines/topic_segmenter.py`
+- `benchmarks/goodai-ltm-benchmark/configurations/mas_variant_a_smoke_5.yml`
+- `docs/integrations/goodai-benchmark-setup.md`
+- `docs/runbooks/runbook-variant-a-smoke-macbook-to-skz.md`
+
+**Verification:**
+```bash
+./.venv/bin/ruff check .
+./.venv/bin/pytest tests/ -v
+```
+
+### 2026-02-21 - Variant A Fix: Stop Leaking Skill-Selection Planner Output
+
+**Status:** ✅ Complete
+
+**Summary:**
+Fixed Variant A behavior where the agent returned internal routing/planning text (e.g. `next_action:
+get_context_block(...)`) to the user, which breaks GoodAI benchmark tasks. Variant A now selects a
+policy-style skill prompt based on user intent and explicitly forbids user-visible routing/tool-plan
+output.
+
+**✅ What's Complete:**
+
+- `MemoryAgent` v1-min-skillwiring no longer defaults to `skill-selection`; it selects from a small
+  set of policy skills (roleplay, prospective memory, trigger rules, instruction formatting,
+  clandestine synthesis).
+- Added runtime skills that are behavioral (no tool-call recipes) so OpenAI-compatible chat
+  responses remain user-facing.
+- Verified local unit suite is still green.
+
+**Key Artifacts (Added/Updated):**
+
+- `src/agents/memory_agent.py`
+- `skills/roleplay-instruction-following/SKILL.md`
+- `skills/prospective-memory-followthrough/SKILL.md`
+- `skills/instruction-recall-and-formatting/SKILL.md`
+- `skills/triggered-response-conditions/SKILL.md`
+- `skills/clandestine-message-synthesis/SKILL.md`
+- `skills/README.md`
+
+**Verification:**
+```bash
+./.venv/bin/ruff check .
+./.venv/bin/pytest tests/ -v
+```
+
+### 2026-02-21 - Variant A Smoke Runs: Results + Failure Analysis
+
+**Status:** ⚠️ Blocked
+
+**Summary:**
+Executed multiple 5-dataset smoke runs against GoodAI LTM Benchmark for Variant A
+(`v1-min-skillwiring`) over the MacBook -> `skz-dev-lv` Redis tunnel setup. Behavioral correctness
+improved significantly (planner leakage fixed; Spy Meeting reached 1.0/1.0), but smoke is still
+blocked by:
+
+- `Prospective Memory` not reciting quote at the expected Nth response.
+- Benchmark process exiting non-zero due to missing HTML report template (`TemplateNotFound:
+  detailed_report.html`), despite results being written.
+
+**Report:**
+- `docs/reports/2026-02-21-variant-a-smoke-runs.md`
 
 ### 2026-02-21 - Skills v1 Scaffolding + Offline-by-Default Tests + Skill Loader 📊
 
