@@ -4,6 +4,13 @@
 **Date:** February 21, 2026  
 **Related:** ADR-009, ADR-010, ADR-011; `docs/specs/spec-goodai-agent-variant-evaluation-protocol.md`
 
+## Progress Update (2026-02-21)
+
+Closed pre-benchmark correctness gaps for ADR-011 operational readiness:
+
+- API Wall `/health` now reports `agent_type` and `agent_variant` in addition to subsystem health.
+- API Wall startup examples now use `uvicorn src.server:app` with explicit variant-specific ports.
+
 ## 1. Objective
 
 Establish a research-grade, reproducible process to evaluate YAAM agent variants on the GoodAI LTM
@@ -85,11 +92,11 @@ Exit criteria:
 ```bash
 # Variant A
 MAS_PORT=8081 MAS_AGENT_TYPE=full MAS_AGENT_VARIANT=v1-min-skillwiring \
-  ./.venv/bin/python src/server.py
+  ./.venv/bin/uvicorn src.server:app --host 0.0.0.0 --port 8081
 
 # Variant B
 MAS_PORT=8082 MAS_AGENT_TYPE=full MAS_AGENT_VARIANT=v2-adv-toolgated \
-  ./.venv/bin/python src/server.py
+  ./.venv/bin/uvicorn src.server:app --host 0.0.0.0 --port 8082
 ```
 
 ### B) Run GoodAI against each instance (example)

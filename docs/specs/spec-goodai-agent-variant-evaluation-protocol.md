@@ -81,11 +81,11 @@ Example (two variants of the same agent type):
 ```bash
 # Variant A on port 8081
 MAS_PORT=8081 MAS_AGENT_TYPE=full MAS_AGENT_VARIANT=v1-min-skillwiring \
-  ./.venv/bin/python src/server.py
+  ./.venv/bin/uvicorn src.server:app --host 0.0.0.0 --port 8081
 
 # Variant B on port 8082
 MAS_PORT=8082 MAS_AGENT_TYPE=full MAS_AGENT_VARIANT=v2-adv-toolgated \
-  ./.venv/bin/python src/server.py
+  ./.venv/bin/uvicorn src.server:app --host 0.0.0.0 --port 8082
 ```
 
 ### 3.2 Wrapper (optional direct endpoint)

@@ -231,6 +231,8 @@ def create_app(config: agent_wrapper.WrapperConfig) -> FastAPI:
             redis_ok = False
         return {
             "status": "ok" if redis_ok else "degraded",
+            "agent_type": state.agent_type,
+            "agent_variant": state.agent_variant,
             "redis": redis_ok,
             "l1": await state.l1_tier.health_check(),
             "l2": await state.l2_tier.health_check(),
