@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import logging
+import os
 
 from src.llm.providers.base import BaseProvider, LLMResponse, ProviderHealth
 
@@ -132,11 +133,12 @@ class GeminiProvider(BaseProvider):
         `healthy=False` when an exception is raised.
         """
         types = importlib.import_module("google.genai.types")
+        health_model = os.getenv("MAS_GEMINI_HEALTH_MODEL", "gemini-3-flash-preview")
 
         def sync_call():
             # call a minimally expensive empty prompt (SDK may charge tokens; this is a pragmatic choice for health checks)
             return self.client.models.generate_content(
-                model="gemini-2.0-flash",
+                model=health_model,
                 contents="Ping",
                 config=types.GenerateContentConfig(temperature=0.0, max_output_tokens=1),
             )

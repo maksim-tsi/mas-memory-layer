@@ -24,7 +24,7 @@ async def test_gemini_provider_real_call():
     health = await provider.health_check()
     assert health.healthy, f"Gemini provider unhealthy: {health.details}"
 
-    # Generate text using default model (gemini-2.5-flash-lite)
+    # Generate text using default model (gemini-3-flash-preview)
     response = await provider.generate(prompt="Reply with exactly 'OK'", temperature=0.0)
 
     assert response.text is not None
@@ -32,4 +32,4 @@ async def test_gemini_provider_real_call():
     # Usage is a dict
     assert response.usage["prompt_tokens"] > 0
     assert response.usage["response_tokens"] > 0
-    assert response.model == "gemini-2.5-flash-lite"
+    assert response.model == "gemini-3-flash-preview"
