@@ -42,6 +42,7 @@ PROVIDER=""
 MODEL=""
 PROMOTION_MODE=""
 SKIP_PROVIDER_CHECK="false"
+PROVIDER_CHECK_ONLY="false"
 
 function usage() {
     echo "Usage: $0 --agent-url URL --agent-type TYPE --agent-variant VARIANT --config PATH [options]"
@@ -60,6 +61,7 @@ function usage() {
     echo "  --model NAME            Model id for run-name convention (e.g., openai/gpt-oss-120b)"
     echo "  --promotion-mode MODE   Promotion mode for run-name convention (disabled|async|barrier)"
     echo "  --skip-provider-check   Skip /health + single-turn metadata gate"
+    echo "  --provider-check-only   Run provider check and exit (no benchmark run)"
     echo "  --progress MODE         tqdm|tk|none (default: tqdm)"
     echo "  --test-filter FILTER    Restrict to dataset/example (runner --test-filter)"
     echo "  --dataset-path PATH     Load examples from directory (runner --dataset-path)"
@@ -116,6 +118,10 @@ while [ $# -gt 0 ]; do
             ;;
         --skip-provider-check)
             SKIP_PROVIDER_CHECK="true"
+            shift 1
+            ;;
+        --provider-check-only)
+            PROVIDER_CHECK_ONLY="true"
             shift 1
             ;;
         --progress)
@@ -247,6 +253,10 @@ PY
 
 if [ "$SKIP_PROVIDER_CHECK" != "true" ]; then
     provider_check
+fi
+if [ "$PROVIDER_CHECK_ONLY" = "true" ]; then
+    echo -e "${GREEN}✅ Provider check completed.${NC}"
+    exit 0
 fi
 
 set -- \

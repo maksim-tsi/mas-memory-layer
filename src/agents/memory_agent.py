@@ -493,7 +493,7 @@ class MemoryAgent(BaseAgent):
                 )
             metadata["promotion_status"] = "completed"
             metadata["promotion_result"] = self._normalize_promotion_result(result)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             metadata["promotion_status"] = "timeout"
         except Exception as exc:  # pragma: no cover - defensive fallback
             logger.warning("Promotion barrier failed: %s", exc)
