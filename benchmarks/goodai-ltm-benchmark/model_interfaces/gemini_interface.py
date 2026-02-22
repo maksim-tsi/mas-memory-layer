@@ -15,6 +15,7 @@ class GeminiProInterface(ChatSession):
     is_local: bool = True  # TODO: Capture cost information
     _client: genai.Client = field(init=False)
     _chat_history: list[types.Content] = field(default_factory=list)
+    model: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite"))
 
     @property
     def history_path(self) -> Path:
@@ -66,7 +67,7 @@ class GeminiProInterface(ChatSession):
         for attempt in range(max_retries):
             try:
                 response = self._client.models.generate_content(
-                    model="gemini-2.5-flash-lite",
+                    model=self.model,
                     contents=history,
                     config=config,
                 )
@@ -107,7 +108,7 @@ class GeminiProInterface(ChatSession):
     def token_len(self, text: str) -> int:
         # Use the SDK's count_tokens method
         response = self._client.models.count_tokens(
-            model="gemini-2.5-flash-lite",
+            model=self.model,
             contents=[types.Content(parts=[types.Part.from_text(text=text)])],
         )
         time.sleep(0.1)

@@ -56,3 +56,15 @@ These additions are **copies**, not refactors. Each provider resides in its own 
 
 1. Run Smoke5 pure-LLM baselines using `-a groq`, `-a gemini`, and `-a mistral` (same config as YAAM runs).
 2. Compare results against YAAM parity runs to quantify memory-layer impact per provider.
+
+## 6. Verification Notes (Mypy Baseline)
+
+Running `./.venv/bin/mypy . --exclude benchmarks/goodai-ltm-benchmark/tests` surfaced pre-existing type issues unrelated to the new provider modules:
+
+- `scripts/validate_goodai_config.py`: missing stubs for `yaml`
+- `scripts/grade_phase5_readiness.py`: `Any` return type mismatch
+- `tests/benchmarks/results_analyzer.py`: `Any` return type mismatch
+- `tests/benchmarks/workload_generator.py`: missing variable annotations
+- `scripts/poll_memory_state.py`: `Any` return type mismatch
+
+These baseline failures should be resolved separately; no additional mypy errors were introduced by the Groq/Mistral additions.

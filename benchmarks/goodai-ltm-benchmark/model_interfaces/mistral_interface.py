@@ -96,7 +96,7 @@ class MistralChatSession(ChatSession):
 
     def load(self) -> None:
         if self.history_path.exists():
-            with open(self.history_path, "r", encoding="utf-8") as fd:
+            with open(self.history_path, encoding="utf-8") as fd:
                 self.context = cast(list[dict[str, str]], json.load(fd))
 
     def token_len(self, text: str) -> int:
