@@ -37,6 +37,10 @@ Provide a short, factual summary:
 | `MAS_AGENT_TYPE` | |
 | `MAS_AGENT_VARIANT` | |
 | `MAS_MODEL` | `openai/gpt-oss-120b` |
+| `MAS_PROMOTION_MODE` | |
+| `MAS_PROMOTION_TIMEOUT_S` | |
+| `MAS_FACT_EXTRACTOR_MODEL` | |
+| `MAS_TOPIC_SEGMENTER_MODEL` | |
 | `MAS_MIN_CIAR` | |
 | `MAS_L1_WINDOW` | |
 | `MAS_L1_TTL_HOURS` | |
@@ -160,4 +164,3 @@ Summarize representative failure cases and why they occurred. For each case:
 - What changed relative to the previous run (provider, model, or key configuration)?
 - Which visibility gaps remain (e.g., missing provider/model fields in artifacts)?
 - What minimal policy-layer changes are recommended next?
-

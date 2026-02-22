@@ -317,6 +317,7 @@ def create_app(config: WrapperConfig) -> FastAPI:
     @app.post("/run_turn", response_model=RunTurnResponse)
     async def run_turn(request: RunTurnRequest) -> RunTurnResponse:
         state: AgentWrapperState = app.state.wrapper
+        client_session_id = request.session_id
         session_id = state.apply_prefix(request.session_id)
         state.track_session(session_id)
         metadata = dict(request.metadata or {})
@@ -354,6 +355,12 @@ def create_app(config: WrapperConfig) -> FastAPI:
         metadata = dict(response.metadata or {})
         metadata.update(
             {
+                "yaam_session_id": session_id,
+                "client_session_id": client_session_id,
+                "yaam_turn_id": updated_request.turn_id,
+                "yaam_agent_type": config.agent_type,
+                "yaam_agent_variant": config.agent_variant,
+                "yaam_configured_model": config.model,
                 "storage_ms_pre": (t1 - t0) * 1000,
                 "llm_ms": (t2 - t1) * 1000,
                 "storage_ms_post": (t3 - t2) * 1000,

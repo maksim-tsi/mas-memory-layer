@@ -57,6 +57,7 @@ MAS_PORT=${MAS_PORT} \
 MAS_AGENT_TYPE=full \
 MAS_AGENT_VARIANT=v1-min-skillwiring \
 MAS_MODEL=gemini-3-flash-preview \
+MAS_PROMOTION_MODE=disabled \
 ./.venv/bin/uvicorn src.server:app --host 0.0.0.0 --port ${MAS_PORT}
 ```
 
@@ -64,6 +65,7 @@ Record:
 
 - `git rev-parse HEAD`
 - `MAS_MODEL` (expected: `gemini-3-flash-preview`)
+- `MAS_PROMOTION_MODE` (expected: `disabled` for Smoke5 parity runs)
 - provider availability from `/health` (`llm_providers`)
 
 ## 4. Provider Check (Blocker Gate)
@@ -96,6 +98,8 @@ Verify response `metadata` contains (at minimum):
 - `llm_ms` and `storage_ms`
 - `skill_slug`
 - `yaam_session_id` and `client_session_id`
+- `context.recent_turns_count`, `context.working_facts_count`, `context.episodic_chunks_count`, `context.semantic_knowledge_count`
+- `promotion_mode` and `promotion_status` (expect `disabled` + `skipped` for Smoke5 default)
 
 ## 5. Run GoodAI Smoke5 (Gemini)
 
@@ -133,6 +137,7 @@ Completion gate:
 Start a new tunnel + API Wall instance (same steps as above) but set:
 
 - `MAS_MODEL=mistral-large`
+- `MAS_PROMOTION_MODE=disabled`
 - `X-Session-Id: mistral-vischeck-001`
 - Run name:
   - `goodai__smoke5__provider=mistral__model=mistral-large__promotion=disabled__agent=full__v1-min-skillwiring__<ts>`
@@ -176,4 +181,3 @@ Create a per-run report under `docs/reports/` and record:
 - the `/health` JSON,
 - aggregate per-dataset scores,
 - and the artifact paths (including the HTML report path).
-

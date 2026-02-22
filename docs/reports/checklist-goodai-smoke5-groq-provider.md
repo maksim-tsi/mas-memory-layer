@@ -57,6 +57,7 @@ MAS_PORT=${MAS_PORT} \
 MAS_AGENT_TYPE=full \
 MAS_AGENT_VARIANT=v1-min-skillwiring \
 MAS_MODEL=openai/gpt-oss-120b \
+MAS_PROMOTION_MODE=disabled \
 ./.venv/bin/uvicorn src.server:app --host 0.0.0.0 --port ${MAS_PORT}
 ```
 
@@ -65,6 +66,7 @@ Record:
 - `git rev-parse HEAD`
 - agent type/variant
 - `MAS_MODEL` (expected: `openai/gpt-oss-120b`)
+- `MAS_PROMOTION_MODE` (expected: `disabled` for Smoke5 parity runs)
 - whether Gemini is enabled for this run (presence of `GOOGLE_API_KEY` in environment: yes/no; do not print values)
 
 ## 4. Provider Check (Blocker Gate)
@@ -97,10 +99,14 @@ Verify:
 
 1. Assistant content contains no planner/routing leakage.
 2. Response `metadata` includes:
+   - `llm_provider`, `llm_model`
+   - `llm_ms`, `storage_ms` (+ `storage_ms_pre`, `storage_ms_post`)
+   - `client_session_id` and `yaam_session_id`
    - `skill_slug` (and related skill identifiers)
-   - `storage_ms_pre`, `llm_ms`, `storage_ms_post`
+   - `context.recent_turns_count`, `context.working_facts_count`, `context.episodic_chunks_count`, `context.semantic_knowledge_count`
+   - `promotion_mode` and `promotion_status` (expect `disabled` + `skipped` for Smoke5 default)
 3. **Traceability requirement:** provider and model must be inferable from artifacts.
-   - If response metadata does not include `provider` and `model`, capture the API Wall logs for the request and treat missing fields as a visibility gap to fix before relying on benchmarks for attribution.
+   - If response metadata does not include `llm_provider` and `llm_model`, capture the API Wall logs for the request and treat missing fields as a visibility gap to fix before relying on benchmarks for attribution.
 
 ## 5. LLM-Engine Compatibility Check (FactExtractor, TopicSegmenter)
 
@@ -111,7 +117,7 @@ This repository currently defaults some LLM engines to Gemini model identifiers:
 
 Decision (record explicitly):
 
-- **Option A (preferred for Groq-only runs):** configure these engines to use the Groq model (`openai/gpt-oss-120b`) and verify they do not attempt Gemini calls.
+- **Option A (preferred for Groq-only runs):** configure these engines to use the Groq model (`openai/gpt-oss-120b`) by setting `MAS_FACT_EXTRACTOR_MODEL=openai/gpt-oss-120b` and `MAS_TOPIC_SEGMENTER_MODEL=openai/gpt-oss-120b`, and verify they do not attempt Gemini calls.
 - **Option B (allowed fallback):** permit Gemini for these engines (requires a valid paid-tier Gemini key) while keeping the agent’s main routing on Groq.
 
 Tracking requirement:
@@ -127,13 +133,16 @@ Tracking requirement:
 cd benchmarks/goodai-ltm-benchmark
 set -a; source ../../.env; set +a
 
+RUN_NAME="goodai__smoke5__provider=groq__model=openai-gpt-oss-120b__promotion=disabled__agent=full__v1-min-skillwiring__$(date +%Y%m%d_%H%M%S)"
+
 AGENT_URL=http://127.0.0.1:${MAS_PORT}/v1/chat/completions \
 MAS_WRAPPER_TIMEOUT=600 \
 ./.venv/bin/python -m runner.run_benchmark \
   -a mas-remote \
   -c configurations/mas_variant_a_smoke_5.yml \
   --progress tqdm \
-  -y
+  -y \
+  --run-name "$RUN_NAME"
 ```
 
 Record:
@@ -178,4 +187,3 @@ Create a run report under `docs/reports/` using the Groq template (see `template
 - Stop benchmark runner (if needed): Ctrl+C
 - Stop API Wall: Ctrl+C
 - Stop SSH tunnel: Ctrl+C
-

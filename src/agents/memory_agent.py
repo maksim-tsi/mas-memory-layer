@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
+import time
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -48,6 +50,12 @@ class MemoryAgent(BaseAgent):
         self._tools = list(UNIFIED_TOOLS)
         self._graph = self._build_graph()
         self._promotion_task: asyncio.Task | None = None
+        self._promotion_mode = self._normalize_promotion_mode(
+            os.environ.get("MAS_PROMOTION_MODE")
+        )
+        self._promotion_timeout_s = self._parse_promotion_timeout(
+            os.environ.get("MAS_PROMOTION_TIMEOUT_S")
+        )
 
     async def initialize(self) -> None:
         """Initialize MemoryAgent resources."""
@@ -142,12 +150,27 @@ class MemoryAgent(BaseAgent):
     async def _retrieve_node(self, state: AgentState) -> AgentState:
         """Retrieve L1/L2/L3/L4 context for the current session."""
         state = self._ensure_state_defaults(state)
+        metadata = state.get("metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+            state["metadata"] = metadata
+
         if not self._memory_system:
+            metadata["context"] = {
+                "recent_turns_count": 0,
+                "working_facts_count": 0,
+                "episodic_chunks_count": 0,
+                "semantic_knowledge_count": 0,
+                "retrieval_ms": 0.0,
+                "query_ms": 0.0,
+                "total_ms": 0.0,
+            }
             return state
 
         session_id = state.get("session_id", "")
         user_query = self._extract_user_message(state)
 
+        retrieval_start = time.perf_counter()
         context_block = None
         if hasattr(self._memory_system, "get_context_block"):
             try:
@@ -159,6 +182,7 @@ class MemoryAgent(BaseAgent):
                 )
             except Exception as exc:  # pragma: no cover - defensive fallback
                 logger.warning("Failed to retrieve context block: %s", exc)
+        retrieval_end = time.perf_counter()
 
         if isinstance(context_block, ContextBlock):
             state["active_context"] = self._format_recent_turns(context_block.recent_turns)
@@ -173,17 +197,30 @@ class MemoryAgent(BaseAgent):
             state["episodic_chunks"] = list(getattr(context_block, "episode_summaries", []))
             state["semantic_knowledge"] = list(getattr(context_block, "knowledge_snippets", []))
 
+        query_start = retrieval_end
+        query_end = retrieval_end
         if user_query and hasattr(self._memory_system, "query_memory"):
             try:
+                query_start = time.perf_counter()
                 results = await self._memory_system.query_memory(
                     session_id=session_id,
                     query=user_query,
                     limit=self._max_facts,
                 )
                 self._merge_query_results(state, results)
+                query_end = time.perf_counter()
             except Exception as exc:  # pragma: no cover - defensive fallback
                 logger.warning("Failed to query memory tiers: %s", exc)
 
+        metadata["context"] = {
+            "recent_turns_count": len(state.get("active_context", []) or []),
+            "working_facts_count": len(state.get("working_facts", []) or []),
+            "episodic_chunks_count": len(state.get("episodic_chunks", []) or []),
+            "semantic_knowledge_count": len(state.get("semantic_knowledge", []) or []),
+            "retrieval_ms": (retrieval_end - retrieval_start) * 1000,
+            "query_ms": (query_end - query_start) * 1000,
+            "total_ms": (query_end - retrieval_start) * 1000,
+        }
         return state
 
     async def _reason_node(self, state: AgentState) -> AgentState:
@@ -384,13 +421,19 @@ class MemoryAgent(BaseAgent):
     async def _update_node(self, state: AgentState) -> AgentState:
         """Write to L1 and trigger promotion cycle if configured."""
         state = self._ensure_state_defaults(state)
+        metadata = state.get("metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+            state["metadata"] = metadata
         if not self._memory_system or not getattr(self._memory_system, "l1_tier", None):
             return state
 
         session_id = state.get("session_id", "")
         turn_id = int(state.get("turn_id", 0))
-        metadata = state.get("metadata", {})
+        metadata["promotion_mode"] = self._promotion_mode
         if metadata.get("skip_l1_write"):
+            metadata.setdefault("promotion_status", "skipped")
+            metadata.setdefault("promotion_reason", "skip_l1_write")
             return state
         user_message = self._extract_user_message(state)
         assistant_response = state.get("response", "")
@@ -416,14 +459,51 @@ class MemoryAgent(BaseAgent):
         await self._memory_system.l1_tier.store(user_turn)
         await self._memory_system.l1_tier.store(assistant_turn)
 
-        if hasattr(self._memory_system, "run_promotion_cycle"):
+        if not hasattr(self._memory_system, "run_promotion_cycle"):
+            metadata.setdefault("promotion_status", "skipped")
+            metadata.setdefault("promotion_reason", "no_promotion_engine")
+            return state
+
+        if self._promotion_mode == "disabled":
+            metadata.setdefault("promotion_status", "skipped")
+            metadata.setdefault("promotion_reason", "promotion_disabled")
+            return state
+
+        if self._promotion_mode == "async":
             try:
                 logger.info(f"DEBUG: Spawning promotion task for session {session_id}")
                 self._promotion_task = asyncio.create_task(
                     self._memory_system.run_promotion_cycle(session_id)
                 )
+                metadata.setdefault("promotion_status", "scheduled")
             except Exception as exc:  # pragma: no cover - defensive fallback
                 logger.warning("Failed to start promotion cycle: %s", exc)
+                metadata.setdefault("promotion_status", "error")
+                metadata.setdefault("promotion_error", str(exc))
+            return state
+
+        promotion_start = time.perf_counter()
+        try:
+            if self._promotion_timeout_s is None:
+                result = await self._memory_system.run_promotion_cycle(session_id)
+            else:
+                result = await asyncio.wait_for(
+                    self._memory_system.run_promotion_cycle(session_id),
+                    timeout=self._promotion_timeout_s,
+                )
+            metadata["promotion_status"] = "completed"
+            metadata["promotion_result"] = self._normalize_promotion_result(result)
+        except asyncio.TimeoutError:
+            metadata["promotion_status"] = "timeout"
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.warning("Promotion barrier failed: %s", exc)
+            metadata["promotion_status"] = "error"
+            metadata["promotion_error"] = str(exc)
+        finally:
+            promotion_end = time.perf_counter()
+            metadata["promotion_ms"] = (promotion_end - promotion_start) * 1000
+            if self._promotion_timeout_s is not None:
+                metadata["promotion_timeout_s"] = self._promotion_timeout_s
 
         return state
 
@@ -749,3 +829,29 @@ class MemoryAgent(BaseAgent):
             "agent.allowed_tools": metadata.get("allowed_tools"),
             "agent.gated_tools": metadata.get("gated_tool_names"),
         }
+
+    def _normalize_promotion_mode(self, value: str | None) -> str:
+        mode = (value or "async").strip().lower()
+        if mode not in {"disabled", "async", "barrier"}:
+            logger.warning("Unknown MAS_PROMOTION_MODE '%s'; defaulting to 'async'", value)
+            mode = "async"
+        return mode
+
+    def _parse_promotion_timeout(self, value: str | None) -> float | None:
+        if value is None:
+            return 30.0
+        try:
+            parsed = float(value)
+        except ValueError:
+            logger.warning("Invalid MAS_PROMOTION_TIMEOUT_S '%s'; defaulting to 30s", value)
+            return 30.0
+        if parsed <= 0:
+            return None
+        return parsed
+
+    def _normalize_promotion_result(self, result: Any) -> dict[str, Any]:
+        if isinstance(result, dict):
+            return result
+        if isinstance(result, list):
+            return {"facts_promoted": len(result)}
+        return {"result_type": type(result).__name__}

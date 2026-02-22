@@ -29,6 +29,10 @@ Provide a short, factual summary:
 | `MAS_AGENT_TYPE` | |
 | `MAS_AGENT_VARIANT` | |
 | `MAS_MODEL` | |
+| `MAS_PROMOTION_MODE` | |
+| `MAS_PROMOTION_TIMEOUT_S` | |
+| `MAS_FACT_EXTRACTOR_MODEL` | |
+| `MAS_TOPIC_SEGMENTER_MODEL` | |
 | `MAS_MIN_CIAR` | |
 | `MAS_L1_WINDOW` | |
 | `MAS_L1_TTL_HOURS` | |
