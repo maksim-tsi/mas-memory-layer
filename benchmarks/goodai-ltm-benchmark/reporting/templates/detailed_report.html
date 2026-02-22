@@ -183,7 +183,7 @@
         </div>
       </div>
 
-      {% for _idx, dataset in enumerate(sorted(data_by_dataset.values(), key=lambda d: d["name"])) %}
+      {% for _name, dataset in data_by_dataset | dictsort %}
       <section class="dataset">
         <h2>{{ dataset.name | e }}</h2>
         <div class="muted">{{ dataset.description | e }}</div>
@@ -237,4 +237,3 @@
     </main>
   </body>
 </html>
-

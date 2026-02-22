@@ -145,6 +145,7 @@ def create_app(config: agent_wrapper.WrapperConfig) -> FastAPI:
             metadata["traceparent"] = traceparent
         if x_mock_time:
             metadata["mock_time"] = x_mock_time
+        metadata.setdefault("skip_l1_write", True)
 
         run_request = RunTurnRequest(
             session_id=session_id,

@@ -435,11 +435,20 @@ async def _store_turn(
     timestamp = getattr(message, "timestamp", None) or datetime.now(UTC)
     metadata = getattr(message, "metadata", None) or {}
     stored_turn_id = _encode_turn_id(int(message.turn_id), role)
+    content = str(getattr(message, "content", "") or "")
+    if not content.strip():
+        logger.debug(
+            "Skipping empty turn store: session_id=%s, turn_id=%s, role=%s",
+            getattr(message, "session_id", ""),
+            stored_turn_id,
+            role,
+        )
+        return
     turn = TurnData(
         session_id=message.session_id,
         turn_id=str(stored_turn_id),
         role=role,
-        content=message.content,
+        content=content,
         timestamp=timestamp,
         metadata=metadata,
     )

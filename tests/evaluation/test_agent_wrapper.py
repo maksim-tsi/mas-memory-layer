@@ -154,6 +154,21 @@ def test_run_turn_success(test_client, wrapper_state):
 
 
 @pytest.mark.unit
+@pytest.mark.asyncio
+async def test_store_turn_skips_empty_content(wrapper_state):
+    """Empty or whitespace content should be ignored when storing L1 turns."""
+    msg = types.SimpleNamespace(
+        session_id="full__unit:test-session",
+        turn_id=0,
+        content="",
+        metadata={},
+        timestamp=datetime.now(UTC),
+    )
+    await agent_wrapper._store_turn(wrapper_state, msg, role="user")
+    assert wrapper_state.l1_tier.store.await_count == 0
+
+
+@pytest.mark.unit
 def test_run_turn_error_returns_500(test_client, wrapper_state):
     """Ensure errors from the agent surface as HTTP 500 responses."""
     wrapper_state.agent.run_turn.side_effect = RuntimeError("boom")

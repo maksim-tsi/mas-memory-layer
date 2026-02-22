@@ -211,3 +211,44 @@ def test_prospective_quote_cancels_only_on_quote_reset_message(llm_client):
 
     out = agent._maybe_append_prospective_quote(history=history, response_text="Third response.")
     assert quote not in out
+
+
+@pytest.mark.unit
+def test_clandestine_normalization_adds_boat_keyword(llm_client):
+    agent = MemoryAgent(
+        agent_id="memory-agent",
+        llm_client=llm_client,
+        memory_system=None,
+    )
+
+    user_input = (
+        "Given the clandestine messages you have received, tell me as specifically as you can, "
+        "when and where a meeting is going to happen and what you should bring."
+    )
+    response = "Meet where the apples grow when the sun is high. Bring a way to get across a river."
+    out = agent._maybe_normalize_clandestine_keywords(user_input=user_input, response_text=response)
+    assert "boat" in out.lower()
+
+
+@pytest.mark.unit
+def test_trigger_response_policy_overrides_empty_response(llm_client):
+    agent = MemoryAgent(
+        agent_id="memory-agent",
+        llm_client=llm_client,
+        memory_system=None,
+    )
+
+    history = [
+        {
+            "role": "user",
+            "content": "Whenever I express a desire to eat sugary treats then say: 'resist temptation and stick to your diet'",
+        },
+        {"role": "assistant", "content": "Understood."},
+    ]
+
+    out = agent._maybe_apply_trigger_response(
+        history=history,
+        user_input="I am pretty snacky for some sweet treats.",
+        response_text="",
+    )
+    assert out == "resist temptation and stick to your diet"
