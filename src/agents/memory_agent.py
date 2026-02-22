@@ -198,6 +198,7 @@ class MemoryAgent(BaseAgent):
         )
         response_text = await self._generate_response(
             prompt,
+            state_metadata=state.get("metadata") if isinstance(state.get("metadata"), dict) else None,
             agent_metadata=self._build_agent_metadata(state),
             system_instruction=skill_context["system_instruction"],
         )
@@ -433,6 +434,7 @@ class MemoryAgent(BaseAgent):
     async def _generate_response(
         self,
         prompt: str,
+        state_metadata: dict[str, Any] | None = None,
         agent_metadata: dict[str, Any] | None = None,
         system_instruction: str | None = None,
     ) -> str:
@@ -445,6 +447,11 @@ class MemoryAgent(BaseAgent):
             agent_metadata=agent_metadata,
             system_instruction=system_instruction or self._config.get("system_instruction"),
         )
+        if isinstance(state_metadata, dict):
+            state_metadata.setdefault("llm_provider", llm_response.provider)
+            state_metadata.setdefault("llm_model", llm_response.model)
+            if llm_response.usage:
+                state_metadata.setdefault("llm_usage", llm_response.usage)
         return llm_response.text
 
     def _prepare_skill_context(self, user_input: str, state: AgentState) -> dict[str, Any]:

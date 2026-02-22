@@ -44,7 +44,9 @@ class RemoteMASAgentSession(ChatSession):
             return self.endpoint.removesuffix("/v1/chat/completions")
         return self.endpoint.rstrip("/")
 
-    def reply(self, user_message: str, agent_response: str | None = None) -> str:
+    def reply(
+        self, user_message: str, agent_response: str | None = None
+    ) -> str | tuple[str, dict[str, Any]]:
         if agent_response is not None:
             return agent_response
 
@@ -55,9 +57,10 @@ class RemoteMASAgentSession(ChatSession):
         response_text = self._extract_response_text(response_json)
         self.history.append({"role": "assistant", "content": response_text})
 
-        self.last_metadata = response_json.get("usage", {})
+        metadata = cast(dict[str, Any], response_json.get("metadata") or {})
+        self.last_metadata = metadata
         self._update_costs(user_message, response_text, response_json)
-        return response_text
+        return response_text, metadata
 
     def _post_with_retry(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         last_error: Exception | None = None

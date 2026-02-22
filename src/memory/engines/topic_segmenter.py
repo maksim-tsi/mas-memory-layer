@@ -8,6 +8,7 @@ using a single LLM call for efficiency.
 
 import json
 import logging
+import os
 from typing import Any
 from uuid import uuid4
 
@@ -90,7 +91,12 @@ class TopicSegmenter:
         max_turns: int = DEFAULT_MAX_TURNS,
     ):
         self.llm_client: LLMClient = llm_client or LLMClient.from_env()
-        self.model_name = model_name or self.DEFAULT_MODEL
+        self.model_name = (
+            model_name
+            or os.environ.get("MAS_TOPIC_SEGMENTER_MODEL")
+            or os.environ.get("MAS_MODEL")
+            or self.DEFAULT_MODEL
+        )
         self.min_turns = min_turns
         self.max_turns = max_turns
 

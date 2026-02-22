@@ -180,6 +180,12 @@ def create_app(config: agent_wrapper.WrapperConfig) -> FastAPI:
         response_metadata = dict(response.metadata or {})
         response_metadata.update(
             {
+                "yaam_session_id": session_id,
+                "client_session_id": x_session_id,
+                "yaam_turn_id": run_request.turn_id,
+                "yaam_agent_type": config.agent_type,
+                "yaam_agent_variant": config.agent_variant,
+                "yaam_configured_model": config.model,
                 "storage_ms_pre": (t1 - t0) * 1000,
                 "llm_ms": (t2 - t1) * 1000,
                 "storage_ms_post": (t3 - t2) * 1000,

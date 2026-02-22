@@ -38,6 +38,7 @@ class RAGAgent(BaseAgent):
         """Process a single turn with retrieval-augmented context."""
         await self.ensure_initialized()
 
+        response_metadata: dict[str, Any] = dict(request.metadata or {})
         user_input = self._extract_latest_user_message(history) or request.content
         retrievals: list[dict[str, Any]] = []
         vector_store = self._get_vector_store()
@@ -60,6 +61,7 @@ class RAGAgent(BaseAgent):
         )
         response_text = await self._generate_response(
             prompt,
+            state_metadata=response_metadata,
             agent_metadata={
                 "agent.type": "rag",
                 "agent.session_id": request.session_id,
@@ -72,6 +74,7 @@ class RAGAgent(BaseAgent):
             role="assistant",
             content=response_text,
             turn_id=request.turn_id,
+            metadata=response_metadata or None,
         )
 
     async def health_check(self) -> dict[str, Any]:
@@ -94,6 +97,7 @@ class RAGAgent(BaseAgent):
     async def _generate_response(
         self,
         prompt: str,
+        state_metadata: dict[str, Any] | None = None,
         agent_metadata: dict[str, Any] | None = None,
     ) -> str:
         if not self._llm_client:
@@ -104,6 +108,11 @@ class RAGAgent(BaseAgent):
             model=self._model,
             agent_metadata=agent_metadata,
         )
+        if isinstance(state_metadata, dict):
+            state_metadata.setdefault("llm_provider", llm_response.provider)
+            state_metadata.setdefault("llm_model", llm_response.model)
+            if llm_response.usage:
+                state_metadata.setdefault("llm_usage", llm_response.usage)
         return llm_response.text
 
     def _build_prompt(

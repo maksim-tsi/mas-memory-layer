@@ -44,6 +44,7 @@ class FullContextAgent(BaseAgent):
         """Process a single turn with expanded context retrieval."""
         await self.ensure_initialized()
 
+        response_metadata: dict[str, Any] = dict(request.metadata or {})
         user_input = self._extract_latest_user_message(history) or request.content
         context_text = ""
         history_text = self._format_history(history)
@@ -71,6 +72,7 @@ class FullContextAgent(BaseAgent):
         )
         response_text = await self._generate_response(
             prompt,
+            state_metadata=response_metadata,
             agent_metadata={
                 "agent.type": "full_context",
                 "agent.session_id": request.session_id,
@@ -83,6 +85,7 @@ class FullContextAgent(BaseAgent):
             role="assistant",
             content=response_text,
             turn_id=request.turn_id,
+            metadata=response_metadata or None,
         )
 
     async def health_check(self) -> dict[str, Any]:
@@ -105,6 +108,7 @@ class FullContextAgent(BaseAgent):
     async def _generate_response(
         self,
         prompt: str,
+        state_metadata: dict[str, Any] | None = None,
         agent_metadata: dict[str, Any] | None = None,
     ) -> str:
         if not self._llm_client:
@@ -115,6 +119,11 @@ class FullContextAgent(BaseAgent):
             model=self._model,
             agent_metadata=agent_metadata,
         )
+        if isinstance(state_metadata, dict):
+            state_metadata.setdefault("llm_provider", llm_response.provider)
+            state_metadata.setdefault("llm_model", llm_response.model)
+            if llm_response.usage:
+                state_metadata.setdefault("llm_usage", llm_response.usage)
         return llm_response.text
 
     def _build_prompt(self, context_text: str, history_text: str, user_input: str) -> str:
