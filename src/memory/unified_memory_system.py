@@ -9,6 +9,8 @@ from typing import Any, Literal, cast
 import redis
 from pydantic import BaseModel, Field, ValidationError
 
+from src.memory.artifacts.repository import ArtifactRepository
+from src.memory.artifacts.service import ArtifactService
 from src.memory.engines.consolidation_engine import ConsolidationEngine
 from src.memory.engines.distillation_engine import DistillationEngine
 from src.memory.engines.promotion_engine import PromotionEngine
@@ -179,6 +181,18 @@ class UnifiedMemorySystem(HybridMemorySystem):
         self.promotion_engine = promotion_engine
         self.consolidation_engine = consolidation_engine
         self.distillation_engine = distillation_engine
+        self.artifact_service: ArtifactService | None = None
+        self.artifacts: ArtifactService | None = None
+        if self.l3_tier and getattr(self.l3_tier, "neo4j", None):
+            self.artifact_service = ArtifactService(
+                ArtifactRepository(
+                    neo4j_adapter=self.l3_tier.neo4j,
+                    l1_tier=self.l1_tier,
+                    l2_tier=self.l2_tier,
+                    l4_tier=self.l4_tier,
+                )
+            )
+            self.artifacts = self.artifact_service
 
     # --- Private Key Helpers for Redis ---
     def _get_personal_key(self, agent_id: str) -> str:
