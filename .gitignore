@@ -233,5 +233,12 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Tree
-tree.txt
+# Benchmark Artifacts
+# Generated test definition files from benchmark runs (have timestamps in paths)
+# These are runtime artifacts that should never be committed
+benchmarks/goodai-ltm-benchmark/data/tests/goodai__*
+benchmarks/goodai-ltm-benchmark/data/tests/goodai-*
+benchmarks/goodai-ltm-benchmark/data/tests/VariantA*
+benchmarks/goodai-ltm-benchmark/data/persistence/goodai__*
+benchmarks/goodai-ltm-benchmark/data/persistence/goodai-*
+benchmarks/goodai-ltm-benchmark/data/persistence/VariantA*
