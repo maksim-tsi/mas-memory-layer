@@ -2,6 +2,15 @@
 Memory system module.
 """
 
+from src.memory.artifacts import (
+    Artifact,
+    ArtifactCommit,
+    ArtifactFeedback,
+    ArtifactLineageNode,
+    ArtifactLineageQuery,
+    ArtifactLineageResult,
+    ArtifactRevision,
+)
 from src.memory.models import (
     Episode,
     EpisodeQuery,
@@ -14,6 +23,13 @@ from src.memory.models import (
 )
 
 __all__ = [
+    "Artifact",
+    "ArtifactCommit",
+    "ArtifactFeedback",
+    "ArtifactLineageNode",
+    "ArtifactLineageQuery",
+    "ArtifactLineageResult",
+    "ArtifactRevision",
     "Episode",
     "EpisodeQuery",
     "Fact",
