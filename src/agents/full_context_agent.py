@@ -28,7 +28,7 @@ class FullContextAgent(BaseAgent):
     ) -> None:
         super().__init__(agent_id=agent_id, memory_system=memory_system, config=config)
         self._llm_client = llm_client
-        self._model = self._config.get("model", "gemini-2.5-flash-lite")
+        self._model = self._config.get("model", "gemini-3-flash-preview")
         self._max_turns = int(self._config.get("max_turns", 100))
         self._max_facts = int(self._config.get("max_facts", 20))
         self._min_ciar = float(self._config.get("min_ciar", 0.4))
@@ -38,11 +38,16 @@ class FullContextAgent(BaseAgent):
         """Initialize FullContextAgent resources."""
         logger.info("Initializing FullContextAgent '%s'", self.agent_id)
 
-    async def run_turn(self, request: RunTurnRequest) -> RunTurnResponse:
+    async def run_turn(
+        self, request: RunTurnRequest, history: list[dict[str, Any]] | None = None
+    ) -> RunTurnResponse:
         """Process a single turn with expanded context retrieval."""
         await self.ensure_initialized()
 
+        response_metadata: dict[str, Any] = dict(request.metadata or {})
+        user_input = self._extract_latest_user_message(history) or request.content
         context_text = ""
+        history_text = self._format_history(history)
         if self._memory_system and hasattr(self._memory_system, "get_context_block"):
             context_block = await self._memory_system.get_context_block(
                 session_id=request.session_id,
@@ -53,16 +58,21 @@ class FullContextAgent(BaseAgent):
             if isinstance(context_block, ContextBlock):
                 context_text = self._build_context_from_block(
                     context_block,
-                    user_input=request.content,
+                    user_input=user_input,
                 )
             elif hasattr(context_block, "to_prompt_string"):
                 context_text = context_block.to_prompt_string(
                     include_metadata=self._include_metadata
                 )
 
-        prompt = self._build_prompt(context_text=context_text, user_input=request.content)
+        prompt = self._build_prompt(
+            context_text=context_text,
+            history_text=history_text,
+            user_input=user_input,
+        )
         response_text = await self._generate_response(
             prompt,
+            state_metadata=response_metadata,
             agent_metadata={
                 "agent.type": "full_context",
                 "agent.session_id": request.session_id,
@@ -75,6 +85,7 @@ class FullContextAgent(BaseAgent):
             role="assistant",
             content=response_text,
             turn_id=request.turn_id,
+            metadata=response_metadata or None,
         )
 
     async def health_check(self) -> dict[str, Any]:
@@ -97,6 +108,7 @@ class FullContextAgent(BaseAgent):
     async def _generate_response(
         self,
         prompt: str,
+        state_metadata: dict[str, Any] | None = None,
         agent_metadata: dict[str, Any] | None = None,
     ) -> str:
         if not self._llm_client:
@@ -107,12 +119,19 @@ class FullContextAgent(BaseAgent):
             model=self._model,
             agent_metadata=agent_metadata,
         )
+        if isinstance(state_metadata, dict):
+            state_metadata.setdefault("llm_provider", llm_response.provider)
+            state_metadata.setdefault("llm_model", llm_response.model)
+            if llm_response.usage:
+                state_metadata.setdefault("llm_usage", llm_response.usage)
         return llm_response.text
 
-    def _build_prompt(self, context_text: str, user_input: str) -> str:
+    def _build_prompt(self, context_text: str, history_text: str, user_input: str) -> str:
         sections = [
             "You are the MAS Full-Context Agent. Use the complete context to answer.",
         ]
+        if history_text:
+            sections.append("## Conversation History (API Wall)\n" + history_text)
         if context_text:
             sections.append("## Full Context\n" + context_text)
         sections.append(f"## User\n{user_input}")
@@ -204,3 +223,23 @@ class FullContextAgent(BaseAgent):
             estimated_tokens,
         )
         return truncated
+
+    def _format_history(self, history: list[dict[str, Any]] | None) -> str:
+        """Format API-provided conversation history for prompt context."""
+        if not history:
+            return ""
+        lines: list[str] = []
+        for message in history:
+            role = str(message.get("role", "unknown")).upper()
+            content = str(message.get("content", ""))
+            lines.append(f"{role}: {content}")
+        return "\n".join(lines)
+
+    def _extract_latest_user_message(self, history: list[dict[str, Any]] | None) -> str:
+        """Extract the most recent user message from history."""
+        if not history:
+            return ""
+        for message in reversed(history):
+            if str(message.get("role", "")).lower() == "user":
+                return str(message.get("content", ""))
+        return str(history[-1].get("content", ""))

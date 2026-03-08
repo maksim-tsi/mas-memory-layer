@@ -29,23 +29,63 @@ See the following documents for current transparency analysis and the implementa
 
 ## Running the Benchmarks
 
-These tests require python 3.10 or higher.
+These tests require Python 3.11 or higher.
 
-First, set your `GOOGLE_API_KEY` environment variable and clone the repository:
+### Local Execution
+
+First, set your `GOOGLE_API_KEY` environment variable and install dependencies:
 ```bash
-git clone git@github.com:GoodAI/goodai-ltm-benchmark.git
+cd benchmarks/goodai-ltm-benchmark
+poetry install
 ```
 
-The file `run_benchmark.py` can be executed by giving it a configuration `.yml` file using `-c` (examples are located in `./configurations/`), an agent using `-a` (see below), and optionally a limit for the size of the context with `-m`.
-
-For example, to run a benchmark on the Gemini 2.5 Flash Lite model with a context size of 4096 tokens:
+**CRITICAL:** Execute benchmark as a module (not as script path) to avoid package name collision with HuggingFace `datasets`:
 
 ```bash
-python run_benchmark.py -c ./configurations/published_benchmarks/<configuration_name>.yml \
-                        -a gemini-2.5-flash-lite -m 4096
+# Correct (module execution)
+poetry run python -m runner.run_benchmark \
+  -c configurations/published_benchmarks/<configuration_name>.yml \
+  -a gemini -m 4096
+
+# WRONG (will fail with "No module named 'datasets.instruction_recall'")
+python runner/run_benchmark.py -c ...
 ```
 
-This will generate a set of test specifications if there is not one already, and start to produce result files, one for each test. The result files will be located at `./tests/<benchmark_name>/results/<agent_name>/`.
+### Docker Execution (Recommended for MAS Agents)
+
+For benchmarking MAS memory agents via the wrapper service:
+
+```bash
+# From repository root
+cd /path/to/mas-memory-layer
+
+# Build containers
+docker-compose build benchmark-runner mas-agent
+
+# Start services
+docker-compose up -d
+
+# Execute benchmark
+docker exec -w /app mas-memory-layer-benchmark-runner-1 \
+  python -m runner.run_benchmark \
+  -c configurations/mas_remote_test.yml \
+  -a mas-remote
+```
+
+For a quick 5-task smoke run (5 datasets x 1 example), you can use:
+
+```bash
+python -m runner.run_benchmark -c configurations/mas_variant_a_smoke_5.yml -a mas-remote
+```
+
+**Docker Architecture:**
+- `mas-agent`: FastAPI wrapper exposing MAS memory system (L1-L4)
+- `benchmark-runner`: Isolated benchmark environment with all datasets
+- Communication: HTTP via `AGENT_URL` env var (default: `http://mas-agent:8080/v1/chat/completions`)
+
+### Output
+
+This will generate a set of test specifications if there is not one already, and start to produce result files, one for each test. The result files will be located at `./data/tests/<benchmark_name>/results/<agent_name>/`.
 
 At the end of testing, an HTML report will be generated in `data/reports` which will give a detailed breakdown of the tests run, responses, and evaluations. It will be given a name of the form `<time stamp> - Detailed Report - <run_name> - <agent_name>.html`.
 
@@ -81,9 +121,11 @@ ts-<model>          # Any of the above models
 # Example: ltm_agent_1(claude-3-opus-20240229)
 ltm_agent_<variant>[(<model>)]
 
-# Memgpt
-memgpt            # An actively managed LTM/RAG conversational agent
-
+# MAS Memory Layer Agents (Docker-based)
+mas-full          # Full 4-tier memory system (L1-L4)
+mas-rag           # RAG-only variant (L3: Qdrant + Neo4j)
+mas-full-context  # Full context baseline (no memory)
+mas-remote        # HTTP wrapper to FastAPI agent service
 
 # Cost Estimation
 cost(<cost_in_tokens>,<cost_out_tokens>) # Model for estimating the cost of a 
@@ -93,6 +135,8 @@ cost(<cost_in_tokens>,<cost_out_tokens>) # Model for estimating the cost of a
 # Human models
 human             # A CLI interface for a human to use the tests.
 ```
+
+**Note on MemGPT Baseline:** The `memgpt` agent identifier has been suspended as of 2026-02-10 due to removal of the `pymemgpt` dependency (enforced Python `<3.13` constraint). See [docs/pymemgpt-analysis.md](docs/pymemgpt-analysis.md) for migration path to Letta if MemGPT comparisons are required.
 
 ## Native Gemini Provider
 

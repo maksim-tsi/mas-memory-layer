@@ -22,7 +22,7 @@ async def test_async_operation():
 **Key patterns**:
 - Use `@pytest.mark.asyncio` for all async test functions
 - Use `pytest_asyncio.fixture` for async fixtures (not `@pytest.fixture`)
-- Tests in `tests/conftest.py` automatically load `.env` via `python-dotenv`
+- Tests in `tests/conftest.py` automatically load environment variables via `python-dotenv` (do not open or print `.env`)
 
 ## Test Markers
 
@@ -80,7 +80,7 @@ async def test_with_adapter(redis_adapter):
 - Use `@pytest_asyncio.fixture` for async fixtures
 - Always clean up resources in fixture teardown (after `yield`)
 - Scope fixtures appropriately (`function`, `class`, `module`, `session`)
-- Fixtures automatically load environment variables from `.env`
+- Fixtures automatically load environment variables via `python-dotenv` (do not open or print `.env`)
 
 ## Test Structure
 
@@ -120,20 +120,24 @@ async def test_operation_name():
 
 ## Running Tests
 
-Tests must be run with absolute paths following the Terminal Resiliency Protocol:
+Tests must be run from the repository virtual environment **without output redirection**.
+
+Use the correct `.venv` executable path for your host:
+- Local checkout: `./.venv/bin/...`
+- Remote host: `/home/max/code/mas-memory-layer/.venv/bin/...`
 
 ```bash
 # All tests
-/home/max/code/mas-memory-layer/.venv/bin/pytest tests/ -v > /tmp/copilot.out && cat /tmp/copilot.out
+./.venv/bin/pytest tests/ -v
 
 # Specific marker
-/home/max/code/mas-memory-layer/.venv/bin/pytest tests/ -m smoke > /tmp/copilot.out && cat /tmp/copilot.out
+./.venv/bin/pytest tests/ -m smoke
 
 # Specific test file
-/home/max/code/mas-memory-layer/.venv/bin/pytest tests/storage/test_redis_adapter.py -v > /tmp/copilot.out && cat /tmp/copilot.out
+./.venv/bin/pytest tests/storage/test_redis_adapter.py -v
 
 # With coverage
-/home/max/code/mas-memory-layer/.venv/bin/pytest tests/ --cov=src --cov-report=html > /tmp/copilot.out && cat /tmp/copilot.out
+./.venv/bin/pytest tests/ --cov=src --cov-report=html
 ```
 
 ## Test Data and Mocking
@@ -146,20 +150,20 @@ Tests must be run with absolute paths following the Terminal Resiliency Protocol
 **Mocking**:
 - Mock external dependencies (LLM APIs, external services)
 - Don't mock storage adapters in integration tests
-- Use `unittest.mock` or `pytest-mock` for mocking
+- Use the `pytest-mock` plugin (`mocker` fixture). Do not import `unittest.mock` directly.
 
 ```python
-from unittest.mock import AsyncMock, patch
+import pytest
 
 @pytest.mark.asyncio
-async def test_with_mock():
+async def test_with_mock(mocker):
     """Test with mocked external dependency."""
-    mock_llm = AsyncMock(return_value={'result': 'mocked'})
-    
-    with patch('src.utils.llm_client.LLMClient.generate', mock_llm):
-        result = await some_function_using_llm()
-        assert result == 'mocked'
-        mock_llm.assert_called_once()
+    mock_llm = mocker.AsyncMock(return_value={"result": "mocked"})
+    mocker.patch("src.utils.llm_client.LLMClient.generate", mock_llm)
+
+    result = await some_function_using_llm()
+    assert result == "mocked"
+    mock_llm.assert_called_once()
 ```
 
 ## Test Infrastructure Requirements

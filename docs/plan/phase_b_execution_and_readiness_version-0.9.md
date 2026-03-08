@@ -2853,7 +2853,7 @@ Start three wrapper processes (one per agent):
 **Date**: October 21, 2025  
 **Status**: 🔄 Planning  
 **Priority**: High  
-**Related**: [ADR-002](../ADR/002-storage-performance-benchmarking.md), [BENCHMARK_IMPLEMENTATION.md](../../BENCHMARK_IMPLEMENTATION.md)
+**Related**: [ADR-002](../ADR/002-storage-performance-benchmarking.md), [storage-benchmark-implementation.md](../reports/storage-benchmark-implementation.md)
 
 ---
 

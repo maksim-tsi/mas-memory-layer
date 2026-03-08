@@ -248,7 +248,7 @@ class WorkingMemoryTier(BaseTier[Fact]):
             start_time = time.perf_counter()
             try:
                 result = await self.postgres.query(
-                    table="working_memory", filters={"id": fact_id}, limit=1
+                    table="working_memory", filters={"fact_id": fact_id}, limit=1
                 )
 
                 if not result:
@@ -754,7 +754,7 @@ class WorkingMemoryTier(BaseTier[Fact]):
             # Update in database
             await self.postgres.update(
                 "working_memory",
-                filters={"id": fact.fact_id},
+                filters={"fact_id": fact.fact_id},
                 data={
                     "last_accessed": fact.last_accessed,
                     "access_count": fact.access_count,

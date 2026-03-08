@@ -18,13 +18,11 @@ Assume the user is comfortable with Python, but not with the Mistral SDK specifi
 
 ### 1.1. Installation
 
-Always show `pip` as the primary install method:
+This repository uses **Poetry** and a pinned dependency set in `pyproject.toml`.
 
-```bash
-pip install mistralai
-```
-
-Only mention `uv` or `poetry` if the user asks.
+- Do not install dependencies with `pip`.
+- Do not change dependencies unless explicitly authorized for the current task.
+- If `mistralai` is missing and must be added/updated, escalate to the user and propose a Poetry-based change.
 
 ### 1.2. API key configuration
 

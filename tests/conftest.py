@@ -19,24 +19,29 @@ sys.path.insert(0, project_root)
 dotenv_path = os.path.join(project_root, ".env")
 load_dotenv(dotenv_path, override=True)
 
-
-def pytest_configure(config):
-    """Configure pytest with custom markers"""
-    config.addinivalue_line("markers", "smoke: mark test as a smoke test (connectivity check)")
-    config.addinivalue_line("markers", "integration: mark test as an integration test")
-    config.addinivalue_line("markers", "unit: mark test as a unit test")
-    config.addinivalue_line("markers", "slow: mark test as slow-running (real LLM calls)")
-
-
 def pytest_collection_modifyitems(config, items):
-    """Modify test collection to add markers automatically"""
+    """Modify test collection to skip tests based on markers and flags"""
+    run_integration = config.getoption("--run-integration")
+    run_slow = config.getoption("--run-slow")
+
+    skip_integration = pytest.mark.skip(reason="need --run-integration option to run")
+    skip_slow = pytest.mark.skip(reason="need --run-slow option to run")
+
     for item in items:
         # Auto-mark connectivity tests as smoke tests
         if "test_connectivity" in item.nodeid:
             item.add_marker(pytest.mark.smoke)
-        # Auto-mark integration tests
+
+        # Auto-mark integration tests based on path or name if not already marked
+        # This handles tests that don't have the decorator but are in the integration/ folder or named appropriately
         if "integration" in item.nodeid:
             item.add_marker(pytest.mark.integration)
+
+        # Apply skipping logic locally since root conftest might run before these dynamic markers are added
+        if "integration" in item.keywords and not run_integration:
+            item.add_marker(skip_integration)
+        if "slow" in item.keywords and not run_slow:
+            item.add_marker(skip_slow)
 
 
 @pytest.fixture

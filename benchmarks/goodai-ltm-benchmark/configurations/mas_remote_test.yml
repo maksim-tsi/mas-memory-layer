@@ -1,0 +1,11 @@
+config:
+  debug: True
+  run_name: "MAS Remote Test"
+
+datasets:
+  args:
+    memory_span: 32000
+    dataset_examples: 1
+
+  datasets:
+    - name: "prospective_memory"

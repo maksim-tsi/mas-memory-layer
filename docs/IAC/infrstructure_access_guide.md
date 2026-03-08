@@ -266,9 +266,10 @@ psql --version  # Should show: psql (PostgreSQL) 16.x
    ls -la .env
    ```
 
-2. **Virtual environment activated:**
+2. **Python environment configured:**
    ```bash
-   source .venv/bin/activate
+   # Use direct executable paths (do not use 'source .venv/bin/activate')
+   ./.venv/bin/python --version
    ```
 
 3. **All services running:**

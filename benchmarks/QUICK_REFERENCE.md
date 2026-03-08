@@ -5,16 +5,15 @@
 # Ensure storage backends are running:
 redis-server                                                          # Redis (ports 6379)
 docker run -p 6333:6333 qdrant/qdrant                                # Qdrant
-docker run -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:latest   # Neo4j
-docker run -p 8108:8108 typesense/typesense:latest --api-key=xyz    # Typesense
+docker run -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:5.15     # Neo4j
+docker run -p 8108:8108 typesense/typesense:0.25.2 --api-key=xyz    # Typesense
 ```
 
 ## Quick Commands
 
 ### Run Benchmark (Default: 10K ops)
 ```bash
-source .venv/bin/activate
-python scripts/run_storage_benchmark.py
+./.venv/bin/python scripts/run_storage_benchmark.py
 ```
 
 ### Run Small Benchmark (1K ops - Quick Test)
@@ -79,4 +78,4 @@ python tests/benchmarks/results_analyzer.py --results benchmarks/results/raw/ben
 
 📖 Full Documentation: `benchmarks/README.md`  
 📋 ADR: `docs/ADR/002-storage-performance-benchmarking.md`  
-🎯 Implementation: `BENCHMARK_IMPLEMENTATION.md`
+🎯 Implementation: `docs/reports/storage-benchmark-implementation.md`

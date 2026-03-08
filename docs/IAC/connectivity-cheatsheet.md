@@ -9,7 +9,7 @@ This document summarizes the key connectivity details for the main components in
 ## Hosts
 
 - Orchestrator Node: `skz-dev-lv` — 192.168.107.172
-- Data Node: `skz-stg-lv` — 192.168.107.187
+- Data Node: `skz-data-lv` — 192.168.107.187
 
 ## Services on Orchestrator Node (skz-dev-lv)
 
@@ -18,7 +18,7 @@ This document summarizes the key connectivity details for the main components in
 - n8n: http://192.168.107.172:5678 (Web UI)
 - Arize Phoenix: http://192.168.107.172:6006 (Web UI)
 
-## Services on Data Node (skz-stg-lv)
+## Services on Data Node (skz-data-lv)
 
 - Qdrant: http://192.168.107.187:6333 (REST API, dashboard at /dashboard)
 - Neo4j (Bolt): bolt://192.168.107.187:7687 (UI at http://192.168.107.187:7474)

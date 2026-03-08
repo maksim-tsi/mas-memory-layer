@@ -86,6 +86,20 @@ We will expose two distinct layers of tools to the agents:
 2.  **Granular Tools:** Low-level, tier-specific operations (e.g., `l2_search_facts`, `l3_query_graph`) for "surgical" information gathering.
 *   **Why:** Validates the research finding that agents need different granularities of control depending on task complexity.
 
+### **2.3.1. Policy Packaging via Skills (Update Feb 18, 2026)**
+To further mitigate tool bloat and context pollution, we adopt a policy-layer packaging approach in
+which tool usage guidance is expressed as repository-local **Skills** (see ADR-010).
+
+In this model:
+- Mechanism-level capabilities remain implemented as stable code (e.g., adapters and tool functions).
+- Skills provide task-oriented instructions and safe “recipes” for using these capabilities.
+- Progressive disclosure can be achieved by revealing only a small skill inventory initially, and
+  injecting a selected skill’s instruction payload only when needed.
+
+This approach complements (and does not replace) the Sub-Graph topology described in §2.2. Skills
+are a control surface for instruction and capability disclosure; Sub-Graphs remain the primary
+execution and state-management strategy in LangGraph.
+
 ### **2.4. Async-First Mandate**
 All tools and graph nodes **must be implemented as `async def`**.
 *   **Why:** Our system runs inside a FastAPI wrapper (ASGI). Blocking synchronous calls will freeze the server and break the high-throughput requirement validated in the benchmarks. This also ensures `contextvars` are propagated correctly for tracing (Arize Phoenix).

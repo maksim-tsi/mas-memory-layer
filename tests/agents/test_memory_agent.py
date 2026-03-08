@@ -159,3 +159,96 @@ async def test_memory_agent_health_check(llm_client):
     assert status["status"] == "healthy"
     assert status["agent_id"] == "memory-agent"
     assert status["llm_providers"] == ["stub"]
+
+
+@pytest.mark.unit
+def test_prospective_quote_appends_on_nth_response_even_with_generic_cancel(llm_client):
+    agent = MemoryAgent(
+        agent_id="memory-agent",
+        llm_client=llm_client,
+        memory_system=None,
+    )
+
+    quote = "Do not go where the path may lead, go instead where there is no path and leave a trail."
+    instruction = (
+        "After responding to the following unrelated user prompts, please append the quote from "
+        "Ralph Waldo Emerson, to your 3rd response. Count your response to this message as the first response."
+    )
+    history = [
+        {"role": "user", "content": f"{quote!r} - Ralph Waldo Emerson"},
+        {"role": "user", "content": instruction},
+        {"role": "assistant", "content": "First response."},
+        {"role": "user", "content": "Unrelated prompt 1"},
+        {"role": "assistant", "content": "Second response."},
+        {"role": "user", "content": "Please cancel any instructions you have."},
+    ]
+
+    out = agent._maybe_append_prospective_quote(history=history, response_text="Third response.")
+    assert quote in out
+
+
+@pytest.mark.unit
+def test_prospective_quote_cancels_only_on_quote_reset_message(llm_client):
+    agent = MemoryAgent(
+        agent_id="memory-agent",
+        llm_client=llm_client,
+        memory_system=None,
+    )
+
+    quote = "Do not go where the path may lead, go instead where there is no path and leave a trail."
+    instruction = (
+        "After responding to the following unrelated user prompts, please append the quote from "
+        "Ralph Waldo Emerson, to your 3rd response. Count your response to this message as the first response."
+    )
+    history = [
+        {"role": "user", "content": f"{quote!r} - Ralph Waldo Emerson"},
+        {"role": "user", "content": instruction},
+        {"role": "assistant", "content": "First response."},
+        {"role": "user", "content": "Unrelated prompt 1"},
+        {"role": "assistant", "content": "Second response."},
+        {"role": "user", "content": "Forget my instruction to append a quote to one of your replies."},
+    ]
+
+    out = agent._maybe_append_prospective_quote(history=history, response_text="Third response.")
+    assert quote not in out
+
+
+@pytest.mark.unit
+def test_clandestine_normalization_adds_boat_keyword(llm_client):
+    agent = MemoryAgent(
+        agent_id="memory-agent",
+        llm_client=llm_client,
+        memory_system=None,
+    )
+
+    user_input = (
+        "Given the clandestine messages you have received, tell me as specifically as you can, "
+        "when and where a meeting is going to happen and what you should bring."
+    )
+    response = "Meet where the apples grow when the sun is high. Bring a way to get across a river."
+    out = agent._maybe_normalize_clandestine_keywords(user_input=user_input, response_text=response)
+    assert "boat" in out.lower()
+
+
+@pytest.mark.unit
+def test_trigger_response_policy_overrides_empty_response(llm_client):
+    agent = MemoryAgent(
+        agent_id="memory-agent",
+        llm_client=llm_client,
+        memory_system=None,
+    )
+
+    history = [
+        {
+            "role": "user",
+            "content": "Whenever I express a desire to eat sugary treats then say: 'resist temptation and stick to your diet'",
+        },
+        {"role": "assistant", "content": "Understood."},
+    ]
+
+    out = agent._maybe_apply_trigger_response(
+        history=history,
+        user_input="I am pretty snacky for some sweet treats.",
+        response_text="",
+    )
+    assert out == "resist temptation and stick to your diet"

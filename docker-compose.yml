@@ -1,0 +1,107 @@
+version: "3.9"
+
+services:
+  mas-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      MAS_AGENT_TYPE: ${MAS_AGENT_TYPE:-full}
+      MAS_MODEL: ${MAS_MODEL:-gemini-2.5-flash-lite}
+      MAS_PORT: "8080"
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql://mas:mas@localhost:5432/mas}
+      REDIS_URL: ${REDIS_URL:-redis://localhost:6379/0}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY:-mas-typesense-key}
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - mas_network
+
+  benchmark-runner:
+    build:
+      context: ./benchmarks/goodai-ltm-benchmark
+      dockerfile: Dockerfile
+    depends_on:
+      - mas-agent
+    environment:
+      AGENT_URL: ${AGENT_URL:-http://mas-agent:8080/v1/chat/completions}
+    networks:
+      - mas_network
+
+  postgres:
+    image: postgres:15
+    profiles: ["local-db"]
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: mas
+      POSTGRES_PASSWORD: mas
+      POSTGRES_DB: mas
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - mas_network
+
+  redis:
+    image: redis/redis-stack-server:latest
+    profiles: ["local-db"]
+    ports:
+      - "6379:6379"
+    networks:
+      - mas_network
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    profiles: ["local-db"]
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - mas_network
+
+  typesense:
+    image: typesense/typesense:0.25.2
+    profiles: ["local-db"]
+    ports:
+      - "8108:8108"
+    environment:
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY:-mas-typesense-key}
+      TYPESENSE_DATA_DIR: /data
+    command:
+      - "--data-dir"
+      - "/data"
+      - "--api-key"
+      - "${TYPESENSE_API_KEY:-mas-typesense-key}"
+      - "--enable-cors"
+    volumes:
+      - typesense_data:/data
+    networks:
+      - mas_network
+
+  neo4j:
+    image: neo4j:5.15
+    profiles: ["local-db"]
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/mas-password
+    volumes:
+      - neo4j_data:/data
+    networks:
+      - mas_network
+
+networks:
+  mas_network:
+
+volumes:
+  postgres_data:
+  qdrant_data:
+  typesense_data:
+  neo4j_data:

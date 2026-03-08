@@ -25,17 +25,21 @@ class RAGAgent(BaseAgent):
     ) -> None:
         super().__init__(agent_id=agent_id, memory_system=memory_system, config=config)
         self._llm_client = llm_client
-        self._model = self._config.get("model", "gemini-2.5-flash-lite")
+        self._model = self._config.get("model", "gemini-3-flash-preview")
         self._top_k = int(self._config.get("top_k", 8))
 
     async def initialize(self) -> None:
         """Initialize RAGAgent resources."""
         logger.info("Initializing RAGAgent '%s'", self.agent_id)
 
-    async def run_turn(self, request: RunTurnRequest) -> RunTurnResponse:
+    async def run_turn(
+        self, request: RunTurnRequest, history: list[dict[str, Any]] | None = None
+    ) -> RunTurnResponse:
         """Process a single turn with retrieval-augmented context."""
         await self.ensure_initialized()
 
+        response_metadata: dict[str, Any] = dict(request.metadata or {})
+        user_input = self._extract_latest_user_message(history) or request.content
         retrievals: list[dict[str, Any]] = []
         vector_store = self._get_vector_store()
         if vector_store:
@@ -44,15 +48,20 @@ class RAGAgent(BaseAgent):
         elif self._memory_system and hasattr(self._memory_system, "query_memory"):
             retrievals = await self._memory_system.query_memory(
                 session_id=request.session_id,
-                query=request.content,
+                query=user_input,
                 limit=self._top_k,
             )
         else:
             logger.warning("No vector store available for RAGAgent '%s'", self.agent_id)
 
-        prompt = self._build_prompt(retrievals=retrievals, user_input=request.content)
+        prompt = self._build_prompt(
+            retrievals=retrievals,
+            history_text=self._format_history(history),
+            user_input=user_input,
+        )
         response_text = await self._generate_response(
             prompt,
+            state_metadata=response_metadata,
             agent_metadata={
                 "agent.type": "rag",
                 "agent.session_id": request.session_id,
@@ -65,6 +74,7 @@ class RAGAgent(BaseAgent):
             role="assistant",
             content=response_text,
             turn_id=request.turn_id,
+            metadata=response_metadata or None,
         )
 
     async def health_check(self) -> dict[str, Any]:
@@ -87,6 +97,7 @@ class RAGAgent(BaseAgent):
     async def _generate_response(
         self,
         prompt: str,
+        state_metadata: dict[str, Any] | None = None,
         agent_metadata: dict[str, Any] | None = None,
     ) -> str:
         if not self._llm_client:
@@ -97,12 +108,21 @@ class RAGAgent(BaseAgent):
             model=self._model,
             agent_metadata=agent_metadata,
         )
+        if isinstance(state_metadata, dict):
+            state_metadata.setdefault("llm_provider", llm_response.provider)
+            state_metadata.setdefault("llm_model", llm_response.model)
+            if llm_response.usage:
+                state_metadata.setdefault("llm_usage", llm_response.usage)
         return llm_response.text
 
-    def _build_prompt(self, retrievals: list[dict[str, Any]], user_input: str) -> str:
+    def _build_prompt(
+        self, retrievals: list[dict[str, Any]], history_text: str, user_input: str
+    ) -> str:
         sections = [
             "You are the MAS RAG Agent. Use retrieved memory snippets to answer the user.",
         ]
+        if history_text:
+            sections.append("## Conversation History (API Wall)\n" + history_text)
         if retrievals:
             snippets = []
             for item in retrievals:
@@ -149,3 +169,23 @@ class RAGAgent(BaseAgent):
         except Exception as exc:  # pragma: no cover - defensive fallback
             logger.warning("Vector store query failed: %s", exc)
             return []
+
+    def _format_history(self, history: list[dict[str, Any]] | None) -> str:
+        """Format API-provided conversation history for prompt context."""
+        if not history:
+            return ""
+        lines: list[str] = []
+        for message in history:
+            role = str(message.get("role", "unknown")).upper()
+            content = str(message.get("content", ""))
+            lines.append(f"{role}: {content}")
+        return "\n".join(lines)
+
+    def _extract_latest_user_message(self, history: list[dict[str, Any]] | None) -> str:
+        """Extract the most recent user message from history."""
+        if not history:
+            return ""
+        for message in reversed(history):
+            if str(message.get("role", "")).lower() == "user":
+                return str(message.get("content", ""))
+        return str(history[-1].get("content", ""))

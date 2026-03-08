@@ -96,7 +96,7 @@ from google import genai
 from google.genai import types
 
 # Initialize client
-client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
 
 # User content (conversation to analyze)
 user_content = """Extract significant facts from the following supply chain conversation:
@@ -541,7 +541,7 @@ print(result.model_dump_json(indent=2))
 
 2. **Set your API key**:
    ```bash
-   export GEMINI_API_KEY="your-api-key"
+   export GOOGLE_API_KEY="your-api-key"
    ```
 
 3. **Run the test script**:

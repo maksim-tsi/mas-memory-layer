@@ -18,9 +18,11 @@ Assume the user is comfortable with Python, but not with the Groq SDK specifics.
 
 ### 1.1. Installation
 
-```bash
-pip install groq
-```
+This repository uses **Poetry** and a pinned dependency set in `pyproject.toml`.
+
+- Do not install dependencies with `pip`.
+- Do not change dependencies unless explicitly authorized for the current task.
+- If `groq` is missing and must be added/updated, escalate to the user and propose a Poetry-based change.
 
 ### 1.2. API key configuration
 
@@ -328,4 +330,3 @@ If the user mentions:
   - Using `GROQ_API_KEY`
   - Updating the `model` string to a Groq model ID.
 ```
-

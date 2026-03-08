@@ -66,7 +66,8 @@ class QdrantVectorStore:
             point_id = doc_id if isinstance(doc_id, int | str) else str(doc_id)
             doc_ids.append(point_id)
 
-            vector = self.encoder.encode(doc["content"]).tolist()
+            embedding = self.encoder.encode(doc["content"])
+            vector = embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
 
             points.append(models.PointStruct(id=point_id, vector=vector, payload=doc))
 
@@ -87,14 +88,15 @@ class QdrantVectorStore:
         Returns:
             List of document payloads sorted by similarity.
         """
-        query_vector = self.encoder.encode(query_text).tolist()
+        embedding = self.encoder.encode(query_text)
+        query_vector = embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
         hits = self.client.search(
             collection_name=self.collection_name,
             query_vector=query_vector,
             query_filter=filters,
             limit=top_k,
         )
-        return [hit.payload for hit in hits]
+        return [hit.payload for hit in hits if hit.payload is not None]
 
     def delete_documents(self, ids: list[str | int]):
         """Deletes documents by their IDs."""

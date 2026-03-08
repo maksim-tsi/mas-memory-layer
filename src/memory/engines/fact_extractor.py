@@ -7,6 +7,7 @@ to extract structured facts from raw text turns.
 
 import json
 import logging
+import os
 import re
 from datetime import UTC, datetime
 from typing import Any
@@ -41,7 +42,12 @@ class FactExtractor:
 
     def __init__(self, llm_client: LLMClient | None = None, model_name: str | None = None):
         self.llm_client: LLMClient = llm_client or LLMClient.from_env()
-        self.model_name = model_name or "gemini-3-flash-preview"
+        self.model_name = (
+            model_name
+            or os.environ.get("MAS_FACT_EXTRACTOR_MODEL")
+            or os.environ.get("MAS_MODEL")
+            or "gemini-3-flash-preview"
+        )
 
     async def extract_facts(self, text: str, metadata: dict[str, Any] | None = None) -> list[Fact]:
         """

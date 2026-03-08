@@ -1,0 +1,28 @@
+# Virtual environments
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Git
+.git/
+.gitignore
+
+# Data/Results (mount these as volumes instead)
+data/tests/
+data/reports/
+logs/
+
+# macOS
+.DS_Store

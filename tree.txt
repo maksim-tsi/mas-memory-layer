@@ -1,6 +1,5 @@
 .
 ├── AGENTS.MD
-├── benchmark_implementation.md
 ├── benchmarks
 │   ├── configs
 │   │   ├── workload_large.yaml
@@ -597,6 +596,7 @@
 │   │   │   ├── figures.py
 │   │   │   ├── gemini.py
 │   │   │   └── migr-reeval.py
+│   │   ├── Dockerfile
 │   │   ├── docs
 │   │   │   ├── improvement-plan.md
 │   │   │   ├── mypy-fix-plan.md
@@ -731,15 +731,13 @@
 │           ├── benchmark_20251021_020754.json
 │           ├── benchmark_20251021_021457.json
 │           └── benchmark_20251021_021857.json
-├── check_l2_roundtrip.py
-├── check_tier_collection.py
 ├── config
 │   ├── ciar_config.yaml
 │   └── domains
 │       └── container_logistics.yaml
-├── create_qdrant_index.py
-├── debug_qdrant_dump.py
 ├── DEVLOG.md
+├── docker-compose.yml
+├── Dockerfile
 ├── docs
 │   ├── ADR
 │   │   ├── 001-benchmarking-strategy.md
@@ -750,6 +748,7 @@
 │   │   ├── 006-free-tier-llm-strategy.md
 │   │   ├── 007-agent-integration-layer.md
 │   │   ├── 008-benchmark-and-inspector-adoption.md
+│   │   ├── 009-decoupling-benchmark-api-wall.md
 │   │   └── discussion-evaluation.md
 │   ├── agentrouter_cleanup_summary.md
 │   ├── benchmark_data_dictionary.md
@@ -770,8 +769,8 @@
 │   │   └── README.md
 │   ├── lessons-learned.md
 │   ├── llm_provider_guide.md
-│   ├── llm_provider_setup_complete.md
-│   ├── llm_provider_tests.md
+│   ├── LLM_PROVIDER_SETUP_COMPLETE.md
+│   ├── LLM_PROVIDER_TESTS.md
 │   ├── metrics_implementation_summary.md
 │   ├── metrics_usage.md
 │   ├── plan
@@ -808,7 +807,8 @@
 │   │   ├── qdrant-scroll-vs-search-debugging-2026-01-03.md
 │   │   ├── README.md
 │   │   ├── smoke-tests-2025-10-20.md
-│   │   └── spec-implementation-alignment-report.md
+│   │   ├── spec-implementation-alignment-report.md
+│   │   └── storage-benchmark-implementation.md
 │   ├── requirements
 │   │   ├── req-01-benchmark-v2.md
 │   │   └── req-02-memory-inspector.md
@@ -834,13 +834,10 @@
 │       ├── spec-phase2-memory-tiers.md
 │       ├── spec-phase3-agent-integration.md
 │       └── spec-phase3-research-questions.md
-├── ensure_episodes_collection.py
 ├── examples
 │   ├── gemini_structured_output_test.md
 │   └── metrics_demo.py
 ├── GEMINI.MD
-├── graph_store_client.py
-├── knowledge_store_manager.py
 ├── LICENSE
 ├── logs
 │   ├── agentrouter_test.json
@@ -849,8 +846,7 @@
 │   ├── model_validation_results.json
 │   ├── rate_limiter_full.jsonl
 │   └── README.md
-├── manual_l3_store.py
-├── memory_system.py
+├── Makefile
 ├── migrations
 │   ├── 001_active_context.sql
 │   ├── 002_l2_tsvector_index.sql
@@ -863,14 +859,34 @@
 ├── requirements.txt
 ├── scripts
 │   ├── __pycache__
+│   │   ├── archive_docs_to_typesense.cpython-312.pyc
 │   │   ├── test_gemini.cpython-312.pyc
 │   │   ├── test_groq.cpython-312.pyc
 │   │   └── test_mistral.cpython-312.pyc
 │   ├── apply_migration.py
+│   ├── archive
+│   │   ├── __pycache__
+│   │   │   ├── graph_store_client.cpython-312.pyc
+│   │   │   ├── knowledge_store_manager.cpython-312.pyc
+│   │   │   ├── search_store_client.cpython-312.pyc
+│   │   │   └── vector_store_client.cpython-312.pyc
+│   │   ├── graph_store_client.py
+│   │   ├── knowledge_store_manager.py
+│   │   ├── README.md
+│   │   ├── search_store_client.py
+│   │   └── vector_store_client.py
 │   ├── archive_docs_to_typesense.py
 │   ├── check_phoenix_connectivity.sh
 │   ├── compress_logs.py
+│   ├── create_qdrant_index.py
+│   ├── debug
+│   │   ├── check_l2_roundtrip.py
+│   │   ├── check_tier_collection.py
+│   │   ├── debug_qdrant_dump.py
+│   │   ├── manual_l3_store.py
+│   │   └── README.md
 │   ├── demo_health_check.py
+│   ├── ensure_episodes_collection.py
 │   ├── grade_phase5_readiness.py
 │   ├── grade_phase5_readiness.sh
 │   ├── llm_client_demo.py
@@ -900,7 +916,6 @@
 │   ├── verify_infrastructure.sh
 │   ├── verify_metrics_implementation.py
 │   └── verify_typesense_docs.py
-├── search_store_client.py
 ├── src
 │   ├── __init__.py
 │   ├── __pycache__
@@ -940,8 +955,15 @@
 │   │   │   └── agent_wrapper.cpython-312.pyc
 │   │   └── agent_wrapper.py
 │   ├── llm
+│   │   ├── __pycache__
+│   │   │   └── client.cpython-312.pyc
 │   │   ├── client.py
 │   │   ├── providers
+│   │   │   ├── __pycache__
+│   │   │   │   ├── base.cpython-312.pyc
+│   │   │   │   ├── gemini.cpython-312.pyc
+│   │   │   │   ├── groq.cpython-312.pyc
+│   │   │   │   └── mistral.cpython-312.pyc
 │   │   │   ├── base.py
 │   │   │   ├── gemini.py
 │   │   │   ├── groq.py
@@ -956,7 +978,9 @@
 │   │   │   ├── lifecycle_stream.cpython-312.pyc
 │   │   │   ├── lua_manager.cpython-312.pyc
 │   │   │   ├── models.cpython-312.pyc
-│   │   │   └── namespace.cpython-312.pyc
+│   │   │   ├── namespace.cpython-312.pyc
+│   │   │   ├── system.cpython-312.pyc
+│   │   │   └── unified_memory_system.cpython-312.pyc
 │   │   ├── ciar_scorer.py
 │   │   ├── DEVLOG.md
 │   │   ├── engines
@@ -1000,22 +1024,24 @@
 │   │   │   ├── README.md
 │   │   │   └── topic_segmentation.py
 │   │   ├── system.py
-│   │   └── tiers
-│   │       ├── __init__.py
-│   │       ├── __pycache__
-│   │       │   ├── __init__.cpython-312.pyc
-│   │       │   ├── active_context_tier.cpython-312.pyc
-│   │       │   ├── base_tier.cpython-312.pyc
-│   │       │   ├── episodic_memory_tier.cpython-312.pyc
-│   │       │   ├── semantic_memory_tier.cpython-312.pyc
-│   │       │   └── working_memory_tier.cpython-312.pyc
-│   │       ├── active_context_tier.py
-│   │       ├── base_tier.py
-│   │       ├── DEVLOG.md
-│   │       ├── episodic_memory_tier.py
-│   │       ├── README.md
-│   │       ├── semantic_memory_tier.py
-│   │       └── working_memory_tier.py
+│   │   ├── tiers
+│   │   │   ├── __init__.py
+│   │   │   ├── __pycache__
+│   │   │   │   ├── __init__.cpython-312.pyc
+│   │   │   │   ├── active_context_tier.cpython-312.pyc
+│   │   │   │   ├── base_tier.cpython-312.pyc
+│   │   │   │   ├── episodic_memory_tier.cpython-312.pyc
+│   │   │   │   ├── semantic_memory_tier.cpython-312.pyc
+│   │   │   │   └── working_memory_tier.cpython-312.pyc
+│   │   │   ├── active_context_tier.py
+│   │   │   ├── base_tier.py
+│   │   │   ├── DEVLOG.md
+│   │   │   ├── episodic_memory_tier.py
+│   │   │   ├── README.md
+│   │   │   ├── semantic_memory_tier.py
+│   │   │   └── working_memory_tier.py
+│   │   └── unified_memory_system.py
+│   ├── server.py
 │   ├── storage
 │   │   ├── __init__.py
 │   │   ├── __pycache__
@@ -1048,10 +1074,12 @@
 │   │   └── typesense_adapter.py
 │   └── utils
 │       ├── __init__.py
-│       └── __pycache__
-│           ├── __init__.cpython-312.pyc
-│           ├── llm_client.cpython-312.pyc
-│           └── providers.cpython-312.pyc
+│       ├── __pycache__
+│       │   ├── __init__.cpython-312.pyc
+│       │   ├── llm_client.cpython-312.pyc
+│       │   └── providers.cpython-312.pyc
+│       ├── llm_client.py
+│       └── providers.py
 ├── tests
 │   ├── __init__.py
 │   ├── __pycache__
@@ -1122,14 +1150,20 @@
 │   │   │   ├── conftest.cpython-312-pytest-9.0.2.pyc
 │   │   │   ├── test_connectivity.cpython-312-pytest-9.0.1.pyc
 │   │   │   ├── test_connectivity.cpython-312-pytest-9.0.2.pyc
+│   │   │   ├── test_gemini_provider.cpython-312-pytest-9.0.2.pyc
+│   │   │   ├── test_groq_provider.cpython-312-pytest-9.0.2.pyc
+│   │   │   ├── test_instruction_recall.cpython-312-pytest-9.0.2.pyc
 │   │   │   ├── test_llmclient_real.cpython-312-pytest-9.0.1.pyc
 │   │   │   ├── test_llmclient_real.cpython-312-pytest-9.0.2.pyc
 │   │   │   ├── test_lock_renewal.cpython-312-pytest-9.0.1.pyc
 │   │   │   ├── test_lock_renewal.cpython-312-pytest-9.0.2.pyc
+│   │   │   ├── test_memory_inspector.cpython-312-pytest-9.0.2.pyc
 │   │   │   ├── test_memory_lifecycle.cpython-312-pytest-9.0.1.pyc
 │   │   │   ├── test_memory_lifecycle.cpython-312-pytest-9.0.2.pyc
 │   │   │   ├── test_memory_perf.cpython-312-pytest-9.0.1.pyc
 │   │   │   ├── test_memory_perf.cpython-312-pytest-9.0.2.pyc
+│   │   │   ├── test_mistral_provider.cpython-312-pytest-9.0.2.pyc
+│   │   │   ├── test_tier_telemetry.cpython-312-pytest-9.0.2.pyc
 │   │   │   ├── test_wrapper_agents_integration.cpython-312-pytest-9.0.1.pyc
 │   │   │   └── test_wrapper_agents_integration.cpython-312-pytest-9.0.2.pyc
 │   │   ├── conftest.py
@@ -1203,7 +1237,11 @@
 │   ├── README.md
 │   ├── scripts
 │   │   ├── __init__.py
+│   │   ├── __pycache__
+│   │   │   ├── __init__.cpython-312.pyc
+│   │   │   └── test_archive_docs_to_typesense.cpython-312-pytest-9.0.2.pyc
 │   │   └── test_archive_docs_to_typesense.py
+│   ├── smoke_test_api.py
 │   ├── storage
 │   │   ├── __init__.py
 │   │   ├── __pycache__
@@ -1272,7 +1310,6 @@
 │   │   ├── test_providers_groq.py
 │   │   └── test_providers_mistral.py
 │   └── verify_llm_client_factory.py
-├── tree.txt
-└── vector_store_client.py
+└── tree.txt
 
-259 directories, 1017 files
+265 directories, 1048 files

@@ -7,31 +7,65 @@ Why these scripts exist
 - Provide quick, developer-friendly ways to exercise provider SDKs and the `LLMClient` implementation.
 - Provide smoke/integration checks to verify connectivity, usage, and basic generation for provider-specific SDKs.
 
+## Directory Structure
+
+```
+scripts/
+├── archive/             # Archived legacy code (preserved for reference)
+├── debug/               # One-off debug and verification scripts
+├── *.py                 # Production utility scripts
+├── *.sh                 # Shell scripts for tests and setup
+└── README.md            # This file
+```
+
+### Database Infrastructure Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `create_qdrant_index.py` | Creates a payload index on `session_id` field in Qdrant's `episodes` collection |
+| `ensure_episodes_collection.py` | Creates/refreshes the `episodes` collection in Qdrant with correct vector size |
+
+**Usage:**
+```bash
+# Create Qdrant index
+./.venv/bin/python scripts/create_qdrant_index.py
+
+# Ensure episodes collection exists
+./.venv/bin/python scripts/ensure_episodes_collection.py
+```
+
+### Subdirectories
+
+- **`debug/`** - One-off debug and verification scripts for development troubleshooting. See [debug/README.md](debug/README.md).
+- **`archive/`** - Archived legacy code that has been superseded by current architecture. See [archive/README.md](archive/README.md).
+
+---
+
 Script inventory
 # Run demo with flags (run subset of providers and custom prompt):
-./venv/bin/python scripts/llm_client_demo.py --providers=gemini,groq --prompt "Explain memory systems in one sentence."
+./.venv/bin/python scripts/llm_client_demo.py --providers=gemini,groq --prompt "Explain memory systems in one sentence."
  
 # Run demo with JSON output (good for scripting/CI output):
-./venv/bin/python scripts/llm_client_demo.py --providers=groq --prompt "Explain the CIAR scoring briefly" --json
+./.venv/bin/python scripts/llm_client_demo.py --providers=groq --prompt "Explain the CIAR scoring briefly" --json
 
 # Use a default model for all providers --model or override per-provider:
-./venv/bin/python scripts/llm_client_demo.py --providers=gemini,groq --model "gemini-2.5-flash" --prompt "Explain memory systems" --json
-./venv/bin/python scripts/llm_client_demo.py --providers=gemini --model-gemini "gemini-2.0-flash-exp" --prompt "Explain the CIAR scoring briefly" --json
+./.venv/bin/python scripts/llm_client_demo.py --providers=gemini,groq --model "gemini-2.5-flash" --prompt "Explain memory systems" --json
+./.venv/bin/python scripts/llm_client_demo.py --providers=gemini --model-gemini "gemini-2.0-flash-exp" --prompt "Explain the CIAR scoring briefly" --json
 
 # Increase demo verbosity (set logging level to DEBUG):
-./venv/bin/python scripts/llm_client_demo.py --providers=mistral --prompt "Summarize the project in one sentence" --verbose
+./.venv/bin/python scripts/llm_client_demo.py --providers=mistral --prompt "Summarize the project in one sentence" --verbose
 
 # Skip provider health checks (faster demos):
-./venv/bin/python scripts/llm_client_demo.py --providers=groq --skip-health-check --prompt "Explain the CIAR scoring briefly" --json
+./.venv/bin/python scripts/llm_client_demo.py --providers=groq --skip-health-check --prompt "Explain the CIAR scoring briefly" --json
 
 # Write JSON NDJSON output to file
-./venv/bin/python scripts/llm_client_demo.py --providers=groq --skip-health-check --prompt "Explain the CIAR scoring briefly" --json --output-file="/tmp/llm_demo_out.ndjson"
-
+./.venv/bin/python scripts/llm_client_demo.py --providers=groq --skip-health-check --prompt "Explain the CIAR scoring briefly" --json --output-file="/tmp/llm_demo_out.ndjson"
+ 
 # JSON array output (overwrite existing file)
-./venv/bin/python scripts/llm_client_demo.py --providers=gemini --prompt "Explain memory" --json --output-format=json-array --output-mode=overwrite --output-file="/tmp/llm_demo_array.json"
+./.venv/bin/python scripts/llm_client_demo.py --providers=gemini --prompt "Explain memory" --json --output-format=json-array --output-mode=overwrite --output-file="/tmp/llm_demo_array.json"
 
 # JSON array output (append to existing array)
-./venv/bin/python scripts/llm_client_demo.py --providers=gemini --prompt "Explain memory" --json --output-format=json-array --output-mode=append --output-file="/tmp/llm_demo_array.json"
+./.venv/bin/python scripts/llm_client_demo.py --providers=gemini --prompt "Explain memory" --json --output-format=json-array --output-mode=append --output-file="/tmp/llm_demo_array.json"
 ----------------
 New File Output Behavior (ndjson vs json-array)
 --------------------------------------------

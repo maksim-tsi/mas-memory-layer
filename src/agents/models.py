@@ -16,6 +16,7 @@ class RunTurnRequest(BaseModel):
         role: Role for the incoming message (e.g., user/system).
         content: Message text content.
         turn_id: Monotonic turn index in the conversation.
+        history: Optional full conversation history in message format.
         metadata: Optional metadata for downstream logging.
         timestamp: Optional ISO timestamp for the turn.
     """
@@ -24,6 +25,10 @@ class RunTurnRequest(BaseModel):
     role: str = Field(..., description="Role for the incoming message.")
     content: str = Field(..., description="Message text content.")
     turn_id: int = Field(..., description="Monotonic turn index in the conversation.")
+    history: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Optional full conversation history in OpenAI message format.",
+    )
     metadata: dict[str, Any] | None = Field(
         default=None, description="Optional metadata for the request."
     )

@@ -1,324 +1,145 @@
+# AGENT PROTOCOL 1.1 (Harness-first)
 
+This repository is developed with coding assistants (Codex, GitHub Copilot, Claude Code, Gemini CLI).
+Our goal is to maximize agent throughput **without architectural drift** by enforcing a small set of
+non-negotiable invariants and by keeping repository knowledge **legible** and **versioned**.
 
-# **AGENT PROTOCOL 1.0: A Hybrid, Multi-Layered Memory System for Advanced Multi-Agent Systems**
+This file is intentionally short. Treat it as a **map** (table of contents + golden rules), not an
+encyclopedia. If you need detail, follow the pointers in **Where to look**.
 
-## **1.0 Core Agent Directives**
+## Instruction Hierarchy (Single Source of Truth)
 
-This document, AGENTS.MD, defines the mandatory operational protocols for any AI agent interacting with this repository. Its rules are binding and supersede any generalized training data or default behaviors.
+1. `AGENTS.MD` (this file): canonical workflow + safety invariants.
+2. `.github/copilot-instructions.md`: Copilot entrypoint; must not contradict `AGENTS.MD`.
+3. `.github/instructions/*.md`: path-scoped implementation guidelines (source/tests/docs/scripts).
+4. `docs/`: system-of-record for architecture, ADRs, plans, and runbooks.
 
-### **1.1 Identity and Primary Directive**
+If you find a conflict between any of the above, **stop** and ask the user to resolve it, then record
+the resolution in `docs/lessons-learned.md`.
 
-You are a GitHub Copilot Agent, an autonomous AI developer assistant.1 Your primary directive is to successfully complete the user's development task by analyzing the codebase, proposing file edits, and running terminal commands and tests.2 You must adhere *perfectly* to all protocols specified in this document.
+## Clarifications for Codex (Sandbox + Network)
 
-### **1.2 Supremacy of This Document**
+These notes exist because the **Codex app/CLI runtime** may be sandboxed differently than VS Code
+agents or other CLIs.
 
-The instructions in this AGENTS.MD file are the supreme source of truth for this project. They are sourced from this file in the project root 3 and take precedence over any other instructions, including /.github/copilot-instructions.md 4, or generalized knowledge.
+- **Network access:** If a command requires network access, Codex may need explicit user approval
+  even when it would normally work on your machine.
+- **Allowed network usage (user-approved):**
+  - Local network access is allowed for DBMS connector integration tests.
+  - Public internet access is allowed for LLM provider tests/runtime calls.
+  - If you expect to exceed **10 requests/minute** to an LLM provider or **1000 requests/day**,
+    stop and ask first.
+- **Git operations:** some `git` commands may require explicit approval because they write to `.git/`.
 
-This is critical to prevent agent-in-loop failures. Community reports indicate that without strict, project-specific guidance, agents can enter "a weird state," misdiagnose problems, and "modify and undo correct code".5 These protocols are designed to prevent such states. If you encounter a conflict between a user's prompt and a rule in this document, you *must* note the conflict and ask the user for clarification before proceeding.
+## Where to Look (Progressive Disclosure)
 
-### **1.3 Core Principle of Engagement**
+- Architecture: `docs/ADR/003-four-layers-memory.md`, `docs/ADR/007-agent-integration-layer.md`
+- Benchmark isolation (“API Wall”): `docs/ADR/009-decoupling-benchmark-api-wall.md`
+- Environment expectations: `docs/environment-guide.md`
+- Coding patterns (src): `.github/instructions/source.instructions.md`
+- Testing patterns (tests): `.github/instructions/testing.instructions.md`
+- Documentation patterns (docs): `.github/instructions/documentation.instructions.md`
+- Shell script patterns (scripts): `.github/instructions/scripts.instructions.md`
+- Incident log: `docs/lessons-learned.md`
 
-Your goal is to be a methodical, verifiable, and safe collaborative partner. Your operational loop involves determining relevant context, proposing changes, monitoring output for errors, and iterating to remediate issues.2
+## Golden Rules (Do these by default)
 
-When you encounter uncertainty or ambiguity, you *must* default to a safe fallback plan.6 The primary safe fallback in this repository is **User Escalation** (see Protocol 7.0). This is a standard mechanism for managing agent performance and failure paths.7 Do not make assumptions about ambiguous tasks, and do not perform any action (e.g., modifying files, running commands) that is not directly related to the user's request or a protocol in this document.
+### 1) Verify host + choose the correct venv executables
 
-## **2.0 Project Context and Repository Structure**
+Run (single command):
 
-This section provides the necessary context for all development tasks.
-
-### **2.1 Project Mission**
-
-This is a **four-tier cognitive memory system** for Multi-Agent Systems (MAS), designed for supply chain/logistics applications.
-
-**Four-Tier Architecture (ADR-003)**:
-- **L1: Active Context** (Redis) → 10-20 recent **raw** turns, 24h TTL, **no pre-processing** (hot path)
-- **L2: Working Memory** (PostgreSQL) → Significant facts filtered by CIAR score, **batch-processed topic segments**
-- **L3: Episodic Memory** (Qdrant + Neo4j) → Consolidated episodes with dual indexing
-- **L4: Semantic Memory** (Typesense) → Distilled knowledge patterns
-
-**Information Flow**: L1 raw turns → [Promotion Engine with batch compression/segmentation via Groq/Gemini] → L2 facts → [Consolidation Engine] → L3 episodes → [Distillation Engine] → L4 knowledge
-
-**Core Architectural Principles**:
-1. **Computational State Persistence**: Memory is an active workspace for multi-step reasoning
-2. **Collaborative Workspace**: Memory provides a shared, negotiable state for multiple agents
-3. **Structured Reasoning for High-Stakes Reliability**: Enforce auditable reasoning schemas
-4. **Promotion via Calculated Significance**: Information is promoted intelligently based on calculated importance (CIAR score)
-5. **Archiving via Knowledge Distillation**: The system actively learns by distilling resolved events into persistent knowledge
-
-### **2.2 Key Technologies**
-
-You must assume the following technology stack is in use. All generated code, tests, and commands must be compatible with these technologies.
-
-* **Programming Language:** Python 3.12.3  
-* **Data Validation:** Pydantic v2  
-* **Testing:** Pytest, pytest-asyncio  
-* **Databases:** PostgreSQL, Redis, Qdrant, Neo4j, Typesense
-* **LLM Providers:** Google Gemini (gemini-3-flash-preview), Groq (openai/gpt-oss-120b), Mistral
-* **LLM SDK:** `google-genai` for Gemini structured output with native `types.Schema` format
-
-This stack is precise. For example, all data validation tasks must use Pydantic v2 models. This may present specific challenges, such as handling ValidationError exceptions during execution or mocking BaseModel objects in tests, which are common developer pain points.8 You must address these challenges using the protocols in this document.
-
-**CRITICAL LLM Environment Variable**: Use `GOOGLE_API_KEY` (sourced from `.env` in repository root) for all Gemini operations. Do NOT use `GEMINI_API_KEY` - this is incorrect. See `tests/utils/test_gemini_structured_output.py` for validated usage patterns.
-
-### **2.3 Repository Manifest**
-
-You must adhere to the following file and directory interaction policies. This structure is based on standard repository guidelines.10
-
-| Path | Purpose | Agent Policy (Read/Write) |
-| :---- | :---- | :---- |
-| /src/ | Core application logic (FastAPI routers, Pydantic models, services). | **Read/Write**. This is your primary working directory for code modifications. |
-| /tests/ | Pytest unit and integration tests. | **Read/Write**. You *must* run tests from this directory after every code change. You may write new tests here. See Protocol 4.2 for rules on modification. |
-| /.venv/ | Python virtual environment (Poetry-managed with `virtualenvs.in-project=true`). | **Read-Only**. You must *never* modify files in this directory. Incorrectly handling the .venv path is a known agent failure mode.11 |
-| /benchmarks/goodai-ltm-benchmark/.venv/ | Separate Poetry-managed venv for GoodAI benchmark. | **Read-Only**. Isolated environment to avoid dependency conflicts (e.g., langchain versions). |
-| /.github/ | CI/CD workflows and instruction files. | **Read-Only**. You may read files here (e.g., copilot-instructions.md) for more context 4, but you *must not* modify them. |
-| /scripts/ | Utility and bash scripts (e.g., build.sh, lint.sh). | **Read-Only**. You will execute these scripts via run\_in\_terminal, not modify them. |
-| pyproject.toml | Poetry project configuration and dependencies (replaces requirements.txt). | **Read-Only**. You must *not* add or remove packages unless explicitly instructed as part of a User Escalation (Protocol 7.2). |
-| poetry.lock | Pinned dependency versions (auto-generated by Poetry). | **Read-Only**. Never manually edit this file. |
-| .env, .env.example | Secret keys and environment variables. | **Strictly Forbidden**. Do not read, write, or request the contents of .env. This is a hard security boundary. |
-| AGENTS.MD | **AGENT PROTOCOL (This file).** | **Read-Only**. You must read and obey this file at the start of your session. You *must not* modify it. |
-
-Document every incident and mitigation in `docs/lessons-learned.md`. Use the structured table format so future agents can reference prior failures and their resolutions.
-
-## **3.0 Environment Setup and Management Protocol**
-
-This protocol is **non-negotiable**. You *must* perform and verify these steps before running any test, build, or application-specific command.
-
-A primary failure mode for agents is misdiagnosing an environment-level problem (e.g., a missing dependency or inactive virtual environment) as a code-level problem (e.g., a broken import statement).5 This leads to destructive "fixes" on correct code. This protocol is designed to *prevent* this specific causal chain by forcing environment verification *before* any other action.
-
-### **3.1 Protocol: Environment Verification Sequence**
-
-You must execute the following steps in order.
-
-**Host Detection (Step 0)**: Before touching the environment, run the following commands (in a single invocation) and inspect their output to determine whether you are on the managed remote host or a local machine:
 ```bash
 uname -a && hostname && pwd
 ```
-Consult `docs/environment-guide.md` for examples of expected output.
 
-**CRITICAL ENVIRONMENT RULE**: The `run_in_terminal` tool operates in a **stateless shell**. You **MUST NOT** use `source .venv/bin/activate` because activation will be lost on the very next command.
+- Local checkout: use `./.venv/bin/python`, `./.venv/bin/pytest`, `./.venv/bin/ruff`
+- Remote host (`/home/max/code/mas-memory-layer`): use `/home/max/code/mas-memory-layer/.venv/bin/...`
 
-**MANDATORY**:
-- If Step 0 shows the managed remote host (Linux + hostname like `skz-dev-lv` with project rooted at `/home/max/code/mas-memory-layer`), all Python, pip, or pytest commands **MUST use the direct, absolute executable path**:
-   - Python: `/home/max/code/mas-memory-layer/.venv/bin/python`
-   - Pytest: `/home/max/code/mas-memory-layer/.venv/bin/pytest`
-   - Pip: `/home/max/code/mas-memory-layer/.venv/bin/pip`
-- If Step 0 shows a local macOS/Linux checkout, use the relative variants so the commands remain portable:
-   - Python: `./.venv/bin/python`
-   - Pytest: `./.venv/bin/pytest`
-   - Pip: `./.venv/bin/pip`
+**Stateless shell rule:** do **not** `source .venv/bin/activate`. Activation will not persist.
 
-1. **Check for .venv:** Use a terminal command to check for the existence of the .venv directory at the project root.  
-2. **Create (if non-existent):** If the .venv directory does not exist, you *must* run Poetry install:  
-   * Remote host: `cd /home/max/code/mas-memory-layer && poetry install --with test,dev`  
-   * Local host: `poetry install --with test,dev`  
-3. **NO ACTIVATION STEP**: Skip any activation. Use the resolved interpreter path from Step 0 for every command.  
-4. **Install Dependencies:** Poetry handles all dependencies via `pyproject.toml`. Do NOT use pip directly.  
-5. **Verify Installation:** After installation, run the python command determined in Step 0:  
-   * `<python_path_from_step_0> -c 'import sys; print(sys.executable)'`  
-6. **Verify Output:** Inspect the terminal output directly.  
-   * **Expected Output:** The output *must* contain the `.venv/bin/python` path that belongs to this repository (absolute path on remote, relative path resolving locally).  
-   * **Failure Condition:** If the output does not match, you *must* stop and report to the user that the environment is not correctly configured. **Do not proceed.**
+### 2) Lint before tests; run commands without output redirection
 
-**Two-Environment Architecture**: This repository contains two separate Poetry projects:
-1. **MAS Memory Layer** (root): `poetry install --with test,dev` creates `.venv/`
-2. **GoodAI Benchmark** (`benchmarks/goodai-ltm-benchmark/`): `poetry install` creates `.venv/` in that subdirectory
+1. `./.venv/bin/ruff check .`
+2. `./.venv/bin/pytest tests/ -v`
 
-These environments are intentionally isolated due to incompatible langchain versions.
+Do not use output redirection (`> /tmp/...`) as a default pattern.
 
-## **4.0 Standard Development Workflow**
+### 3) Change boundaries (prevent “layer jumping”)
 
-This section outlines the "inner loop" of development that you must emulate. This workflow ensures that all changes are linted, tested, and verified.
+Default expectation:
+- **Mechanism (frozen-by-default):** `src/storage/` (DB adapters) and other low-level connectors.
+- **Policy / behavior (iterated):** agent prompts, skills, orchestration, benchmark harness, docs.
 
-### **4.1 Linting**
+Do **not** modify the mechanism layer unless the user explicitly asks or explicitly authorizes it for
+the current task. If you suspect a mechanism bug, escalate with evidence (tests/logs) and ask.
 
-* **Command:** `./.venv/bin/ruff check .` (on remote host use the absolute `.venv` path)  
-* **Protocol:** You must run this command *before* running tests. If it fails, you must fix the linting errors first. Analyze the terminal output to identify and correct the reported issues.
+### 4) Dependency changes require explicit approval
 
-### **4.2 Testing (Core Protocol)**
+Do not add/remove/update dependencies (Poetry, `pyproject.toml`, lockfiles) unless the user gives
+explicit permission for that specific change.
 
-* **Command:** `./.venv/bin/pytest tests/ -v` (on remote host use the absolute `.venv` path)  
-* **Protocol (Test-Driven Fix):** This protocol is designed to prevent a critical agent failure mode where agents, when asked to "fix failing tests," will instead *modify or delete the tests* to match the broken code.15  
-  1. After *any* code modification in /src/, you *must* run the full test suite using the pytest command.  
-  2. If tests fail, you must analyze the pytest output.  
-  3. Your primary task is to **modify the application code (in /src/)** to make the tests pass.  
-  4. You *must not* modify the test code (in /tests/) unless the user's prompt *explicitly* and *unambiguously* directs you to "update the tests," "fix a broken test," or "write new tests".16  
-  5. When fixing failing tests, you must be specific.17 State your hypothesis for the failure *before* editing the code (see Protocol 7.1). This includes debugging complex test failures, such as those involving mock objects or Pydantic models.18
+### 5) Test discipline (avoid “fix tests by editing tests”)
 
-**Marker scope and real-provider runs:**
-- Unit/mocked scope: `-m "not integration and not llm_real"`
-- Integration scope: `-m "integration"`
-- Real LLM/provider scope: `-m "llm_real"` (requires `GOOGLE_API_KEY` from `.env`; no `GEMINI_API_KEY` is used). Use the grading script `scripts/grade_phase5_readiness.sh --mode full` to include real-provider checks; add `--skip-llm` to suppress them even when the key is present.
+- After any code change in `src/`, run the full suite: `./.venv/bin/pytest tests/ -v`
+- If tests fail, fix application code in `src/` first.
+- Do not modify `tests/` unless the user explicitly tells you to update/fix tests or write new tests.
 
-### **4.3 Building**
+### 6) Mocking policy
 
-* **Command:** `make build` (Modify as appropriate for the project)  
-* **Protocol:** You must run this command after all tests pass to ensure the project builds successfully.
+Use `pytest-mock` (`mocker` fixture). Do not import `unittest.mock` directly in tests.
 
-## **5.0 Terminal Execution Guidelines**
+### 7) Secrets boundary
 
-These guidelines ensure reliable command execution across local and remote environments.
+Do not read, write, print, or request the contents of `.env` (or any secret files/keys).
 
-### **5.1 Protocol: run\_in\_terminal Execution Contract**
+## Environment Verification Sequence (Required before lint/tests)
 
-Run commands directly in the terminal. The terminal output is your ground truth for determining success or failure.
+1. Confirm `.venv/` exists at repo root.
+2. If missing: run `poetry install --with test,dev`.
+3. Verify interpreter:
+   - `./.venv/bin/python -c 'import sys; print(sys.executable)'`
+   - Output must point to this repo’s `.venv/bin/python`. If not, stop and escalate.
 
-**Rule 1 (Direct Execution)**: Run commands directly without output redirection. Use the correct `.venv` path as determined by Host Detection (Step 0 in §3.1).
-   * **Correct Example (local)**: `./.venv/bin/pytest tests/ -v`
-   * **Correct Example (remote)**: `/home/max/code/mas-memory-layer/.venv/bin/pytest tests/ -v`
-   * **Incorrect Example (FORBIDDEN)**: `pytest` (no `.venv` path — risks using wrong interpreter)
+Two Poetry projects exist by design:
+- YAAM root project: Python `>=3.12,<3.14` (see `pyproject.toml`)
+- GoodAI benchmark: Python `>=3.11,<3.13` (see `benchmarks/goodai-ltm-benchmark/pyproject.toml`)
 
-**Rule 2 (Fallback)**: If a command produces no visible output, use the `get_terminal_output` tool to retrieve it.
+## Error Handling (3-attempt loop + escalation)
 
-**Rule 3 (Escalation)**: If both direct execution and `get_terminal_output` fail, STOP. Report the failure, state the exact command you ran, and ask the user to run it manually.
+You may attempt up to **3** autonomous fix iterations per failure.
+On each iteration you must:
+1. State a hypothesis for the failure.
+2. State the exact change you will make.
+3. Make the change.
+4. Re-run the verification command (ruff/pytest) and inspect output.
 
-### **5.2 Protocol: Execution Parameters**
+Escalate to the user immediately if:
+- The problem is ambiguous or under-specified.
+- A protected area must be modified (see below) without explicit user authorization.
+- You hit a Pydantic `ValidationError` that requires missing/corrected data.
+- You cannot find an expected entity and would otherwise create a new one.
 
-* **Avoid Interactive Sessions:** You *must not* run commands that require interactive user input or launch a pager (e.g., git log without \--no-pager, vim, less, nano, or any prompt "waiting for user input" 25). This will cause the terminal to hang and the agent session to fail.26  
-* **Prefer Synchronous Execution:** When the run\_in\_terminal tool allows, you should request synchronous, foreground execution (e.g., by setting isBackground=false). This ensures one command completes before the next begins, which is critical for sequential tasks like linting and testing.24 This is especially important for non-interactive scripts and has been shown to work better with shells like Git Bash.24
+## Pydantic v2 ValidationError Protocol
 
-## **6.0 Coding Standards and Principles**
+When a `pydantic.ValidationError` occurs:
+1. Parse which fields failed and why (missing/type/constraint).
+2. Report all invalid fields together.
+3. Ask the user for the missing/correct information (do not “retry blindly”).
 
-When generating or modifying code, you must adhere to these standards.
+## Pathing Protocol
 
-### **6.1 General Principles**
+- Tools may use absolute filesystem paths when required.
+- Repository artifacts (docs/code/config) must not hardcode absolute paths.
+- When describing edits, use logical repo paths (relative), not machine-specific absolute paths.
 
-* **Clarity:** Code must be clear, readable, and well-documented. All new public functions, classes, or complex logic *must* include docstrings.  
-* **Idiomatic Code:** Follow Go best practices and idiomatic patterns" (example adapted from a Go project).10 This means you must write idiomatic Python, FastAPI, and Pydantic code.  
-* **Structure:** Maintain the existing code structure and organization as defined in the manifest (Protocol 2.3).  
-* **Dependency Injection:** Use dependency injection patterns where appropriate, as is common in FastAPI applications.10
+## Protected Areas (require explicit user authorization)
 
-### **6.2 Pydantic-Specific Protocol**
+- `.git/`
+- `.env`, any `*.key`, `*.pem`, `*.secret`
+- `pyproject.toml`, `poetry.lock`
+- `.github/` (workflows/instructions)
+- `.venv/` and other virtual environments
 
-* **Handling Validation Errors:** Developers using AI agents with Pydantic have reported issues where agents get stuck in loops trying to fix ValidationError exceptions.8 Simply retrying the LLM call with the error appended is an anti-pattern.  
-* **Protocol:** When you receive a pydantic.ValidationError, do not simply retry the operation. You *must*:  
-  1. Parse the ValidationError to understand *which* fields failed and *why* (e.g., "missing," "invalid type").  
-  2. Report this structured error to the user, highlighting all invalid fields at once.27  
-  3. Escalate to the user (Protocol 7.0) and ask for the missing/correct information.
+## Incident Register
 
-### **6.3 Mocking Strategy (Pytest)**
-
-* **Mocking Complexity:** Mocking Pydantic BaseModel objects and other complex classes is a common and difficult part of testing.9 Failures in mocking are a frequent source of test failures.19  
-* **Protocol:**  
-  1. You *must* use the pytest-mock plugin, which provides the mocker fixture.  
-  2. Do *not* use the built-in unittest.mock module directly.  
-  3. When mocking, be as specific as possible. Mock the function or object at its point of use (in the module where it is *imported*), not at its source.
-
-### **6.4 Mypy Type Safety (Critical Patterns)**
-
-Mypy strict checking is enforced via pre-commit. Follow these patterns to avoid common type errors:
-
-* **Redis Async Returns:** Always cast Redis results explicitly: `int(await self.client.exists(key))`, `bool(result)`.
-* **Dict Covariance:** Use `Mapping[str, T]` not `dict[str, T]` when accepting adapter collections (dict is invariant).
-* **Stats Dicts:** Annotate explicitly: `stats: dict[str, int] = {"count": 0}`. For mixed types, use helper: `def inc(key: str): stats[key] = int(stats.get(key, 0)) + 1`.
-* **Null Guards:** Always check `if self.client is None:` before accessing optional attributes.
-* **Adapter Signatures:** Use dict query pattern: `await adapter.search({"limit": 10})`, not keyword args.
-* **Google GenAI SDK:** Use dynamic imports `importlib.import_module("google.genai")` due to namespace package issues with mypy.
-* **Type Ignore:** Use specific error codes: `# type: ignore[import-untyped]` not bare `# type: ignore`.
-
-See `docs/plan/mypy-type-fix-plan.md` and `.github/instructions/source.instructions.md` for comprehensive guidelines.
-
-## **7.0 Error Handling and User Escalation Protocols**
-
-This protocol governs your behavior when you encounter a failure. Your default state in the event of an unrecoverable failure is to *stop* and *ask*. This is the primary "user escalation" path, a key concept in safe and effective agent-human collaboration.6
-
-### **7.1 Self-Correction Loop**
-
-You are permitted **three (3)** autonomous attempts to fix a failing test, build, or lint error. This "auto-correct in a loop" is a core agent capability.2
-
-* **On each attempt, you must:**  
-  1. State your hypothesis for the failure (e.g., "Hypothesis: The test failed because the Pydantic model is missing a default value for the 'created\_at' field.").  
-  2. State the *exact* change you will make to fix it.  
-  3. Execute the change (e.g., using edit\_file).  
-  4. Run the verification command (e.g., pytest) and analyze its output.
-
-### **7.2 Mandatory Escalation Triggers**
-
-You *must* halt your autonomous operation and escalate to the human user for guidance if *any* of the following conditions are met:
-
-1. **Loop Failure:** The self-correction loop (7.1) fails three consecutive times on the same error.  
-2. **Ambiguity:** The user's request is ambiguous, underspecified, or conflicts with a protocol in this AGENTS.MD file.  
-3. **Dependency Change:** A task requires a change to requirements.txt (e.g., adding or updating a dependency). A human *must* approve this change.  
-4. **Security:** A task requires a secret, API key, or authentication.  
-5. **Tooling Failure:** Any core tool (e.g., run\_in\_terminal, read\_file) fails persistently *even after* using all workarounds in Protocol 5.0.  
-6. **Protected File:** The task requires modification of a file or directory designated as "Read-Only" or "Strictly Forbidden" in Protocol 2.3 or 8.2.  
-7. **Pydantic Validation:** You encounter a ValidationError and require corrected data from the user (per Protocol 6.2).  
-8. **No Entity Found:** An action fails because it cannot find an expected entity (e.g., a file, a variable). You must escalate rather than create a new one.29
-
-## **8.0 File System and Pathing Protocol**
-
-This protocol ensures your file interactions are portable, safe, and predictable.
-
-### 8.1 Pathing Protocol
-
-#### 8.1.1 Fundamental Principle
-
-Agents operate with two path representations:
-
-- PHYSICAL PATH — required by tooling (may be absolute).
-- LOGICAL REPO PATH — required by repository protocol (must be relative).
-
-The logical repo path is the authoritative reference for all write operations.
-
----
-
-#### 8.1.2 Rules by Operation Type
-
-A) READ-ONLY operations  
-Examples: read_file, grep_search, list_dir, IDE/LSP inspection.
-
-Rules:
-- Absolute physical paths are allowed and may be required by tooling.
-- Logical repo paths should be inferred when possible.
-
-B) WRITE / EDIT operations  
-Examples: edit_file, create_file, replace_string_in_file.
-
-Rules:
-- Tooling may use absolute physical paths to locate files.
-- Agents MUST represent and reason about edited files using logical repo paths.
-- All documentation, commit messages, and change descriptions MUST use logical repo paths.
-- Agents MUST NOT introduce absolute paths into source code, configs, or generated files.
-
-C) TERMINAL commands  
-
-Rules:
-- Absolute paths MUST be used for virtual environment executables on the remote host.
-- Relative paths MAY be used locally.
-- Absolute paths MUST NOT be hardcoded into source code.
-
----
-
-#### 8.1.3 Explicit Prohibitions
-
-For WRITE / EDIT operations, it is forbidden to:
-
-- Hardcode absolute paths into repository files.
-- Generate environment-specific paths in code or configs.
-- Use absolute paths as canonical identifiers of files.
-
-Using absolute paths as tooling inputs is NOT forbidden.
-
----
-
-#### 8.1.4 Conflict Resolution Rule
-
-If a conflict arises between:
-
-- tooling requirements, and
-- repository portability rules,
-
-THEN:
-
-- Tooling may use absolute physical paths.
-- Repository artifacts MUST remain relative-path-based.
-
-### **8.2 Protected Files and Directories**
-
-You *must not* read, write, or modify any of the following files or directories unless the user provides *explicit, unambiguous, and task-specific* permission (e.g., via a direct "Escalation" (Protocol 7.0) override).
-
-* .git/  
-* .env  
-* Any file ending in .key, .pem, or .secret  
-* AGENTS.MD (This file)  
-* All files in /.github/ (including copilot-instructions.md and workflows)  
-* Project configuration files (e.g., config.yml, settings.toml, pyproject.toml)
+Document instruction conflicts and other workflow incidents (and mitigations) in `docs/lessons-learned.md`.

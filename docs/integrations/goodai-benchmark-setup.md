@@ -10,6 +10,29 @@ This document describes how to set up and integrate the GoodAI LTM Benchmark for
 - System package: `python3-venv` (for Ubuntu/Debian)
 - Git
 
+## Local MacBook vs Remote Infra (skz-* Nodes)
+
+The default `.env.example` assumes the backing services live on the home-lab nodes:
+- Redis on `skz-dev-lv`
+- PostgreSQL/Qdrant/Neo4j/Typesense on `skz-data-lv`
+
+If you're running the API Wall locally on a MacBook, you must ensure network reachability to those
+services (VPN/LAN) or tunnel them.
+
+Runbook: `docs/runbooks/runbook-variant-a-smoke-macbook-to-skz.md`.
+
+Example: tunnel Redis from `skz-dev-lv` to localhost (adjust SSH host/user to your setup):
+
+```bash
+ssh -N -L 6379:localhost:6379 skz-dev-lv
+```
+
+Then, for the wrapper/API Wall process, override Redis to localhost (without changing `.env`):
+
+```bash
+REDIS_URL=redis://localhost:6379
+```
+
 ## Installation Steps
 
 ### 1. System Dependencies
@@ -30,26 +53,19 @@ unzip -q /tmp/goodai-ltm-benchmark.zip
 mv goodai-ltm-benchmark-main goodai-ltm-benchmark
 ```
 
-### 3. Create Isolated Virtual Environment
+### 3. Install Dependencies with Poetry
 
 ```bash
-cd /home/max/code/mas-memory-layer/benchmarks
+cd benchmarks/goodai-ltm-benchmark
 
-# Create separate venv (isolated from main project)
-python3 -m venv .venv-benchmark
+# Install dependencies using Poetry (creates isolated .venv/)
+poetry install
 
-# Activate (for manual testing only - orchestration scripts handle activation)
-source .venv-benchmark/bin/activate
-
-# Install dependencies directly from requirements.txt
-cd goodai-ltm-benchmark
-pip install -r requirements.txt
-
-# Verify installation (check for key packages)
-python -c "import anthropic, openai, langchain; print('Dependencies installed successfully')"
+# Verify installation
+poetry run python -c "import anthropic, openai, langchain; print('Dependencies installed successfully')"
 ```
 
-**Note**: The GoodAI benchmark is not packaged as a module (`goodai_ltm` module does not exist), but all test scripts in `datasets/` are executable directly. This is the expected behavior - the benchmark runs by executing Python files, not importing modules.
+**Note**: The benchmark uses Poetry for dependency management with a separate virtual environment (`.venv/`) inside the `benchmarks/goodai-ltm-benchmark/` directory. This isolates it from the main project due to incompatible `langchain` versions.
 
 ### 4. Verify Test Types
 
@@ -148,9 +164,10 @@ GET /memory_state?session_id=full:session_123
   "l1_turns": 15,
   "l2_facts": 8,
   "l3_episodes": 2,
-  "l4_docs": 1,
-  "timestamp": "2026-01-26T22:15:30Z"
+  "l4_docs": 1
 }
+
+**Note**: The `timestamp` field is not currently implemented in the response.
 ```
 
 ## Session ID Prefixing Convention
@@ -166,6 +183,20 @@ To prevent collisions when multiple agents process the same GoodAI session, we p
 **Implementation**: Each FastAPI wrapper prepends its prefix to incoming `session_id` values before passing to `UnifiedMemorySystem`.
 
 ## Configuration Files
+
+### Run Modes (Historical)
+
+The benchmark config controls how many *examples per dataset* get generated, and which dataset
+generators are enabled for a run. In general:
+- Total examples generated = `dataset_examples * len(datasets)`
+- Definitions are generated and saved under `benchmarks/goodai-ltm-benchmark/data/tests/<run_name>/definitions/`
+  unless you pass `--dataset-path` to reuse existing `.def.json` files.
+
+Common configs in this repo:
+- `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`: `dataset_examples: 1` for `prospective_memory` (single-check)
+- `benchmarks/goodai-ltm-benchmark/configurations/mas_dry_run_5.yml`: `dataset_examples: 5` for `prospective_memory` (5-questions check)
+- `benchmarks/goodai-ltm-benchmark/configurations/mas_mixed_100.yml`: `dataset_examples: 5` across 13 datasets (mixed run)
+- `benchmarks/goodai-ltm-benchmark/configurations/mas_variant_a_smoke_5.yml`: `dataset_examples: 1` across 5 datasets (Variant A smoke)
 
 ### Subset Baseline Config
 
@@ -204,16 +235,14 @@ Run config validator before execution:
 /home/max/code/mas-memory-layer/.venv/bin/python src/evaluation/agent_wrapper.py \
   --agent-type full \
   --port 8080 \
-  --model gemini-2.5-flash-lite &
+  --model gemini-3-flash-preview &
 
 # Wait for health check
 sleep 5
 
 # Run GoodAI benchmark
-cd /home/max/code/mas-memory-layer/benchmarks
-source .venv-benchmark/bin/activate
-cd goodai-ltm-benchmark
-python -m goodai_ltm_benchmark.run \
+cd benchmarks/goodai-ltm-benchmark
+poetry run python -m runner.run_benchmark \
   -a mas-full \
   -c configurations/mas_subset_32k.yml
 ```
@@ -317,16 +346,15 @@ curl -X POST http://localhost:8080/cleanup_force?session_id=all
 
 ## Troubleshooting
 
-### Issue: "No module named 'goodai_ltm_benchmark'"
+### Issue: "No module named 'runner'"
 
-**Cause**: GoodAI benchmark not installed or wrong venv activated.
+**Cause**: Running script directly instead of as a module, or Poetry environment not initialized.
 
 **Fix**:
 ```bash
-cd /home/max/code/mas-memory-layer/benchmarks
-source .venv-benchmark/bin/activate
-cd goodai-ltm-benchmark
-pip install -e .
+cd benchmarks/goodai-ltm-benchmark
+poetry install
+poetry run python -m runner.run_benchmark -c <config.yml> -a <agent>
 ```
 
 ### Issue: Wrapper service fails to start

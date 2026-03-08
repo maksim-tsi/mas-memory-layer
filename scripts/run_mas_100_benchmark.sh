@@ -1,127 +1,87 @@
 #!/bin/bash
 set -e
+set -u
+set -o pipefail
 
 # =================================================================================================
-# MAS Memory Layer - Mixed 100-Question Parallel Benchmark Script
+# MAS Memory Layer - Mixed 100-Question Sequential Benchmark Script
 # =================================================================================================
 
-# 1. Load Environment Variables
-if [ -f .env ]; then
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+BENCH_ROOT="$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark"
+BENCH_PYTHON="$BENCH_ROOT/.venv/bin/python"
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+RUN_NAME_BASE="MAS Mixed 100 Run"
+CONFIG_FILE="configurations/mas_mixed_100.yml"
+
+if [ -f "$PROJECT_ROOT/.env" ]; then
     set -a
-    source .env
+    . "$PROJECT_ROOT/.env"
     set +a
 else
     echo "Error: .env file not found!"
     exit 1
 fi
 
-PYTHONPATH=$(pwd):$(pwd)/benchmarks/goodai-ltm-benchmark
-export PYTHONPATH
+if [ ! -x "$BENCH_PYTHON" ]; then
+    echo "Error: benchmark virtualenv not found at $BENCH_PYTHON"
+    echo "Run: cd $BENCH_ROOT && poetry install"
+    exit 1
+fi
 
-# 2. Pre-flight Checks
+mkdir -p "$PROJECT_ROOT/logs"
+
 echo "================================================================="
 echo "Starting Pre-flight Checks..."
 echo "================================================================="
-echo "Checking Wrappers..."
-./scripts/start_benchmark_wrappers.sh &
+echo "Launching wrappers..."
+"$PROJECT_ROOT/scripts/start_benchmark_wrappers.sh" &
 WRAPPER_PID=$!
 
-# Wait for wrappers to be ready
 echo "Waiting for wrappers to initialize..."
-sleep 10
+sleep 15
 
-# 3. Define Run Parameters
-CONFIG_FILE="./configurations/mas_mixed_100.yml"
-TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-RUN_NAME_BASE="MAS Mixed 100 Run"
+cd "$BENCH_ROOT"
 
-# 4. Start Benchmarks in Parallel
-echo "================================================================="
-echo "Starting Parallel Benchmarks..."
-echo "================================================================="
-
-# Function to calculate log filenames
 get_log_file() {
-    echo "logs/run_mas_100_${1}_${TIMESTAMP}.log"
+    echo "$PROJECT_ROOT/logs/run_mas_100_${1}_${TIMESTAMP}.log"
 }
 
-# Gemini
-AGENT="gemini"
-LOG_FILE=$(get_log_file $AGENT)
-RUN_NAME="${RUN_NAME_BASE} - ${AGENT} - ${TIMESTAMP}"
-echo "Starting ${AGENT}..."
-echo "  > Log: ${LOG_FILE}"
-python3 benchmarks/goodai-ltm-benchmark/runner/run_benchmark.py \
-    --configuration "${CONFIG_FILE}" \
-    --agent-name "${AGENT}" \
-    --run-name "${RUN_NAME}" \
-    -y \
-    > "${LOG_FILE}" 2>&1 &
-PID_GEMINI=$!
-echo "  > PID: ${PID_GEMINI}"
+run_agent() {
+    agent="$1"
+    run_name="${RUN_NAME_BASE} - ${agent} - ${TIMESTAMP}"
+    log_file=$(get_log_file "$agent")
 
-# MAS Full
-AGENT="mas-full"
-LOG_FILE=$(get_log_file $AGENT)
-RUN_NAME="${RUN_NAME_BASE} - ${AGENT} - ${TIMESTAMP}"
-echo "Starting ${AGENT}..."
-echo "  > Log: ${LOG_FILE}"
-python3 benchmarks/goodai-ltm-benchmark/runner/run_benchmark.py \
-    --configuration "${CONFIG_FILE}" \
-    --agent-name "${AGENT}" \
-    --run-name "${RUN_NAME}" \
-    -y \
-    > "${LOG_FILE}" 2>&1 &
-PID_FULL=$!
-echo "  > PID: ${PID_FULL}"
+    echo "Starting ${agent}..."
+    echo "  > Run name: ${run_name}"
+    echo "  > Log: ${log_file}"
 
-# MAS RAG
-AGENT="mas-rag"
-LOG_FILE=$(get_log_file $AGENT)
-RUN_NAME="${RUN_NAME_BASE} - ${AGENT} - ${TIMESTAMP}"
-echo "Starting ${AGENT}..."
-echo "  > Log: ${LOG_FILE}"
-python3 benchmarks/goodai-ltm-benchmark/runner/run_benchmark.py \
-    --configuration "${CONFIG_FILE}" \
-    --agent-name "${AGENT}" \
-    --run-name "${RUN_NAME}" \
-    -y \
-    > "${LOG_FILE}" 2>&1 &
-PID_RAG=$!
-echo "  > PID: ${PID_RAG}"
+    "$BENCH_PYTHON" -m runner.run_benchmark \
+        -c "$CONFIG_FILE" \
+        -a "$agent" \
+        --run-name "$run_name" \
+        -y \
+        > "$log_file" 2>&1
 
-# MAS Full Context
-AGENT="mas-full-context"
-LOG_FILE=$(get_log_file $AGENT)
-RUN_NAME="${RUN_NAME_BASE} - ${AGENT} - ${TIMESTAMP}"
-echo "Starting ${AGENT}..."
-echo "  > Log: ${LOG_FILE}"
-python3 benchmarks/goodai-ltm-benchmark/runner/run_benchmark.py \
-    --configuration "${CONFIG_FILE}" \
-    --agent-name "${AGENT}" \
-    --run-name "${RUN_NAME}" \
-    -y \
-    > "${LOG_FILE}" 2>&1 &
-PID_CONTEXT=$!
-echo "  > PID: ${PID_CONTEXT}"
+    echo "Finished ${agent}."
+    sleep 5
+}
 
-echo "All benchmarks started."
-echo "Waiting for completion..."
+echo "================================================================="
+echo "Starting Sequential Benchmarks..."
+echo "================================================================="
 
-# 5. Wait for all processes
-wait $PID_GEMINI
-echo "Gemini Benchmark Finished."
-
-wait $PID_FULL
-echo "MAS Full Benchmark Finished."
-
-wait $PID_RAG
-echo "MAS RAG Benchmark Finished."
-
-wait $PID_CONTEXT
-echo "MAS Full Context Benchmark Finished."
+run_agent "mas-full"
+run_agent "mas-rag"
+run_agent "mas-full-context"
+run_agent "gemini"
 
 echo "================================================================="
 echo "All Benchmarks Completed."
 echo "Check logs in logs/ directory."
 echo "================================================================="
+
+echo "Cleaning up wrappers..."
+kill "$WRAPPER_PID" >/dev/null 2>&1 || true
+pkill -f "agent_wrapper.py" >/dev/null 2>&1 || true

@@ -206,6 +206,7 @@ Token Usage:
 **Solution:**
 ```bash
 chmod +x scripts/test_*.py
+./.venv/bin/python scripts/test_llm_providers.py
 ```
 
 ### Problem: Import errors (module not found)

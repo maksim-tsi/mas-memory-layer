@@ -107,8 +107,8 @@ async def test_gemini_generate_model_override(monkeypatch):
     register_fake_genai(fake_client, monkeypatch)
 
     provider = GeminiProvider(api_key="testkey")
-    resp = await provider.generate("Q", model="gemini-2.5-flash-lite")
-    assert resp.model == "gemini-2.5-flash-lite"
+    resp = await provider.generate("Q", model="gemini-3-flash-preview")
+    assert resp.model == "gemini-3-flash-preview"
     assert resp.text == "override ok"
 
 

@@ -1,5 +1,9 @@
 # AgentRouter Cleanup Summary
 
+> **Historical Document**: This document describes the AgentRouter cleanup performed on 2025-11-02.
+> The LLM provider issue has since been resolved with Google Gemini (gemini-2.5-flash-lite).
+> Phase 2-4 are complete; Phase 5 (GoodAI LTM Benchmark) is now in progress.
+
 **Date:** 2025-11-02  
 **Action:** Complete removal of AgentRouter integration  
 **Reason:** Persistent authentication failures, inaccessible API

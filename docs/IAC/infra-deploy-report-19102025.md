@@ -107,8 +107,8 @@ Following a system upgrade on the development machine, a comprehensive connectiv
 
 ```
 Container ID:   231c40756630
-Image:          postgres:16-alpine
-Version:        PostgreSQL 16.10
+Image:          postgres:15
+Version:        PostgreSQL 15.x
 Data Mount:     /mnt/data/postgres → /var/lib/postgresql/data
 Port Mapping:   0.0.0.0:5432 → 5432
 Databases:      mas_memory, pgadmin, postgres

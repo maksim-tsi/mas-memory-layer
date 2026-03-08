@@ -17,12 +17,14 @@ Smoke tests verify basic connectivity to all infrastructure services. These test
 ### Prerequisites
 
 ```bash
-# Install test dependencies
-pip install -r requirements-test.txt
+# Install dependencies into the repository-managed virtual environment
+poetry install --with test,dev
 
-# Ensure .env file exists with credentials
-cp .env.example .env
-# Edit .env with your actual credentials
+# Provide credentials via environment variables (recommended).
+# If you use a local `.env` file, treat it as a secret:
+# - do not commit it
+# - do not print its contents in logs
+# - do not paste it into chat transcripts
 ```
 
 ### Run All Tests
@@ -35,7 +37,7 @@ cp .env.example .env
 ./scripts/run_smoke_tests.sh --verbose
 
 # Using pytest directly
-pytest tests/test_connectivity.py -v
+./.venv/bin/pytest tests/test_connectivity.py -v
 ```
 
 ### Run Specific Service Tests
@@ -110,7 +112,7 @@ export POSTGRES_PASSWORD=...
 # ... etc
 
 # Run tests
-pytest tests/test_connectivity.py -v
+./.venv/bin/pytest tests/test_connectivity.py -v
 ```
 
 ## Test Coverage
@@ -159,9 +161,6 @@ docker ps | grep typesense
 ### Authentication Failed
 
 ```bash
-# Verify credentials in .env
-cat .env | grep PASSWORD
-
 # Test PostgreSQL manually
 psql "$POSTGRES_URL" -c "SELECT 1;"
 
@@ -187,11 +186,8 @@ nc -zv 192.168.107.187 8108  # Typesense
 ### Missing Dependencies
 
 ```bash
-# Install all test dependencies
-pip install -r requirements-test.txt
-
-# Or install individually
-pip install pytest pytest-asyncio asyncpg redis qdrant-client neo4j requests
+# Install/update dependencies in the repo virtual environment
+poetry install --with test,dev
 ```
 
 ## Integration with Development Workflow
@@ -213,8 +209,8 @@ pip install pytest pytest-asyncio asyncpg redis qdrant-client neo4j requests
 # Example GitHub Actions workflow
 - name: Run Smoke Tests
   run: |
-    pip install -r requirements-test.txt
-    pytest tests/test_connectivity.py -v
+    poetry install --with test,dev
+    ./.venv/bin/pytest tests/test_connectivity.py -v
 ```
 
 ## Adding New Service Tests

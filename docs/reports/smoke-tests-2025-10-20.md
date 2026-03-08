@@ -153,11 +153,8 @@ All infrastructure services are operational and connectivity has been verified a
 ### Command Line Usage
 
 ```bash
-# Activate virtual environment
-source .venv/bin/activate
-
-# Run all tests
-./scripts/run_smoke_tests.sh
+# Run all tests (using direct executable path)
+./.venv/bin/python -m pytest tests/integration/test_smoke.py -v
 
 # Run with verbose output
 ./scripts/run_smoke_tests.sh --verbose

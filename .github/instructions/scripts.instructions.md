@@ -47,15 +47,13 @@ pytest tests/     # Will use wrong pytest!
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-# Use absolute paths to virtual environment executables
+# Use absolute paths to virtual environment executables (Poetry-managed `.venv/`)
 PYTHON="$PROJECT_ROOT/.venv/bin/python"
 PYTEST="$PROJECT_ROOT/.venv/bin/pytest"
-PIP="$PROJECT_ROOT/.venv/bin/pip"
 
 # Now run commands with correct executables
 "$PYTHON" script.py
 "$PYTEST" tests/ -v
-"$PIP" install package
 ```
 
 **Pattern**:
@@ -63,6 +61,7 @@ PIP="$PROJECT_ROOT/.venv/bin/pip"
 2. Define variables for venv executables using absolute paths
 3. Quote variables when using them (`"$PYTHON"` not `$PYTHON`)
 4. Never assume venv is activated
+5. Do not install or change dependencies from scripts unless explicitly authorized; use Poetry (`poetry install ...`) when needed
 
 ## Script Structure
 
@@ -107,7 +106,7 @@ function usage() {
 function check_prerequisites() {
     if [ ! -f "$PYTHON" ]; then
         echo -e "${RED}Error: Virtual environment not found${NC}"
-        echo "Run: python -m venv .venv"
+        echo "Run: poetry install --with test,dev"
         exit 1
     fi
 }
@@ -241,14 +240,14 @@ fi
 
 ## Terminal Resiliency
 
-All scripts that produce output should follow the Terminal Resiliency Protocol:
+All scripts that produce output should write to stdout/stderr directly.
+
+Do not rely on output redirection (`> /tmp/...`) as a default pattern; invoke scripts directly so
+errors surface immediately.
 
 ```bash
-# When calling from terminal, use redirect-and-cat pattern:
-# ./script.sh > /tmp/copilot.out && cat /tmp/copilot.out
-
-# Inside scripts, write to output directly
-# The redirect pattern is applied when invoking the script
+# Preferred invocation pattern:
+./script.sh
 ```
 
 ## Documentation
@@ -282,10 +281,8 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 ### Environment Variables
 ```bash
-# Load from .env file
-if [ -f .env ]; then
-    export $(grep -v '^#' .env | xargs)
-fi
+# Do not parse `.env` from scripts.
+# Scripts should rely on environment variables set by the caller (CI, shell, docker-compose).
 ```
 
 ### Argument Parsing

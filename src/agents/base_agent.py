@@ -59,11 +59,14 @@ class BaseAgent(ABC):
         """Initialize any required resources for the agent."""
 
     @abstractmethod
-    async def run_turn(self, request: RunTurnRequest) -> RunTurnResponse:
+    async def run_turn(
+        self, request: RunTurnRequest, history: list[dict[str, Any]] | None = None
+    ) -> RunTurnResponse:
         """Process a single conversation turn.
 
         Args:
             request: Input turn payload.
+            history: Optional full conversation history for the session.
 
         Returns:
             Response payload for the turn.

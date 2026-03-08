@@ -1,223 +1,63 @@
-# MAS Memory Layer - AI Agent Instructions
+# MAS Memory Layer (YAAM) — Copilot Entrypoint
 
-## Architecture Overview
+This file is optimized for GitHub Copilot. It must remain consistent with `AGENTS.MD`.
+If you observe a conflict, stop and ask the user to resolve it, then log the resolution in
+`docs/lessons-learned.md`.
 
-This is a **four-tier cognitive memory system** for Multi-Agent Systems (MAS), designed for supply chain/logistics applications. The project is 43% complete (Phase 1 done, Phase 2A 92% done).
+## Golden Rules (Read First)
 
-**Critical Distinction**: Storage adapters ≠ Memory tiers. Adapters are database clients (complete). Tiers are intelligent memory managers (partially complete). Lifecycle engines automate information flow between tiers (not yet implemented).
+1. **Use the repo venv executables; never activate.**
+   - Local: `./.venv/bin/python`, `./.venv/bin/pytest`, `./.venv/bin/ruff`
+   - Remote: `/home/max/code/mas-memory-layer/.venv/bin/...`
+   - Do not run `source .venv/bin/activate` (stateless shell).
 
-### Four-Tier Memory Architecture (ADR-003)
+2. **No output redirection by default.**
+   - Run commands directly (no `> /tmp/...` chaining).
 
-```
-L1: Active Context (Redis) → 10-20 raw turns, 24h TTL (no pre-processing, hot path)
-L2: Working Memory (PostgreSQL) → CIAR-filtered facts (batch-processed via Groq/Gemini)
-L3: Episodic Memory (Qdrant + Neo4j) → Consolidated episodes with dual indexing
-L4: Semantic Memory (Typesense) → Distilled knowledge patterns
-```
+3. **Lint before tests; run full tests after `src/` changes.**
+   - `./.venv/bin/ruff check .`
+   - `./.venv/bin/pytest tests/ -v`
+   - Fix application code in `src/` first; do not “fix failures” by editing tests unless asked.
 
-**Information Flow**: L1 raw turns → [Promotion Engine: batch compression/segmentation via Fast Inference LLMs] → L2 facts → [Consolidation Engine] → L3 episodes → [Distillation Engine] → L4 knowledge
+4. **Prevent “layer jumping”.**
+   - Treat `src/storage/` (DB adapters) as **Mechanism** (frozen-by-default).
+   - Treat skills/prompts/agent orchestration as **Policy** (iterated).
+   - Do not modify mechanism code unless explicitly requested or explicitly authorized.
 
-## Core Architectural Principles
+5. **Dependencies and secrets are controlled.**
+   - Do not modify `pyproject.toml` / `poetry.lock` unless explicitly authorized.
+   - Do not read, print, or request `.env` contents.
 
-This project is guided by five core principles. All new code and refactoring should adhere to these concepts:
+6. **Mocking policy (tests):**
+   - Use `pytest-mock` (`mocker` fixture). Do not import `unittest.mock` directly.
 
-**Conceptual Model**: The L1-L4 Tiers are the implementation of a two-layer conceptual model:
-- **Operating Memory Layer (Redis)**: A high-speed, volatile workspace for agent collaboration (Personal Scratchpads, Shared Workspace)
-- **Persistent Knowledge Layer (Specialized Databases)**: A long-term, durable archive for distilled knowledge (Vector, Graph, Search, Relational stores)
+## Clarifications for Codex (Sandbox + Network)
 
-**Core Principles**:
-1. **Computational State Persistence**: Memory is an active workspace for multi-step reasoning
-2. **Collaborative Workspace**: Memory provides a shared, negotiable state for multiple agents
-3. **Structured Reasoning for High-Stakes Reliability**: Enforce auditable reasoning schemas
-4. **Promotion via Calculated Significance**: Information is promoted intelligently based on calculated importance (CIAR score)
-5. **Archiving via Knowledge Distillation**: The system actively learns by distilling resolved events into persistent knowledge
+These notes are **Codex-runtime-specific** (the Codex app/CLI may be sandboxed differently than
+VS Code or other agent runtimes).
 
-## What's Complete ✅
+- **Network access:** Codex may require explicit user approval for networked commands.
+- **Allowed network usage (user-approved):**
+  - Local network access is allowed for DBMS connector integration tests.
+  - Public internet access is allowed for LLM provider tests/runtime calls.
+  - If you expect to exceed **10 requests/minute** to an LLM provider or **1000 requests/day**,
+    stop and ask first.
+- **Git operations:** some `git` commands may require explicit approval because they write to `.git/`.
 
-- **Storage Adapters** (5): Redis, PostgreSQL, Qdrant, Neo4j, Typesense - all in `src/storage/`
-- **Memory Tier Classes** (4): L1-L4 classes in `src/memory/tiers/` with dual-indexing for L3
-- **Data Models**: `Fact`, `Episode`, `KnowledgeDocument` in `src/memory/models.py` (Pydantic)
-- **CIAR Scorer**: Calculation logic in `src/memory/ciar_scorer.py` (Certainty × Impact × Age × Recency)
-- **Metrics System**: Comprehensive observability in `src/storage/metrics/` (timing, throughput, percentiles)
-- **LLM Connectivity**: 7 models tested (Gemini, Groq, Mistral) with structured output validated
-- **LLM Client**: `src/utils/llm_client.py` - multi-provider abstraction with fallback
-- **Gemini Structured Output**: Native `types.Schema` format validated with `gemini-3-flash-preview` (see `tests/utils/test_gemini_structured_output.py`)
+## Repository Map (Progressive Disclosure)
 
-## What's Missing ❌
+- Canonical harness rules: `AGENTS.MD`
+- Architecture (4-tier memory): `docs/ADR/003-four-layers-memory.md`
+- LangGraph tool injection (`ToolRuntime`): `docs/ADR/007-agent-integration-layer.md`
+- Benchmark isolation (“API Wall”): `docs/ADR/009-decoupling-benchmark-api-wall.md`
+- Environment guide: `docs/environment-guide.md`
+- Path-scoped guidelines:
+  - Source: `.github/instructions/source.instructions.md`
+  - Tests: `.github/instructions/testing.instructions.md`
+  - Docs: `.github/instructions/documentation.instructions.md`
+  - Scripts: `.github/instructions/scripts.instructions.md`
 
-- **Lifecycle Engines**: `src/memory/engines/` directory - promotion, consolidation, distillation
-- **Fact Extraction**: LLM-based structured extraction from L1 turns
-- **Autonomous Flow**: L1→L2→L3→L4 intelligent promotion based on CIAR thresholds
+## Python Environments (Poetry)
 
-## CRITICAL: Python Environment & Execution
-
-- **Python Version**: Python 3.12.3
-- **Virtual Environment Path**: `/home/max/code/mas-memory-layer/.venv`
-- **CRITICAL RULE**: You MUST NOT use the `source .venv/bin/activate` command. Your `run_in_terminal` tool operates in a stateless shell, and any environment activation will be lost on the very next command.
-- **Host Detection**: Before running any command, execute the following to determine whether you are on the managed remote Ubuntu VM, a local macOS checkout, or a local Ubuntu/RDP session:
-  ```bash
-  uname -a
-  hostname
-  pwd
-  ```
-  - If the output shows `Linux` and a hostname such as `skz-dev-lv`, you are on the managed remote VM and must use the absolute paths below.
-  - If the output shows `Darwin` (macOS) or a local Ubuntu hostname, you may use the relative `.venv` paths (e.g., `./.venv/bin/python`).
-  - Always document the host context in worklogs/DEVLOG entries when it affects behaviour.
-- **MANDATORY (Remote VM)**: When operating on the managed remote host, all Python, pip, or pytest commands MUST use the direct, absolute executable path to ensure the correct environment is used:
-  - To run Python scripts: `/home/max/code/mas-memory-layer/.venv/bin/python ...`
-  - To run tests (pytest): `/home/max/code/mas-memory-layer/.venv/bin/pytest ...`
-  - To install packages: `/home/max/code/mas-memory-layer/.venv/bin/pip ...`
-- **RECOMMENDED (Local environments)**: Use the equivalent relative commands (`./.venv/bin/python`, etc.) to keep paths portable. The relative commands map 1:1 to the absolute versions and prevent accidental use of a different interpreter.
-
-**Two-Environment Architecture**: This repository contains two separate Poetry projects:
-1. **MAS Memory Layer** (root): `poetry install --with test,dev` creates `.venv/`
-2. **GoodAI Benchmark** (`benchmarks/goodai-ltm-benchmark/`): `poetry install` creates `.venv/` in that subdirectory
-
-These environments are intentionally isolated due to incompatible langchain versions (MAS uses `langchain-core>=0.3.25,<0.4.0` while benchmark uses `langchain==0.1.1`).
-
-## Path-Specific Instructions
-
-Detailed implementation patterns are organized by directory:
-
-- **Source Code** (`src/**/*.py`): See `.github/instructions/source.instructions.md`
-  - Async-first architecture, dual storage/indexing patterns, CIAR scoring, BaseTier interface, Pydantic v2, exception hierarchy
-- **Tests** (`tests/**/*.py`): See `.github/instructions/testing.instructions.md`
-  - Pytest patterns, test markers, fixtures, test structure, coverage requirements
-- **Documentation** (`docs/**/*.md`): See `.github/instructions/documentation.instructions.md`
-  - Academic tone for AIMS 2025, DEVLOG format, ADR structure, technical specifications
-- **Scripts** (`scripts/**/*.sh`): See `.github/instructions/scripts.instructions.md`
-  - POSIX compliance, virtual environment handling, error handling, output formatting
-
-## Development Workflow
-
-### Running Tests
-```bash
-# All tests (pytest discovers tests/ directory)
-./.venv/bin/pytest tests/ -v
-
-# Smoke tests (connectivity checks)
-./scripts/run_smoke_tests.sh
-
-# Specific storage adapter
-./scripts/run_redis_tests.sh
-
-# Memory integration tests
-./scripts/run_memory_integration_tests.sh
-```
-
-**Markers and real LLM/provider checks**
-- Unit/mocked: `-m "not integration and not llm_real"`
-- Integration: `-m "integration"`
-- Real LLM/provider: `-m "llm_real"` (requires `GOOGLE_API_KEY` from `.env`; do not use `GEMINI_API_KEY`). Use `scripts/grade_phase5_readiness.sh --mode full` to include, or `--skip-llm` to suppress even when the key is set.
-
-Tests use `pytest` with `pytest-asyncio`. See `.github/instructions/testing.instructions.md` for complete testing guidelines.
-
-### Running Benchmarks
-```bash
-# Storage performance benchmarks
-./.venv/bin/python scripts/run_storage_benchmark.py run --size 10000
-./.venv/bin/python scripts/run_storage_benchmark.py analyze
-```
-
-### Database Setup
-```bash
-# PostgreSQL migrations
-./scripts/setup_database.sh
-# Applies migrations/001_active_context.sql
-```
-
-### Environment Setup
-Copy `.env.example` to `.env` with:
-- PostgreSQL: `DATA_NODE_IP`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`
-- Neo4j: `DATA_NODE_IP`, `NEO4J_USER`, `NEO4J_PASSWORD`
-- LLM APIs: **`GOOGLE_API_KEY`** (for Gemini - NOT `GEMINI_API_KEY`), `GROQ_API_KEY`, `MISTRAL_API_KEY`
-  - **CRITICAL**: All code and tests MUST use `GOOGLE_API_KEY` environment variable
-  - API keys are sourced from `.env` file in repository root
-  - See `tests/integration/test_llmclient_real.py` and `tests/utils/test_gemini_structured_output.py` for correct usage
-- Detailed host-detection and bootstrap steps live in `docs/environment-guide.md`; follow that guide before running commands.
-
-## External Tool: Gemini CLI (Future Use)
-
-- **Purpose**: For high-level, complex tasks, we will delegate to the `gemini` CLI. This tool is used for deep codebase analysis, multi-file refactoring planning, and architectural reviews.
-- **Invocation Pattern**: You MUST invoke it non-interactively using the `-p` flag.
-- **Context Syntax**: You MUST provide file and directory context using the `@` syntax inside the prompt string (e.g., `@src/memory/tiers/` or `@./`).
-- **Example Command**:
-```bash
-gemini -p "@./ Review the project architecture and suggest improvements for the L3 tier"
-```
-
-## Critical Files & Directories
-
-- **ADRs**: `docs/ADR/003-four-layers-memory.md` (architecture), `004-ciar-scoring-formula.md`, `006-free-tier-llm-strategy.md`
-- **Status Docs**: `docs/reports/adr-003-architecture-review.md` (gap analysis), `DEVLOG.md` (progress tracking)
-- **Lessons Register**: `docs/lessons-learned.md` (structured incident log with mitigations)
-- **Data Models**: `src/memory/models.py` (Fact, Episode, KnowledgeDocument with Pydantic validation)
-- **Metrics**: `src/storage/metrics/collector.py`, `aggregator.py`, `exporters.py`
-- **Benchmarks**: `benchmarks/` directory with workload configs
-
-## Common Tasks
-
-### Adding a New Memory Tier
-1. Inherit from `BaseTier` in `src/memory/tiers/base_tier.py`
-2. Implement abstract methods: `initialize()`, `store()`, `retrieve()`, `health_check()`
-3. Add tier-specific logic (e.g., turn windowing for L1, CIAR filtering for L2)
-4. Create tests in `tests/memory/test_<tier_name>.py`
-
-### Implementing Lifecycle Engines
-Follow Phase 2B-2D plan in `DEVLOG.md`:
-1. Create `src/memory/engines/` directory
-2. Implement `PromotionEngine` (L1→L2 fact extraction with LLM)
-3. Implement `ConsolidationEngine` (L2→L3 episode clustering)
-4. Implement `DistillationEngine` (L3→L4 knowledge synthesis)
-5. Add circuit breaker pattern for LLM resilience
-
-### Adding Storage Metrics
-Metrics auto-collect when enabled. Export formats:
-```python
-metrics = adapter.get_metrics()
-metrics.export_json("results.json")
-metrics.export_csv("results.csv")
-metrics.export_prometheus()  # Gauge format
-```
-
-## Code Style & Testing
-
-See path-specific instruction files for detailed guidelines:
-- **Source code patterns**: `.github/instructions/source.instructions.md`
-- **Testing patterns**: `.github/instructions/testing.instructions.md`
-- **Documentation style**: `.github/instructions/documentation.instructions.md`
-- **Script conventions**: `.github/instructions/scripts.instructions.md`
-
-### Mypy Type Safety (Critical Patterns)
-
-Mypy strict checking is enforced via pre-commit. Follow these patterns to avoid common type errors:
-
-- **Redis Async Returns:** Always cast Redis results explicitly: `int(await self.client.exists(key))`, `bool(result)`.
-- **Dict Covariance:** Use `Mapping[str, T]` not `dict[str, T]` when accepting adapter collections (dict is invariant).
-- **Stats Dicts:** Annotate explicitly: `stats: dict[str, int] = {"count": 0}`. For mixed types, use helper: `def inc(key: str): stats[key] = int(stats.get(key, 0)) + 1`.
-- **Null Guards:** Always check `if self.client is None:` before accessing optional attributes.
-- **Adapter Signatures:** Use dict query pattern: `await adapter.search({"limit": 10})`, not keyword args.
-- **Google GenAI SDK:** Use dynamic imports `importlib.import_module("google.genai")` due to namespace package issues with mypy.
-- **Type Ignore:** Use specific error codes: `# type: ignore[import-untyped]` not bare `# type: ignore`.
-
-See `docs/plan/phase2_3_engineering_plans_version-0.9.md` for comprehensive guidelines.
-
-## Research Context
-
-Submission target: **AIMS 2025 Conference**. System compares hybrid 4-tier architecture against:
-1. Standard RAG baseline (single vector store)
-2. Full-context baseline (pass entire history to LLM)
-
-Benchmark: **GoodAI LTM Benchmark** for long-term memory evaluation (32k-120k token conversations). See `docs/benchmark_use_cases.md`, `docs/benchmark_sequence_diagrams.md`, `docs/benchmark_data_dictionary.md` for experiment specs.
-
-## Python Environment
-
-- **Version**: Python 3.11+ (3.13 tested)
-- **Package Manager**: Poetry (with `virtualenvs.in-project = true`)
-- **Dependencies**: `pyproject.toml` (production + test + dev groups)
-- **Virtual Env**: `.venv/` (Poetry-managed, in-project)
-- **Key Packages**: `pydantic==2.8.2`, `redis==5.0.7`, `psycopg[binary]>=3.2.0`, `qdrant-client==1.9.2`, `neo4j==5.22.0`
-
-**Two Environments**:
-- **MAS Memory Layer** (root): `poetry install --with test,dev`
-- **GoodAI Benchmark** (`benchmarks/goodai-ltm-benchmark/`): `poetry install`
+- YAAM (repo root): Python `>=3.12,<3.14` (see `pyproject.toml`)
+- GoodAI benchmark (`benchmarks/goodai-ltm-benchmark/`): Python `>=3.11,<3.13` (separate Poetry project)

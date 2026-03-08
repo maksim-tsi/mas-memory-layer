@@ -42,7 +42,7 @@ Get started with a few lines of code:
 ### REST
 
     curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent" \
-      -H "x-goog-api-key: $GEMINI_API_KEY" \
+      -H "x-goog-api-key: $GOOGLE_API_KEY" \
       -H 'Content-Type: application/json' \
       -X POST \
       -d '{
@@ -135,7 +135,7 @@ In addition to the levels above, Gemini 3 Flash also supports the following thin
 ### REST
 
     curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent" \
-      -H "x-goog-api-key: $GEMINI_API_KEY" \
+      -H "x-goog-api-key: $GOOGLE_API_KEY" \
       -H 'Content-Type: application/json' \
       -X POST \
       -d '{
@@ -233,7 +233,7 @@ You can now set the resolution to`media_resolution_low`,`media_resolution_medium
 ### REST
 
     curl "https://generativelanguage.googleapis.com/v1alpha/models/gemini-3-pro-preview:generateContent" \
-      -H "x-goog-api-key: $GEMINI_API_KEY" \
+      -H "x-goog-api-key: $GOOGLE_API_KEY" \
       -H 'Content-Type: application/json' \
       -X POST \
       -d '{
@@ -567,7 +567,7 @@ Gemini 3 models allow you to combine[Structured Outputs](https://ai.google.dev/g
 ### REST
 
     curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent" \
-      -H "x-goog-api-key: $GEMINI_API_KEY" \
+      -H "x-goog-api-key: $GOOGLE_API_KEY" \
       -H 'Content-Type: application/json' \
       -X POST \
       -d '{
@@ -668,7 +668,7 @@ For complete details on aspect ratios, editing workflows, and configuration opti
 ### REST
 
     curl "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent" \
-      -H "x-goog-api-key: $GEMINI_API_KEY" \
+      -H "x-goog-api-key: $GOOGLE_API_KEY" \
       -H 'Content-Type: application/json' \
       -X POST \
       -d '{

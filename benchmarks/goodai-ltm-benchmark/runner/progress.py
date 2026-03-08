@@ -14,7 +14,7 @@ try:
     from tkinter import ttk
 
     _TK_AVAILABLE = True
-except ModuleNotFoundError:  # pragma: no cover - headless environments
+except (ModuleNotFoundError, ImportError):  # pragma: no cover - headless environments
     tk = None
     ttk = None
     _TK_AVAILABLE = False

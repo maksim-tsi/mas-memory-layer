@@ -5,11 +5,8 @@ Unit tests for storage layer adapters using real backend instances.
 ## Running Tests
 
 ```bash
-# Activate virtual environment
-source .venv/bin/activate
-
-# Run all storage tests
-pytest tests/storage/ -v
+# Use direct Python executable path
+./.venv/bin/pytest tests/storage/ -v
 
 # Run specific adapter
 pytest tests/storage/test_postgres_adapter.py -v

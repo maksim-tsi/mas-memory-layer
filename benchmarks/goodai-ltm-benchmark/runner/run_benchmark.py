@@ -17,13 +17,15 @@ from dataset_interfaces.factory import DATASETS, DatasetFactory
 from dataset_interfaces.interface import TestExample
 from model_interfaces.cost_estimation import CostEstimationChatSession
 from model_interfaces.gemini_interface import GeminiProInterface
+from model_interfaces.groq_interface import GroqChatSession
 from model_interfaces.huggingface_interface import HFChatSession
 from model_interfaces.human import HumanChatSession
 from model_interfaces.interface import ChatSession
 from model_interfaces.length_bias_agent import LengthBiasAgent
 from model_interfaces.llm_interface import LLMChatSession, TimestampLLMChatSession
 from model_interfaces.mas_agents import MASFullContextSession, MASFullSession, MASRAGSession
-from model_interfaces.memgpt_interface import MemGPTChatSession
+from model_interfaces.mistral_interface import MistralChatSession
+from model_interfaces.remote_agent import RemoteMASAgentSession
 from utils.constants import MAIN_DIR, TESTS_DIR
 from utils.files import (
     gather_persistence_files,
@@ -66,9 +68,10 @@ def get_chat_session(
 
     if name == "gemini":
         return GeminiProInterface(run_name=run_name)
-
-    if name == "memgpt":
-        return MemGPTChatSession(run_name=run_name)
+    if name == "groq":
+        return GroqChatSession(run_name=run_name)
+    if name == "mistral":
+        return MistralChatSession(run_name=run_name)
 
     if name == "mas-full":
         return MASFullSession(**kwargs)
@@ -78,6 +81,9 @@ def get_chat_session(
 
     if name == "mas-full-context":
         return MASFullContextSession(**kwargs)
+
+    if name == "mas-remote":
+        return RemoteMASAgentSession(**kwargs)
 
     if name.startswith("ltm_agent_"):
         from model_interfaces.ltm_agent_wrapper import LTMAgentVariant, LTMAgentWrapper

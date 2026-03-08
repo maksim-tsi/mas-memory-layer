@@ -88,13 +88,12 @@ benchmarks/
 ### Run Default Benchmark
 ```bash
 cd /home/max/code/mas-memory-layer
-source .venv/bin/activate
-python scripts/run_storage_benchmark.py
+./.venv/bin/python scripts/run_storage_benchmark.py
 ```
 
 ### Run Small Benchmark (Quick Test)
 ```bash
-python scripts/run_storage_benchmark.py run --size 1000
+./.venv/bin/python scripts/run_storage_benchmark.py run --size 1000
 ```
 
 ### Analyze Results

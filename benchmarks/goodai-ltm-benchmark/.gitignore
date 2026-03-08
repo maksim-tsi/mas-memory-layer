@@ -44,6 +44,7 @@ not_for_github/auto_scorer/logs/*
 not_for_github/auto_scorer/sheet_to_local/*
 # Output reports
 *.html
+!reporting/templates/*.html
 
 # Virtual Environment
 .venv/
