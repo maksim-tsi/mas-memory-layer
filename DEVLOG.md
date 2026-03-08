@@ -16,6 +16,39 @@ Each entry should include:
 
 ## Log Entries
 
+### 2026-03-08 - Merge dev into dev-mas: Benchmark Infrastructure & Gitignore Improvements 🔀
+
+**Status:** ✅ Complete
+
+**Summary:**
+Merged latest dev branch changes into dev-mas, bringing in ~20 commits of benchmark infrastructure improvements, documentation updates, and provider configuration refinements. Successfully resolved .gitignore conflict by combining both strategies: keeping granular artifact patterns from dev-mas while incorporating broader organizational rules from dev.
+
+**Merge Details:**
+- **Merge Commit:** c3e2d17
+- **Source Branch:** dev (b5e87a7)
+- **Target Branch:** dev-mas
+- **Conflict Resolution:** Single conflict in .gitignore - resolved by combining patterns to exclude generated benchmark artifacts while preserving config files
+- **Verification:** All checks passed - 579 tests passed, 107 skipped; ruff linter clean
+
+**Key Changes Merged from dev:**
+- Benchmark reporting infrastructure (dated YAAM vs LLM reports)
+- Provider updates (Gemini to gemini-3-flash-preview, groq/mistral configurations)
+- Documentation improvements (smoke run setup, Variant A wiring steps)
+- Skills loader utilities and SKILLBUILDER skill
+- GoodAI benchmark gap closures
+
+**Pre-merge Cleanup:**
+- Added comprehensive .gitignore rules for benchmark artifacts (commit c5aed26)
+- Patterns now exclude 72+ generated test definitions and persistence sessions
+- Preserves static test configs and example data in benchmarks/goodai-ltm-benchmark/data/
+
+**Files Affected:**
+- `.gitignore` (conflict resolved - combined patterns)
+- Documentation: AGENTS.MD, README.md, DEVLOG.md, GEMINI.MD, benchmark docs
+- Benchmark interfaces: gemini_interface.py, groq_interface.py, mistral_interface.py
+- Agent evaluation: agent_wrapper.py (minor import reorganization)
+- Configuration: pyproject.toml (added meilisearch dependency)
+
 ### 2026-02-21 - ADR-011 Variant A Wiring: Skill-Selection-First + API Wall Trace Metadata 📊
 
 **Status:** ✅ Complete
