@@ -9,7 +9,7 @@ import os
 import time
 import uuid
 from collections.abc import Iterable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -96,11 +96,90 @@ def _compute_turn_id(messages: list[ChatCompletionMessage]) -> int:
     return max(user_count - 1, 0)
 
 
+def _ensure_api_wall_tracing() -> None:
+    """Initialize Phoenix tracing before the API Wall starts serving requests."""
+    try:
+        from src.llm.client import ensure_phoenix_instrumentation
+    except Exception:  # pragma: no cover - optional import safety
+        return
+    ensure_phoenix_instrumentation()
+
+
+def _extract_parent_context(traceparent: str | None) -> Any | None:
+    """Extract an OpenTelemetry parent context from an inbound trace header."""
+    if not traceparent:
+        return None
+    try:
+        from opentelemetry.propagate import extract
+    except Exception:  # pragma: no cover - optional dependency
+        return None
+    return extract({"traceparent": traceparent})
+
+
+def _get_api_wall_tracer() -> Any | None:
+    """Return the API Wall tracer when OpenTelemetry is available."""
+    try:
+        from opentelemetry import trace
+    except Exception:  # pragma: no cover - optional dependency
+        return None
+    return trace.get_tracer("yaam.api_wall")
+
+
+def _set_span_attributes(span: Any, attributes: dict[str, Any]) -> None:
+    """Attach normalized attributes to a recording span."""
+    if not span or not hasattr(span, "is_recording") or not span.is_recording():
+        return
+    for key, value in attributes.items():
+        if value is None:
+            continue
+        if isinstance(value, str | bool | int | float):
+            span.set_attribute(key, value)
+            continue
+        try:
+            span.set_attribute(key, json.dumps(value, ensure_ascii=True))
+        except TypeError:
+            span.set_attribute(key, str(value))
+
+
+def _set_span_error(span: Any, exc: Exception) -> None:
+    """Record error details on the active request span."""
+    _set_span_attributes(
+        span,
+        {
+            "error.type": type(exc).__name__,
+            "error.message": str(exc),
+        },
+    )
+    try:
+        from opentelemetry.trace import Status, StatusCode
+    except Exception:  # pragma: no cover - optional dependency
+        return
+    if span and hasattr(span, "set_status"):
+        span.set_status(Status(StatusCode.ERROR, str(exc)))
+
+
+def _current_trace_metadata(span: Any) -> dict[str, str]:
+    """Return trace identifiers for the active request span."""
+    if not span or not hasattr(span, "get_span_context"):
+        return {}
+    try:
+        span_context = span.get_span_context()
+    except Exception:  # pragma: no cover - defensive fallback
+        return {}
+    if not getattr(span_context, "is_valid", False):
+        return {}
+    return {
+        "yaam_trace_id": f"{span_context.trace_id:032x}",
+        "yaam_span_id": f"{span_context.span_id:016x}",
+    }
+
+
 def create_app(config: agent_wrapper.WrapperConfig) -> FastAPI:
     """Create and configure the API Wall FastAPI application."""
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        _ensure_api_wall_tracing()
         logger.info(
             "Initializing API Wall for agent_type=%s agent_variant=%s",
             config.agent_type,
@@ -158,66 +237,114 @@ def create_app(config: agent_wrapper.WrapperConfig) -> FastAPI:
         )
 
         estimated_input_tokens = agent_wrapper._estimate_tokens(run_request.content)
-        await state.rate_limiter.wait_if_needed(estimated_input_tokens)
-
-        try:
-            t0 = time.perf_counter()
-            await agent_wrapper._store_turn(state, run_request, role=run_request.role)
-            t1 = time.perf_counter()
-            response = await state.agent.run_turn(run_request, history=history)
-            t2 = time.perf_counter()
-            await agent_wrapper._store_turn(state, response, role=response.role)
-            t3 = time.perf_counter()
-            estimated_total_tokens = agent_wrapper._estimate_tokens(
-                f"{run_request.content}\n{response.content}"
+        tracer = _get_api_wall_tracer()
+        span_context = (
+            tracer.start_as_current_span(
+                "yaam.api_wall.chat_completions",
+                context=_extract_parent_context(traceparent),
             )
-            state.rate_limiter.record_usage(estimated_total_tokens)
-        except Exception as exc:
-            state.rate_limiter.register_error(exc)
-            logger.exception("Error handling /v1/chat/completions for session %s", session_id)
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-        response_metadata = dict(response.metadata or {})
-        response_metadata.update(
-            {
-                "yaam_session_id": session_id,
-                "client_session_id": x_session_id,
-                "yaam_turn_id": run_request.turn_id,
-                "yaam_agent_type": config.agent_type,
-                "yaam_agent_variant": config.agent_variant,
-                "yaam_configured_model": config.model,
-                "storage_ms_pre": (t1 - t0) * 1000,
-                "llm_ms": (t2 - t1) * 1000,
-                "storage_ms_post": (t3 - t2) * 1000,
-                "storage_ms": (t1 - t0 + t3 - t2) * 1000,
-            }
+            if tracer
+            else nullcontext(None)
         )
-        response = response.model_copy(update={"metadata": response_metadata})
 
-        completion_message = ChatCompletionMessage(
-            role=response.role,
-            content=response.content,
-        )
-        completion_tokens = agent_wrapper._estimate_tokens(response.content)
+        with span_context as span:
+            _set_span_attributes(
+                span,
+                {
+                    "yaam.route": "/v1/chat/completions",
+                    "yaam.agent_type": config.agent_type,
+                    "yaam.agent_variant": config.agent_variant,
+                    "yaam.configured_model": config.model,
+                    "yaam.request_model": request.model,
+                    "yaam.client_session_id": x_session_id,
+                    "yaam.session_id": session_id,
+                    "yaam.turn_id": run_request.turn_id,
+                    "yaam.message_count": len(request.messages),
+                    "yaam.prompt_tokens": estimated_input_tokens,
+                    "yaam.traceparent_supplied": bool(traceparent),
+                    "yaam.mock_time": x_mock_time,
+                },
+            )
 
-        return ChatCompletionResponse(
-            id=f"chatcmpl-{uuid.uuid4().hex}",
-            created=int(time.time()),
-            model=request.model or config.model,
-            choices=[
-                ChatCompletionChoice(
-                    index=0,
-                    message=completion_message,
-                    finish_reason="stop",
+            await state.rate_limiter.wait_if_needed(estimated_input_tokens)
+
+            try:
+                t0 = time.perf_counter()
+                await agent_wrapper._store_turn(state, run_request, role=run_request.role)
+                t1 = time.perf_counter()
+                response = await state.agent.run_turn(run_request, history=history)
+                t2 = time.perf_counter()
+                await agent_wrapper._store_turn(state, response, role=response.role)
+                t3 = time.perf_counter()
+                estimated_total_tokens = agent_wrapper._estimate_tokens(
+                    f"{run_request.content}\n{response.content}"
                 )
-            ],
-            usage={
-                "prompt_tokens": estimated_input_tokens,
-                "completion_tokens": completion_tokens,
-                "total_tokens": estimated_total_tokens,
-            },
-            metadata=response_metadata,
-        )
+                state.rate_limiter.record_usage(estimated_total_tokens)
+            except Exception as exc:
+                state.rate_limiter.register_error(exc)
+                _set_span_error(span, exc)
+                logger.exception("Error handling /v1/chat/completions for session %s", session_id)
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+            response_metadata = dict(response.metadata or {})
+            response_metadata.update(
+                {
+                    "yaam_session_id": session_id,
+                    "client_session_id": x_session_id,
+                    "yaam_turn_id": run_request.turn_id,
+                    "yaam_agent_type": config.agent_type,
+                    "yaam_agent_variant": config.agent_variant,
+                    "yaam_configured_model": config.model,
+                    "storage_ms_pre": (t1 - t0) * 1000,
+                    "llm_ms": (t2 - t1) * 1000,
+                    "storage_ms_post": (t3 - t2) * 1000,
+                    "storage_ms": (t1 - t0 + t3 - t2) * 1000,
+                }
+            )
+            response_metadata.update(_current_trace_metadata(span))
+            response = response.model_copy(update={"metadata": response_metadata})
+
+            completion_message = ChatCompletionMessage(
+                role=response.role,
+                content=response.content,
+            )
+            completion_tokens = agent_wrapper._estimate_tokens(response.content)
+
+            _set_span_attributes(
+                span,
+                {
+                    "yaam.llm_provider": response_metadata.get("llm_provider"),
+                    "yaam.llm_model": response_metadata.get("llm_model"),
+                    "yaam.llm_ms": response_metadata.get("llm_ms"),
+                    "yaam.storage_ms_pre": response_metadata.get("storage_ms_pre"),
+                    "yaam.storage_ms_post": response_metadata.get("storage_ms_post"),
+                    "yaam.storage_ms": response_metadata.get("storage_ms"),
+                    "yaam.completion_tokens": completion_tokens,
+                    "yaam.total_tokens": estimated_total_tokens,
+                    "yaam.response_model": request.model or config.model,
+                    "yaam.trace_id": response_metadata.get("yaam_trace_id"),
+                    "yaam.span_id": response_metadata.get("yaam_span_id"),
+                },
+            )
+
+            return ChatCompletionResponse(
+                id=f"chatcmpl-{uuid.uuid4().hex}",
+                created=int(time.time()),
+                model=request.model or config.model,
+                choices=[
+                    ChatCompletionChoice(
+                        index=0,
+                        message=completion_message,
+                        finish_reason="stop",
+                    )
+                ],
+                usage={
+                    "prompt_tokens": estimated_input_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": estimated_total_tokens,
+                },
+                metadata=response_metadata,
+            )
 
     @app.post("/control/session/reset")
     async def reset_session(
