@@ -3,7 +3,11 @@
 **Status:** Ready for Execution  
 **Date:** March 9, 2026  
 **Audience:** Maintainers, benchmark operators, observability owners  
-**Related:** `docs/ADR/009-decoupling-benchmark-api-wall.md`, `docs/specs/spec-goodai-agent-variant-evaluation-protocol.md`, `docs/plan/2026-02-22-provider-parity-experiment-matrix.md`, `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`, `docs/reports/2026-03-09-phoenix-api-wall-observability-progress-report.md`
+**Related:** `docs/ADR/009-decoupling-benchmark-api-wall.md`, `docs/specs/spec-goodai-agent-variant-evaluation-protocol.md`, `docs/plan/2026-02-22-provider-parity-experiment-matrix.md`, `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`, `docs/reports/2026-03-09-phoenix-api-wall-observability-progress-report.md`, `docs/runbooks/phoenix-experiment-reproducibility.md`
+
+**Operational Note:** This document records the dated March 2026 execution plan. For future Phoenix
+reruns and reproducible operator workflow, use
+`docs/runbooks/phoenix-experiment-reproducibility.md` as the maintained procedure.
 
 ## 1. Objective
 

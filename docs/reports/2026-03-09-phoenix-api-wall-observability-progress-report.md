@@ -5,6 +5,10 @@
 **Audience:** Maintainers, benchmark operators, observability owners  
 **YAAM Commit:** `c09508dfbd5d`
 
+**Operational Note:** This report remains the dated evidence artifact for the March 2026 API-Wall
+validation. For future Phoenix reruns and reproducible step-by-step execution, use
+`docs/runbooks/phoenix-experiment-reproducibility.md`.
+
 ## 1. Executive Summary
 
 This report documents progress on the Phoenix observability task for YAAM, with particular emphasis on the OpenAI-compatible API Wall defined in `src/server.py`. The work completed in this iteration establishes request-level tracing ownership at the `POST /v1/chat/completions` boundary while preserving provider-level instrumentation in `src/llm/client.py`.
@@ -180,6 +184,7 @@ The next recommended steps are:
 ## 10. Reference Artifacts
 
 - Plan: [2026-03-09-phoenix-api-wall-observability-validation-plan.md](../plan/2026-03-09-phoenix-api-wall-observability-validation-plan.md)
+- Runbook: [phoenix-experiment-reproducibility.md](../runbooks/phoenix-experiment-reproducibility.md)
 - API Wall implementation: [src/server.py](../../src/server.py)
 - Regression test: [tests/test_server_api_wall.py](../../tests/test_server_api_wall.py)
 - Benchmark config for live validation: [benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml](../../benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml)
