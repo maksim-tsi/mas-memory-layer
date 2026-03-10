@@ -18,6 +18,7 @@ from src.agents.runtime import AgentState
 from src.agents.tools import ALL_TOOLS, UNIFIED_TOOLS
 from src.llm.client import LLMClient
 from src.memory.models import ContextBlock, TurnData
+from src.observability import set_span_attributes, set_span_error, start_span
 from src.skills.loader import SkillLoadError, filter_tools_by_allowed_names, load_skill
 
 logger = logging.getLogger(__name__)
@@ -82,23 +83,46 @@ class MemoryAgent(BaseAgent):
             "confidence": 0.0,
         }
 
-        result_state = await self._run_graph(initial_state)
-        response_text = result_state.get("response") or "I'm unable to respond right now."
-        history_msgs = result_state.get("messages", [])
-        if isinstance(history_msgs, list):
-            response_text = self._maybe_apply_trigger_response(
-                history=history_msgs,
-                user_input=request.content,
-                response_text=response_text,
-            )
+        with start_span(
+            tracer_name="yaam.agent",
+            span_name="yaam.agent.run_turn",
+            kind="AGENT",
+            attributes={
+                "session.id": request.session_id,
+                "input.value": request.content,
+                "yaam.turn_id": request.turn_id,
+                "tag.tags": [f"agent_variant:{self._agent_variant}", f"agent_id:{self.agent_id}"],
+            },
+        ) as span:
+            try:
+                result_state = await self._run_graph(initial_state)
+                response_text = result_state.get("response") or "I'm unable to respond right now."
+                history_msgs = result_state.get("messages", [])
+                if isinstance(history_msgs, list):
+                    response_text = self._maybe_apply_trigger_response(
+                        history=history_msgs,
+                        user_input=request.content,
+                        response_text=response_text,
+                    )
 
-        return RunTurnResponse(
-            session_id=request.session_id,
-            role="assistant",
-            content=response_text,
-            turn_id=request.turn_id,
-            metadata=result_state.get("metadata"),
-        )
+                set_span_attributes(
+                    span,
+                    {
+                        "output.value": response_text,
+                        **self._build_agent_metadata(result_state),
+                    },
+                )
+
+                return RunTurnResponse(
+                    session_id=request.session_id,
+                    role="assistant",
+                    content=response_text,
+                    turn_id=request.turn_id,
+                    metadata=result_state.get("metadata"),
+                )
+            except Exception as exc:
+                set_span_error(span, exc)
+                raise
 
     async def health_check(self) -> dict[str, Any]:
         """Return health status for the agent."""
@@ -153,73 +177,121 @@ class MemoryAgent(BaseAgent):
             metadata = {}
             state["metadata"] = metadata
 
-        if not self._memory_system:
-            metadata["context"] = {
-                "recent_turns_count": 0,
-                "working_facts_count": 0,
-                "episodic_chunks_count": 0,
-                "semantic_knowledge_count": 0,
-                "retrieval_ms": 0.0,
-                "query_ms": 0.0,
-                "total_ms": 0.0,
-            }
-            return state
-
-        session_id = state.get("session_id", "")
+        session_id = str(state.get("session_id", ""))
         user_query = self._extract_user_message(state)
 
-        retrieval_start = time.perf_counter()
-        context_block = None
-        if hasattr(self._memory_system, "get_context_block"):
+        with start_span(
+            tracer_name="yaam.agent",
+            span_name="yaam.workflow.retrieve",
+            kind="CHAIN",
+            attributes={
+                "session.id": session_id,
+                "input.value": user_query or None,
+                "graph.node.id": "retrieve",
+                "graph.node.name": "retrieve",
+                "graph.node.parent_id": "yaam.agent.run_turn",
+                "yaam.turn_id": state.get("turn_id"),
+            },
+        ) as span:
             try:
-                context_block = await self._memory_system.get_context_block(
-                    session_id=session_id,
-                    min_ciar=self._min_ciar,
-                    max_turns=self._max_turns,
-                    max_facts=self._max_facts,
+                if not self._memory_system:
+                    metadata["context"] = {
+                        "recent_turns_count": 0,
+                        "working_facts_count": 0,
+                        "episodic_chunks_count": 0,
+                        "semantic_knowledge_count": 0,
+                        "retrieval_ms": 0.0,
+                        "query_ms": 0.0,
+                        "total_ms": 0.0,
+                    }
+                    set_span_attributes(
+                        span,
+                        {
+                            "yaam.context.recent_turns_count": 0,
+                            "yaam.context.working_facts_count": 0,
+                            "yaam.context.episodic_chunks_count": 0,
+                            "yaam.context.semantic_knowledge_count": 0,
+                        },
+                    )
+                    return state
+
+                retrieval_start = time.perf_counter()
+                context_block = None
+                if hasattr(self._memory_system, "get_context_block"):
+                    try:
+                        context_block = await self._memory_system.get_context_block(
+                            session_id=session_id,
+                            min_ciar=self._min_ciar,
+                            max_turns=self._max_turns,
+                            max_facts=self._max_facts,
+                        )
+                    except Exception as exc:  # pragma: no cover - defensive fallback
+                        logger.warning("Failed to retrieve context block: %s", exc)
+                retrieval_end = time.perf_counter()
+
+                if isinstance(context_block, ContextBlock):
+                    state["active_context"] = self._format_recent_turns(context_block.recent_turns)
+                    state["working_facts"] = list(context_block.significant_facts)
+                    state["episodic_chunks"] = list(context_block.episode_summaries)
+                    state["semantic_knowledge"] = list(context_block.knowledge_snippets)
+                elif context_block and hasattr(context_block, "recent_turns"):
+                    state["active_context"] = self._format_recent_turns(
+                        getattr(context_block, "recent_turns", [])
+                    )
+                    state["working_facts"] = list(getattr(context_block, "significant_facts", []))
+                    state["episodic_chunks"] = list(getattr(context_block, "episode_summaries", []))
+                    state["semantic_knowledge"] = list(
+                        getattr(context_block, "knowledge_snippets", [])
+                    )
+
+                query_start = retrieval_end
+                query_end = retrieval_end
+                if user_query and hasattr(self._memory_system, "query_memory"):
+                    try:
+                        query_start = time.perf_counter()
+                        results = await self._memory_system.query_memory(
+                            session_id=session_id,
+                            query=user_query,
+                            limit=self._max_facts,
+                        )
+                        self._merge_query_results(state, results)
+                        query_end = time.perf_counter()
+                    except Exception as exc:  # pragma: no cover - defensive fallback
+                        logger.warning("Failed to query memory tiers: %s", exc)
+
+                metadata["context"] = {
+                    "recent_turns_count": len(state.get("active_context", []) or []),
+                    "working_facts_count": len(state.get("working_facts", []) or []),
+                    "episodic_chunks_count": len(state.get("episodic_chunks", []) or []),
+                    "semantic_knowledge_count": len(state.get("semantic_knowledge", []) or []),
+                    "retrieval_ms": (retrieval_end - retrieval_start) * 1000,
+                    "query_ms": (query_end - query_start) * 1000,
+                    "total_ms": (query_end - retrieval_start) * 1000,
+                }
+                set_span_attributes(
+                    span,
+                    {
+                        "yaam.context.recent_turns_count": metadata["context"][
+                            "recent_turns_count"
+                        ],
+                        "yaam.context.working_facts_count": metadata["context"][
+                            "working_facts_count"
+                        ],
+                        "yaam.context.episodic_chunks_count": metadata["context"][
+                            "episodic_chunks_count"
+                        ],
+                        "yaam.context.semantic_knowledge_count": metadata["context"][
+                            "semantic_knowledge_count"
+                        ],
+                        "yaam.context.retrieval_ms": metadata["context"]["retrieval_ms"],
+                        "yaam.context.query_ms": metadata["context"]["query_ms"],
+                        "yaam.context.total_ms": metadata["context"]["total_ms"],
+                    },
                 )
-            except Exception as exc:  # pragma: no cover - defensive fallback
-                logger.warning("Failed to retrieve context block: %s", exc)
-        retrieval_end = time.perf_counter()
-
-        if isinstance(context_block, ContextBlock):
-            state["active_context"] = self._format_recent_turns(context_block.recent_turns)
-            state["working_facts"] = list(context_block.significant_facts)
-            state["episodic_chunks"] = list(context_block.episode_summaries)
-            state["semantic_knowledge"] = list(context_block.knowledge_snippets)
-        elif context_block and hasattr(context_block, "recent_turns"):
-            state["active_context"] = self._format_recent_turns(
-                getattr(context_block, "recent_turns", [])
-            )
-            state["working_facts"] = list(getattr(context_block, "significant_facts", []))
-            state["episodic_chunks"] = list(getattr(context_block, "episode_summaries", []))
-            state["semantic_knowledge"] = list(getattr(context_block, "knowledge_snippets", []))
-
-        query_start = retrieval_end
-        query_end = retrieval_end
-        if user_query and hasattr(self._memory_system, "query_memory"):
-            try:
-                query_start = time.perf_counter()
-                results = await self._memory_system.query_memory(
-                    session_id=session_id,
-                    query=user_query,
-                    limit=self._max_facts,
-                )
-                self._merge_query_results(state, results)
-                query_end = time.perf_counter()
-            except Exception as exc:  # pragma: no cover - defensive fallback
-                logger.warning("Failed to query memory tiers: %s", exc)
-
-        metadata["context"] = {
-            "recent_turns_count": len(state.get("active_context", []) or []),
-            "working_facts_count": len(state.get("working_facts", []) or []),
-            "episodic_chunks_count": len(state.get("episodic_chunks", []) or []),
-            "semantic_knowledge_count": len(state.get("semantic_knowledge", []) or []),
-            "retrieval_ms": (retrieval_end - retrieval_start) * 1000,
-            "query_ms": (query_end - query_start) * 1000,
-            "total_ms": (query_end - retrieval_start) * 1000,
-        }
-        return state
+                return state
+            except Exception as exc:
+                set_span_error(span, exc)
+                raise
 
     async def _reason_node(self, state: AgentState) -> AgentState:
         """Synthesize context and generate response via LLM."""

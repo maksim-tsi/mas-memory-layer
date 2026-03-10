@@ -7,6 +7,7 @@ from src.agents.models import RunTurnRequest
 from src.agents.tools import ALL_TOOLS, UNIFIED_TOOLS
 from src.memory.models import ContextBlock, Fact
 from src.utils.llm_client import LLMResponse
+from tests.helpers.fake_tracing import FakeTracer
 
 
 @pytest.fixture
@@ -143,6 +144,43 @@ async def test_run_turn_executes_graph(llm_client, memory_system):
 
     assert response.content == "Acknowledged."
     llm_client.generate.assert_called_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_run_turn_emits_agent_and_retrieve_spans(llm_client, memory_system, mocker):
+    """run_turn should emit AGENT and retrieve workflow spans."""
+    fake_tracer = FakeTracer()
+    mocker.patch("src.observability.tracing._get_tracer", return_value=fake_tracer)
+
+    agent = MemoryAgent(
+        agent_id="memory-agent",
+        llm_client=llm_client,
+        memory_system=memory_system,
+    )
+
+    request = RunTurnRequest(
+        session_id="session-123",
+        role="user",
+        content="Remember my order.",
+        turn_id=1,
+    )
+
+    response = await agent.run_turn(request)
+
+    assert response.content == "Acknowledged."
+    assert [entry["name"] for entry in fake_tracer.started][:2] == [
+        "yaam.agent.run_turn",
+        "yaam.workflow.retrieve",
+    ]
+    agent_span = fake_tracer.started[0]["span"]
+    retrieve_span = fake_tracer.started[1]["span"]
+    assert agent_span.attributes["openinference.span.kind"] == "AGENT"
+    assert agent_span.attributes["session.id"] == "session-123"
+    assert agent_span.attributes["input.value"] == "Remember my order."
+    assert agent_span.attributes["output.value"] == "Acknowledged."
+    assert retrieve_span.attributes["openinference.span.kind"] == "CHAIN"
+    assert retrieve_span.attributes["graph.node.name"] == "retrieve"
 
 
 @pytest.mark.unit

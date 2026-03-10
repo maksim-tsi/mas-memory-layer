@@ -1,11 +1,13 @@
 """Tests for query-aware cross-tier retrieval in UnifiedMemorySystem."""
 
+import json
 from datetime import UTC, datetime
 
 import pytest
 
 from src.memory.models import Episode, Fact, KnowledgeDocument, SearchWeights
 from src.memory.unified_memory_system import UnifiedMemorySystem
+from tests.helpers.fake_tracing import FakeTracer
 
 
 def _build_episode(episode_id: str, summary: str, similarity_score: float) -> Episode:
@@ -195,3 +197,62 @@ async def test_query_memory_skips_l3_when_llm_client_missing(mocker):
     l4_tier.search.assert_awaited_once_with(query_text="fallback query", limit=5)
     assert len(results) == 1
     assert results[0]["tier"] == "L4"
+
+
+@pytest.mark.asyncio
+async def test_query_memory_emits_retriever_spans(mocker):
+    """Query-aware retrieval should emit Phoenix-compatible retriever spans per tier."""
+    redis_client = mocker.Mock()
+    redis_client.ping.return_value = True
+    knowledge_manager = mocker.Mock()
+
+    llm_client = mocker.Mock()
+    llm_client.get_embedding = mocker.AsyncMock(return_value=[0.1, 0.2, 0.3])
+
+    l2_tier = mocker.Mock()
+    l2_tier.search_facts = mocker.AsyncMock(
+        return_value=[
+            Fact(fact_id="fact-1", session_id="session-123", content="Port fact", ciar_score=0.7)
+        ]
+    )
+
+    l3_tier = mocker.Mock()
+    l3_tier.search_similar = mocker.AsyncMock(
+        return_value=[_build_episode("ep-1", "Episode about port congestion", 0.9)]
+    )
+
+    l4_tier = mocker.Mock()
+    l4_tier.search = mocker.AsyncMock(return_value=[_build_knowledge("kg-1", "Port rule", 120.0)])
+
+    fake_tracer = FakeTracer()
+    mocker.patch("src.observability.tracing._get_tracer", return_value=fake_tracer)
+
+    system = UnifiedMemorySystem(
+        redis_client=redis_client,
+        knowledge_manager=knowledge_manager,
+        llm_client=llm_client,
+        l2_tier=l2_tier,
+        l3_tier=l3_tier,
+        l4_tier=l4_tier,
+    )
+
+    await system.query_memory(
+        session_id="session-123",
+        query="port congestion",
+        limit=5,
+        weights=SearchWeights(l2_weight=0.2, l3_weight=0.4, l4_weight=0.4),
+    )
+
+    span_names = [entry["name"] for entry in fake_tracer.started]
+    assert span_names == ["yaam.retriever.l2", "yaam.retriever.l3", "yaam.retriever.l4"]
+
+    l3_span = fake_tracer.started[1]["span"]
+    assert l3_span.attributes["openinference.span.kind"] == "RETRIEVER"
+    assert l3_span.attributes["session.id"] == "session-123"
+    assert l3_span.attributes["input.value"] == "port congestion"
+
+    documents = json.loads(str(l3_span.attributes["retrieval.documents"]))
+    assert documents[0]["document.id"] == "L3:ep-1"
+
+    l4_span = fake_tracer.started[2]["span"]
+    assert json.loads(str(l4_span.attributes["retrieval.documents"]))[0]["document.id"] == "L4:kg-1"

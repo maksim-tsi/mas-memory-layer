@@ -14,8 +14,8 @@ reproduce or compare future runs. It is intended to outlive any single dated val
 The procedure covers two levels of validation:
 
 1. API-Wall-rooted tracing, which is already implemented.
-2. Deeper retriever and tool spans, which should be exercised after the corresponding runtime
-   instrumentation lands.
+2. Deeper retriever and tool spans, which are now implemented in the policy layer and should be
+   validated through the runtime paths that actually execute them.
 
 This document assumes execution from the host machine on which Phoenix is running. When the same
 workflow is executed from another container, replace `localhost` with the appropriate container or
@@ -195,9 +195,16 @@ Capture and retain the response metadata, especially:
 
 ### 7.2 Retriever and Tool Experiment
 
-After retriever and tool instrumentation lands, use a request that is expected to exercise the
-target span path rather than only the API root span. The exact prompt depends on the runtime state
-being tested. For example:
+The current request path can now emit the following additional spans when retrieval is exercised:
+
+1. `yaam.agent.run_turn`
+2. `yaam.workflow.retrieve`
+3. `yaam.retriever.l2`
+4. `yaam.retriever.l3`
+5. `yaam.retriever.l4`
+
+Use a request that is expected to exercise query-aware retrieval rather than only the API root span.
+The exact prompt depends on the runtime state being tested. For example:
 
 ```bash
 curl -s -X POST http://localhost:8080/v1/chat/completions \
@@ -212,8 +219,39 @@ curl -s -X POST http://localhost:8080/v1/chat/completions \
   }'
 ```
 
-For tier-tool validation, choose a `v1-*` agent variant or another runtime configuration that can
-actually reach the broader tool pool.
+Expected interpretation:
+
+1. The API Wall request should still return `yaam_trace_id` and `yaam_span_id`.
+2. Phoenix should show the API root span plus the agent and retrieval spans above.
+3. `yaam.retriever.l3` and `yaam.retriever.l4` should carry truthful `input.value` and populated
+   `retrieval.documents` values.
+
+### 7.3 Tier-Tool Span Inventory and Current Validation Boundary
+
+The tier-tool instrumentation now emits the following tool-wrapper spans when the corresponding
+tool coroutines are invoked:
+
+1. `yaam.tool.l2_search_facts`
+2. `yaam.tool.l3_query_graph`
+3. `yaam.tool.l3_search_episodes`
+4. `yaam.tool.l4_search_knowledge`
+
+Retrieval-oriented tier tools also emit nested retriever spans:
+
+1. `yaam.retriever.l2` under `yaam.tool.l2_search_facts`
+2. `yaam.retriever.l3` under `yaam.tool.l3_search_episodes`
+3. `yaam.retriever.l4` under `yaam.tool.l4_search_knowledge`
+
+The graph-query tool currently emits a `TOOL` span only. This is intentional because its output is
+structured graph-query data rather than ranked retrieval evidence.
+
+Current runtime limitation:
+
+1. The present `MemoryAgent.run_turn()` flow emits the agent and retriever spans above.
+2. The current turn loop does not yet execute tier tools directly during an API Wall request.
+3. Therefore, API-Wall-only experiments currently validate request, agent, and retriever spans end
+   to end, while tier-tool spans are validated through direct tool invocation and focused tests
+   until a live tool-execution path is added to the request workflow.
 
 ## 8. Observation Retrieval Through the Live OpenAPI
 
@@ -298,6 +336,15 @@ PY
 This is the preferred first-pass analysis path because it is guaranteed by the live local OpenAPI
 contract and does not rely on undocumented client behavior.
 
+When validating the current implementation, interpret the returned names as follows:
+
+1. `yaam.agent.run_turn` confirms agent-level execution is now represented explicitly.
+2. `yaam.workflow.retrieve` confirms the retrieval phase is grouped under the agent span.
+3. `yaam.retriever.l2`, `yaam.retriever.l3`, and `yaam.retriever.l4` confirm tier-specific
+   evidence selection.
+4. `yaam.tool.*` spans should only be expected when the corresponding tool coroutine is actually
+   invoked.
+
 ## 9. Optional `phoenix.client` Workflow
 
 The root YAAM environment currently includes `phoenix.client`, and it can query the local server.
@@ -348,8 +395,8 @@ attributes required by the Phoenix span contract, especially:
 1. `session.id`
 2. `input.value` where the retrieval is query-conditioned
 3. `retrieval.documents`
-4. the expected YAAM span names such as `yaam.retriever.l3`, `yaam.retriever.l4`, and the relevant
-   `yaam.tool.*` names
+4. the expected YAAM span names such as `yaam.agent.run_turn`, `yaam.workflow.retrieve`,
+   `yaam.retriever.l3`, `yaam.retriever.l4`, and the relevant `yaam.tool.*` names
 
 ## 11. Failure Interpretation
 
@@ -361,9 +408,11 @@ Use the following interpretation rules:
    reproducible API workflow should be treated as degraded until the schema is confirmed.
 3. If the API Wall response includes `yaam_trace_id` but no matching spans are fetched from Phoenix,
    check project naming and time-window selection first.
-4. If request-root spans exist but retriever/tool spans do not, treat that as a runtime
+4. If request-root spans exist but agent/retriever spans do not, treat that as a runtime
    instrumentation gap rather than a Phoenix availability failure.
-5. If the raw OpenAPI path works but a `phoenix.client` example fails, prefer the raw HTTP path and
+5. If request-root, agent, and retriever spans exist but `yaam.tool.*` spans do not, first confirm
+   that the tested runtime path actually invoked a tier tool before treating the absence as a bug.
+6. If the raw OpenAPI path works but a `phoenix.client` example fails, prefer the raw HTTP path and
    record the client incompatibility as version drift rather than a server outage.
 
 ## 12. Relationship to Dated Artifacts
