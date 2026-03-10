@@ -258,6 +258,79 @@ preparing Skills as policy artifacts for runtime multi-agent systems.
 
 **✅ What's Complete:**
 
+### 2026-03-10 - Phoenix Option A/Option B Completion: Live Tool-Loop Evidence 📊
+
+**Status:** ✅ Complete
+
+**Summary:**
+Completed the March 10 Phoenix observability workstream across both Option A and Option B. The
+repository now has end-to-end evidence that the public API Wall can run controlled write-enabled
+memory experiments and that normal `v1-*` Gemini requests can execute tier tools while emitting
+live `yaam.tool.*` and nested retriever spans in Phoenix. The final live Option B evidence was
+collected only after fixing two Gemini-specific runtime issues in the manual tool loop: unsafe
+`.text` access for function-call-only responses and loss of Gemini 3 thought-signature state during
+follow-up turns.
+
+**Key Findings:**
+
+- Option A resolved the write-policy ambiguity by preserving benchmark-safe defaults while allowing
+   explicit `skip_l1_write = false` experiments through `POST /v1/chat/completions`.
+- Option B is now supported by live Phoenix evidence rather than only unit tests: trace
+   `1b92c7e7816e4226393d6146d6191259` confirmed
+   `yaam.api_wall.chat_completions -> yaam.agent.run_turn -> yaam.workflow.retrieve -> yaam.retriever.l2 -> yaam.tool.l2_search_facts -> yaam.retriever.l2`.
+- Gemini 3 manual function-calling requires preserving the full SDK response object across
+   follow-up turns; carrying forward only `response.candidates[0].content` is insufficient for live
+   thought-signature validation.
+
+**✅ What's Complete:**
+
+- Extended the normalized LLM provider contract with structured tool-call support and raw-response
+   carry-forward.
+- Implemented a bounded Gemini-first tool loop for `v1-*` `MemoryAgent` variants while preserving
+   baseline behavior.
+- Added focused regression tests for Gemini function-call-only responses and thought-signature-safe
+   follow-up turns.
+- Completed live Phoenix validation for both Option A and Option B and published dated evidence
+   reports.
+- Updated the Phoenix runbook and the active plan documents to reference the successful Option B
+   example trace.
+
+**Key Artifacts (Added/Updated):**
+
+- `src/llm/providers/base.py`
+- `src/llm/providers/gemini.py`
+- `src/agents/memory_agent.py`
+- `tests/utils/test_providers_gemini.py`
+- `tests/agents/test_memory_agent.py`
+- `docs/reports/2026-03-10-phoenix-option-a-write-enabled-api-wall-report.md`
+- `docs/reports/2026-03-10-phoenix-option-b-live-tool-loop-report.md`
+- `docs/runbooks/phoenix-experiment-reproducibility.md`
+- `docs/plan/2026-03-10-memoryagent-tool-calling-loop-plan.md`
+- `docs/plan/2026-03-10-yaam-glassbox-observability-gap-closure-plan.md`
+
+**Verification:**
+```bash
+./.venv/bin/ruff check .
+./.venv/bin/pytest tests/ -v
+```
+
+**Current Project Completion:**
+- **Phoenix normal-request tool observability**: 100% ✅ (`620 passed, 108 skipped`; live Option B
+   trace confirmed)
+
+**Evidence from Codebase:**
+```bash
+Phoenix project: mlm-mas-dev-phoenix-option-b-live-20260310-211012
+Successful trace: 1b92c7e7816e4226393d6146d6191259
+Confirmed live span chain:
+   yaam.api_wall.chat_completions
+   -> yaam.agent.run_turn
+   -> yaam.workflow.retrieve
+   -> yaam.retriever.l2
+   -> yaam.tool.l2_search_facts
+   -> yaam.retriever.l2
+```
+
 - **Instruction hierarchy alignment:** Reduced `AGENTS.MD` to a map + invariants and aligned
   `.github/copilot-instructions.md` and `.github/instructions/*` to avoid contradictory defaults.
 - **Mechanical drift prevention:** Added `tests/test_instruction_consistency.py` to fail on

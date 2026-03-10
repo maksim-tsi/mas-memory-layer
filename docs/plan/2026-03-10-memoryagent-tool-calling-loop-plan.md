@@ -1,9 +1,9 @@
 # Plan: MemoryAgent Tool-Calling Loop for Normal API-Wall Requests
 
-**Status:** Proposed  
+**Status:** Implemented, live validation completed  
 **Date:** March 10, 2026  
 **Owners:** YAAM maintainers, observability owners, agent-runtime owners  
-**Related:** [ADR-009](../ADR/009-decoupling-benchmark-api-wall.md), [ADR-013](../ADR/013-phoenix-tracing-strategy.md), [Phoenix span contract](../specs/observability/phoenix-span-contract.md), [YAAM glass-box observability gap-closure plan](2026-03-10-yaam-glassbox-observability-gap-closure-plan.md), [Phoenix Option A report](../reports/2026-03-10-phoenix-option-a-write-enabled-api-wall-report.md)
+**Related:** [ADR-009](../ADR/009-decoupling-benchmark-api-wall.md), [ADR-013](../ADR/013-phoenix-tracing-strategy.md), [Phoenix span contract](../specs/observability/phoenix-span-contract.md), [YAAM glass-box observability gap-closure plan](2026-03-10-yaam-glassbox-observability-gap-closure-plan.md), [Phoenix Option A report](../reports/2026-03-10-phoenix-option-a-write-enabled-api-wall-report.md), [Phoenix Option B report](../reports/2026-03-10-phoenix-option-b-live-tool-loop-report.md)
 
 ## 1. Purpose
 
@@ -211,3 +211,21 @@ provider-specific parsing logic.
    be added as part of this plan because it is tightly coupled to tool-loop observability.
 3. After this plan is implemented, the next planning pass should decide between provider parity for
    tool calling and instrumentation of `get_context_block()`.
+
+## 11. Outcome
+
+The first-pass Option B implementation completed successfully on March 10, 2026.
+
+The live Phoenix evidence is recorded in
+[2026-03-10-phoenix-option-b-live-tool-loop-report.md](../reports/2026-03-10-phoenix-option-b-live-tool-loop-report.md).
+That report confirms a successful normal-request trace with:
+
+1. `yaam.api_wall.chat_completions`
+2. `yaam.agent.run_turn`
+3. `yaam.workflow.retrieve`
+4. `yaam.retriever.l2`
+5. `yaam.tool.l2_search_facts`
+6. and a nested `yaam.retriever.l2`
+
+The implementation therefore satisfied the core first-pass objective of making live `yaam.tool.*`
+spans visible through the public API Wall for `v1-*` Gemini requests.

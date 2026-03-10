@@ -339,6 +339,28 @@ See the dated evidence artifact:
 
 - [2026-03-10-phoenix-option-a-write-enabled-api-wall-report.md](../reports/2026-03-10-phoenix-option-a-write-enabled-api-wall-report.md)
 
+### 7.3.2 March 10, 2026 successful Option B result
+
+The March 10 live Option B rerun established that normal `v1-*` API-Wall traffic can now emit real
+tier-tool spans in Phoenix.
+
+The current successful example trace is recorded in:
+
+- [2026-03-10-phoenix-option-b-live-tool-loop-report.md](../reports/2026-03-10-phoenix-option-b-live-tool-loop-report.md)
+
+That report documents Phoenix project `mlm-mas-dev-phoenix-option-b-live-20260310-211012` and the
+successful trace `1b92c7e7816e4226393d6146d6191259`, which confirmed the following live span chain:
+
+1. `yaam.api_wall.chat_completions`
+2. `yaam.agent.run_turn`
+3. `yaam.workflow.retrieve`
+4. `yaam.retriever.l2`
+5. `yaam.tool.l2_search_facts`
+6. nested `yaam.retriever.l2`
+
+This is the current reference trace for successful normal-request tier-tool observability through
+the public API Wall.
+
 
 ## 8. Observation Retrieval Through the Live OpenAPI
 

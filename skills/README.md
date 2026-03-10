@@ -49,6 +49,12 @@ In the current codebase, tools are exposed via LangChain/LangGraph `ToolRuntime`
 `MASToolRuntime` (`src/agents/runtime.py`). Skills should reference the *tool names* (e.g.,
 `get_context_block`, `l2_search_facts`) rather than internal adapter methods.
 
+Current runtime status (March 10, 2026):
+
+- `MemoryAgent` `v1-*` variants now load a selected skill per turn.
+- Tool exposure is gated by each skill's `allowed-tools` contract.
+- Baseline variants remain on the unified, non-tier-expanded tool path.
+
 AutoGen-based runtimes can treat each skill as:
 
 - a **system instruction** block (from `SKILL.md`), plus
@@ -77,11 +83,13 @@ AutoGen-based runtimes can treat each skill as:
 
 ## Next Steps (Skills v1 Roadmap)
 
-**2026-02-21 (v1.1 plan):**
+**Updated March 10, 2026:**
 
-- Wire the minimal loader (`src/skills/`) into a runtime agent path to support manual selection of
-  a single skill per turn and strict tool gating via `allowed-tools` (no router).
-- Add 3–5 additional runtime skills focused on lifecycle operations (promotion/consolidation/
-  distillation) and observability-safe workflows, keeping each skill single-intent.
+- Preserve the current per-turn skill-selection and strict `allowed-tools` gating behavior for
+  `v1-*` variants while evaluating whether additional variants should adopt the same path.
+- Add additional single-intent runtime skills only where they close a verified operational or
+  observability gap.
 - Add lightweight references under `skills/<slug>/references/` only when required (schemas,
   invariants, or long examples), preserving progressive disclosure.
+- Keep prompt-context observability work separate from the skill system; the remaining
+  `get_context_block()` visibility gap is not a skill-format problem.
