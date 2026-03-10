@@ -12,7 +12,8 @@ OpenInference semantic conventions. The contract is designed to support "glass-b
 
 1. agent workflow stages (perception, retrieval, reasoning, update, response),
 2. memory reads and writes across L1-L4,
-3. and LLM-dependent modules (CIAR scoring, fact extraction, consolidation, distillation).
+3. deterministic decision modules such as CIAR scoring,
+4. and LLM-dependent modules such as fact extraction and other explicit LLM-backed lifecycle steps.
 
 The contract is defined above the frozen mechanism layer. It MUST NOT require modifications to
 `src/storage/`.
@@ -25,7 +26,8 @@ The contract is defined above the frozen mechanism layer. It MUST NOT require mo
 2. YAAM agent spans and phase spans.
 3. Memory retrieval and context-assembly spans for L1-L4.
 4. Lifecycle spans for promotion, consolidation, and distillation.
-5. LLM spans for CIAR scoring, fact extraction, and other explicit LLM modules.
+5. `TOOL`-like spans for deterministic modules such as CIAR scoring.
+6. `LLM` spans for fact extraction and other explicit LLM-backed modules.
 
 **Not a goal**
 
@@ -44,7 +46,7 @@ Spans emitted under this contract MUST use OpenInference keys for kind and core 
 | Span kind | `openinference.span.kind` | MUST be set for all spans in this contract |
 | Session | `session.id` | MUST be set on the request root span and propagated to child spans |
 | User | `user.id` | SHOULD be set when a stable user identifier exists |
-| High-level I/O | `input.value`, `output.value` | SHOULD be set on `AGENT` spans (or equivalent boundary spans) |
+| High-level I/O | `input.value`, `output.value` | SHOULD be set on `AGENT` spans; `input.value` MUST be set on query-conditioned `RETRIEVER` spans |
 | Workflow graph | `graph.node.id`, `graph.node.parent_id`, `graph.node.name` | SHOULD be used for workflow phases when the agent executes a DAG |
 | Retrieval evidence | `retrieval.documents` plus `document.*` | MUST be used on `RETRIEVER` spans |
 | LLM calls | `llm.*` (provider, model, invocation parameters, tokens) | MUST be used on explicit `LLM` spans |
@@ -75,9 +77,9 @@ This section defines the required spans for a single YAAM request.
 | `yaam.workflow.perceive` | `CHAIN` | `src/agents/*` | `yaam.agent.run_turn` | `openinference.span.kind`, `graph.node.*`, `session.id` | Use when a stable phase exists |
 | `yaam.workflow.retrieve` | `CHAIN` | `src/agents/*` | `yaam.agent.run_turn` | `openinference.span.kind`, `graph.node.*`, `session.id` | Parent for tier retrievers |
 | `yaam.retriever.l1` | `RETRIEVER` | `src/memory/unified_memory_system.py:get_context_block` | `yaam.workflow.retrieve` | `openinference.span.kind`, `session.id`, `retrieval.documents` | L1 documents represent turns or context window elements |
-| `yaam.retriever.l2` | `RETRIEVER` | `src/memory/unified_memory_system.py:get_context_block` and `query_memory` | `yaam.workflow.retrieve` | `openinference.span.kind`, `session.id`, `retrieval.documents` | L2 documents represent facts with CIAR-related metadata |
-| `yaam.retriever.l3` | `RETRIEVER` | `src/memory/unified_memory_system.py:query_memory` | `yaam.workflow.retrieve` | `openinference.span.kind`, `session.id`, `retrieval.documents` | L3 documents represent episode summaries or episodic chunks |
-| `yaam.retriever.l4` | `RETRIEVER` | `src/memory/unified_memory_system.py:query_memory` | `yaam.workflow.retrieve` | `openinference.span.kind`, `session.id`, `retrieval.documents` | L4 documents represent semantic knowledge documents |
+| `yaam.retriever.l2` | `RETRIEVER` | `src/memory/unified_memory_system.py:get_context_block` and `query_memory` | `yaam.workflow.retrieve` | `openinference.span.kind`, `session.id`, `retrieval.documents`, `input.value` when query-conditioned | L2 documents represent facts with CIAR-related metadata |
+| `yaam.retriever.l3` | `RETRIEVER` | `src/memory/unified_memory_system.py:query_memory` | `yaam.workflow.retrieve` | `openinference.span.kind`, `session.id`, `input.value`, `retrieval.documents` | L3 documents represent query-selected episode summaries or episodic chunks |
+| `yaam.retriever.l4` | `RETRIEVER` | `src/memory/unified_memory_system.py:query_memory` | `yaam.workflow.retrieve` | `openinference.span.kind`, `session.id`, `input.value`, `retrieval.documents` | L4 documents represent query-selected semantic knowledge documents |
 | `yaam.workflow.reason` | `CHAIN` | `src/agents/*` | `yaam.agent.run_turn` | `openinference.span.kind`, `graph.node.*`, `session.id` | Parent for response LLM call(s) |
 | `yaam.llm.respond` | `LLM` | `src/llm/client.py:LLMClient.generate` | `yaam.workflow.reason` | `openinference.span.kind`, `session.id`, `llm.provider`, `llm.model_name`, `llm.invocation_parameters`, `llm.token_count.*` | Prefer provider auto-instrumentation; this span is an explicit fallback |
 | `yaam.workflow.update` | `CHAIN` | `src/agents/*` | `yaam.agent.run_turn` | `openinference.span.kind`, `graph.node.*`, `session.id` | Parent for memory writes and lifecycle |
@@ -90,7 +92,20 @@ This section defines the required spans for a single YAAM request.
 If CIAR scoring is later upgraded to an LLM-mediated scorer, it MAY additionally emit a dedicated
 `LLM` span (e.g., `yaam.llm.ciar_score`), but this is not required for baseline conformance.
 
-### 4.2 Retrieval document schema (per tier)
+### 4.2 Retrieval query capture
+
+For each query-conditioned `RETRIEVER` span, the retrieval input MUST be recorded in `input.value`.
+This requirement exists to distinguish true evidence selection from enumeration-only listing and to
+make Phoenix traces semantically reviewable.
+
+Guidance by tier:
+
+1. L1: `input.value` is optional when the operation is context-window assembly rather than query-driven retrieval.
+2. L2: `input.value` MUST be present when retrieval is driven by `query_memory(...)`; it MAY be omitted for threshold-only context assembly in `get_context_block(...)`.
+3. L3: `input.value` MUST be the user or system retrieval query used to derive the embedding or similarity lookup.
+4. L4: `input.value` MUST be the text query supplied to semantic search.
+
+### 4.3 Retrieval document schema (per tier)
 
 Each `RETRIEVER` span MUST populate `retrieval.documents` with an ordered list. Each document entry
 MUST include `document.id` and SHOULD include other fields as available.
@@ -133,7 +148,7 @@ where spans are created, but it does not prescribe implementation details.
 | Agents | `src/agents/memory_agent.py` | `run_turn` and workflow nodes | `AGENT` span and workflow `CHAIN` spans |
 | Agents | `src/agents/rag_agent.py` | `run_turn` and retrieval call sites | `AGENT`, `workflow.retrieve`, tier `RETRIEVER` spans |
 | Memory system | `src/memory/unified_memory_system.py` | `query_memory`, `get_context_block` | Tier `RETRIEVER` spans; retrieval document schema |
-| Lifecycle engines | `src/memory/engines/*` | `process` or system entrypoints | Lifecycle spans and explicit LLM spans when LLM modules run |
+| Lifecycle engines | `src/memory/engines/*` | `process` or system entrypoints | Lifecycle spans, deterministic decision spans, and explicit LLM spans when LLM-backed modules run |
 | LLM client | `src/llm/client.py` | `LLMClient.generate` | Provider/model attribution; explicit `LLM` spans if needed |
 
 ## 7. Verification checklist
@@ -142,6 +157,6 @@ An implementation conforms to this contract only if all statements below are tru
 
 1. Each request trace contains an API wall root span with `session.id` and `openinference.span.kind`.
 2. Each agent execution contains an `AGENT` span with `input.value` and `output.value` (subject to §5 mode).
-3. Each retrieval operation produces tier `RETRIEVER` spans with `retrieval.documents` populated.
+3. Each query-conditioned retrieval operation produces tier `RETRIEVER` spans with `input.value` and `retrieval.documents` populated.
 4. At least one lifecycle operation is visible as a semantic span under `workflow.update` when it occurs synchronously.
-5. Explicit LLM modules (CIAR scoring, fact extraction) produce dedicated `LLM` spans or equivalent OpenInference-compatible spans.
+5. Explicit LLM-backed modules such as fact extraction produce dedicated `LLM` spans, and deterministic modules such as CIAR scoring produce `TOOL` spans or equivalent OpenInference-compatible spans.
