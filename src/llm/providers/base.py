@@ -7,6 +7,15 @@ from typing import Any
 
 
 @dataclass
+class LLMToolCall:
+    """Structured tool call returned by a provider."""
+
+    name: str
+    arguments: dict[str, Any] = field(default_factory=dict)
+    call_id: str | None = None
+
+
+@dataclass
 class LLMResponse:
     """Standardized response returned from every provider."""
 
@@ -15,6 +24,8 @@ class LLMResponse:
     model: str | None = None
     usage: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    tool_calls: list[LLMToolCall] = field(default_factory=list)
+    raw_content: Any | None = None
 
 
 @dataclass(frozen=True)

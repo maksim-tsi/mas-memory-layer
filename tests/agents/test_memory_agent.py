@@ -5,8 +5,9 @@ import pytest
 from src.agents.memory_agent import MemoryAgent
 from src.agents.models import RunTurnRequest
 from src.agents.tools import ALL_TOOLS, UNIFIED_TOOLS
+from src.agents.tools.tier_tools import l2_search_facts
 from src.memory.models import ContextBlock, Fact
-from src.utils.llm_client import LLMResponse
+from src.utils.llm_client import LLMResponse, LLMToolCall
 from tests.helpers.fake_tracing import FakeTracer
 
 
@@ -44,6 +45,11 @@ def memory_system(mocker, context_block):
             {"tier": "L3", "content": "Qdrant episode"},
             {"tier": "L4", "content": "Semantic knowledge"},
         ]
+    )
+    memory.l2_tier = mocker.Mock()
+    memory.l2_tier.ciar_threshold = 0.6
+    memory.l2_tier.search_facts = mocker.AsyncMock(
+        return_value=[Fact(fact_id="fact-1", session_id="session-123", content="Tea preference")]
     )
     memory.l1_tier = mocker.Mock()
     memory.l1_tier.store = mocker.AsyncMock()
@@ -102,6 +108,67 @@ async def test_reason_node_uses_llm(llm_client, memory_system, agent_state):
 
     assert updated_state["response"] == "Acknowledged."
     llm_client.generate.assert_called_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_reason_node_executes_gemini_tool_loop(
+    llm_client, memory_system, agent_state, mocker
+):
+    """v1 Gemini variants should execute tool calls and send tool results back to the LLM."""
+    raw_content = object()
+    llm_client.generate = mocker.AsyncMock(
+        side_effect=[
+            LLMResponse(
+                text="",
+                provider="gemini",
+                model="gemini-3-flash-preview",
+                tool_calls=[
+                    LLMToolCall(
+                        name="l2_search_facts",
+                        arguments={"query": "tea"},
+                        call_id="call-1",
+                    )
+                ],
+                raw_content=raw_content,
+            ),
+            LLMResponse(
+                text="Tea facts summarized.",
+                provider="gemini",
+                model="gemini-3-flash-preview",
+            ),
+        ]
+    )
+    agent_state["active_context"] = ["USER: Hello"]
+
+    agent = MemoryAgent(
+        agent_id="memory-agent",
+        llm_client=llm_client,
+        memory_system=memory_system,
+        config={"agent_variant": "v1-min-skillwiring"},
+    )
+    mocker.patch.object(
+        agent,
+        "_prepare_skill_context",
+        return_value={
+            "system_instruction": agent._base_system_instruction,
+            "active_tools": [l2_search_facts],
+        },
+    )
+
+    updated_state = await agent._reason_node(agent_state)
+
+    assert updated_state["response"] == "Tea facts summarized."
+    assert llm_client.generate.await_count == 2
+    first_call = llm_client.generate.await_args_list[0]
+    second_call = llm_client.generate.await_args_list[1]
+    assert first_call.kwargs["tools"][0]["name"] == "l2_search_facts"
+    assert second_call.kwargs["previous_response"] is raw_content
+    assert second_call.kwargs["tool_results"][0]["name"] == "l2_search_facts"
+    assert second_call.kwargs["tool_results"][0]["response"]["results_count"] == 1
+    assert updated_state["metadata"]["tool_loop_enabled"] is True
+    assert updated_state["metadata"]["tool_loop_rounds"] == 1
+    assert updated_state["metadata"]["tool_call_count"] == 1
 
 
 @pytest.mark.unit
@@ -181,6 +248,65 @@ async def test_run_turn_emits_agent_and_retrieve_spans(llm_client, memory_system
     assert agent_span.attributes["output.value"] == "Acknowledged."
     assert retrieve_span.attributes["openinference.span.kind"] == "CHAIN"
     assert retrieve_span.attributes["graph.node.name"] == "retrieve"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_run_turn_with_tool_loop_emits_tool_spans(llm_client, memory_system, mocker):
+    """Normal v1 run_turn requests should surface tool and retriever spans."""
+    raw_content = object()
+    llm_client.generate = mocker.AsyncMock(
+        side_effect=[
+            LLMResponse(
+                text="",
+                provider="gemini",
+                model="gemini-3-flash-preview",
+                tool_calls=[LLMToolCall(name="l2_search_facts", arguments={"query": "tea"})],
+                raw_content=raw_content,
+            ),
+            LLMResponse(
+                text="Tea facts summarized.",
+                provider="gemini",
+                model="gemini-3-flash-preview",
+            ),
+        ]
+    )
+
+    fake_tracer = FakeTracer()
+    mocker.patch("src.observability.tracing._get_tracer", return_value=fake_tracer)
+
+    agent = MemoryAgent(
+        agent_id="memory-agent",
+        llm_client=llm_client,
+        memory_system=memory_system,
+        config={"agent_variant": "v1-min-skillwiring"},
+    )
+    mocker.patch.object(
+        agent,
+        "_prepare_skill_context",
+        return_value={
+            "system_instruction": agent._base_system_instruction,
+            "active_tools": [l2_search_facts],
+        },
+    )
+
+    request = RunTurnRequest(
+        session_id="session-123",
+        role="user",
+        content="Search my tea facts.",
+        turn_id=1,
+        metadata={"skip_l1_write": True},
+    )
+
+    response = await agent.run_turn(request)
+
+    assert response.content == "Tea facts summarized."
+    assert [entry["name"] for entry in fake_tracer.started][:4] == [
+        "yaam.agent.run_turn",
+        "yaam.workflow.retrieve",
+        "yaam.tool.l2_search_facts",
+        "yaam.retriever.l2",
+    ]
 
 
 @pytest.mark.unit
