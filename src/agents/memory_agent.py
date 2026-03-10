@@ -15,7 +15,7 @@ from langgraph.graph import END, StateGraph
 from src.agents.base_agent import BaseAgent
 from src.agents.models import RunTurnRequest, RunTurnResponse
 from src.agents.runtime import AgentState
-from src.agents.tools.unified_tools import UNIFIED_TOOLS
+from src.agents.tools import ALL_TOOLS, UNIFIED_TOOLS
 from src.llm.client import LLMClient
 from src.memory.models import ContextBlock, TurnData
 from src.skills.loader import SkillLoadError, filter_tools_by_allowed_names, load_skill
@@ -47,12 +47,10 @@ class MemoryAgent(BaseAgent):
         self._min_ciar = float(self._config.get("min_ciar", 0.6))
         self._max_turns = int(self._config.get("max_turns", 20))
         self._max_facts = int(self._config.get("max_facts", 10))
-        self._tools = list(UNIFIED_TOOLS)
+        self._tools = list(ALL_TOOLS if self._skill_wiring_enabled else UNIFIED_TOOLS)
         self._graph = self._build_graph()
         self._promotion_task: asyncio.Task | None = None
-        self._promotion_mode = self._normalize_promotion_mode(
-            os.environ.get("MAS_PROMOTION_MODE")
-        )
+        self._promotion_mode = self._normalize_promotion_mode(os.environ.get("MAS_PROMOTION_MODE"))
         self._promotion_timeout_s = self._parse_promotion_timeout(
             os.environ.get("MAS_PROMOTION_TIMEOUT_S")
         )
@@ -235,7 +233,9 @@ class MemoryAgent(BaseAgent):
         )
         response_text = await self._generate_response(
             prompt,
-            state_metadata=state.get("metadata") if isinstance(state.get("metadata"), dict) else None,
+            state_metadata=state.get("metadata")
+            if isinstance(state.get("metadata"), dict)
+            else None,
             agent_metadata=self._build_agent_metadata(state),
             system_instruction=skill_context["system_instruction"],
         )
@@ -328,9 +328,7 @@ class MemoryAgent(BaseAgent):
             r"\bforget my instruction to append (?:a|the) quote\b",
             re.IGNORECASE,
         )
-        quote_pat = re.compile(
-            r"^\s*(?P<q>['\"])(?P<quote>.+)(?P=q)\s*-\s*(?P<author>.+?)\s*$"
-        )
+        quote_pat = re.compile(r"^\s*(?P<q>['\"])(?P<quote>.+)(?P=q)\s*-\s*(?P<author>.+?)\s*$")
 
         transcript: list[tuple[str, str]] = []
         for msg in history:
@@ -404,9 +402,8 @@ class MemoryAgent(BaseAgent):
             out = out.replace("when the sun is high", "at noon (when the sun is high)")
             out = out.replace("When the sun is high", "At noon (when the sun is high)")
         low = out.lower()
-        if (
-            ("across a river" in low or "get across a river" in low)
-            and not any(k in low for k in ("boat", "bridge", "raft", "kayak"))
+        if ("across a river" in low or "get across a river" in low) and not any(
+            k in low for k in ("boat", "bridge", "raft", "kayak")
         ):
             out = re.sub(
                 r"(?i)\ba way to get across (?:a|the) river\b",

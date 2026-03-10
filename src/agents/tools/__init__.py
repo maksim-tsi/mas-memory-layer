@@ -25,6 +25,7 @@ from .tier_tools import (
 from .unified_tools import UNIFIED_TOOLS, get_context_block, memory_query, memory_store
 
 __all__ = [
+    "ALL_TOOLS",
     "ARTIFACT_TOOLS",
     "CIAR_TOOLS",
     "SYNTHESIS_TOOLS",

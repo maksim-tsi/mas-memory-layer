@@ -4,6 +4,7 @@ import pytest
 
 from src.agents.memory_agent import MemoryAgent
 from src.agents.models import RunTurnRequest
+from src.agents.tools import ALL_TOOLS, UNIFIED_TOOLS
 from src.memory.models import ContextBlock, Fact
 from src.utils.llm_client import LLMResponse
 
@@ -162,6 +163,34 @@ async def test_memory_agent_health_check(llm_client):
 
 
 @pytest.mark.unit
+def test_memory_agent_baseline_uses_unified_tools(llm_client):
+    """Baseline variants should retain the unified-only tool pool."""
+    agent = MemoryAgent(
+        agent_id="memory-agent",
+        llm_client=llm_client,
+        memory_system=None,
+        config={"agent_variant": "baseline"},
+    )
+
+    assert [tool.name for tool in agent._tools] == [tool.name for tool in UNIFIED_TOOLS]
+    assert "l3_search_episodes" not in [tool.name for tool in agent._tools]
+
+
+@pytest.mark.unit
+def test_memory_agent_v1_variant_uses_all_tools(llm_client):
+    """v1 skill-wired variants should be able to gate into tier tools."""
+    agent = MemoryAgent(
+        agent_id="memory-agent",
+        llm_client=llm_client,
+        memory_system=None,
+        config={"agent_variant": "v1-min-skillwiring"},
+    )
+
+    assert [tool.name for tool in agent._tools] == [tool.name for tool in ALL_TOOLS]
+    assert "l3_search_episodes" in [tool.name for tool in agent._tools]
+
+
+@pytest.mark.unit
 def test_prospective_quote_appends_on_nth_response_even_with_generic_cancel(llm_client):
     agent = MemoryAgent(
         agent_id="memory-agent",
@@ -169,7 +198,9 @@ def test_prospective_quote_appends_on_nth_response_even_with_generic_cancel(llm_
         memory_system=None,
     )
 
-    quote = "Do not go where the path may lead, go instead where there is no path and leave a trail."
+    quote = (
+        "Do not go where the path may lead, go instead where there is no path and leave a trail."
+    )
     instruction = (
         "After responding to the following unrelated user prompts, please append the quote from "
         "Ralph Waldo Emerson, to your 3rd response. Count your response to this message as the first response."
@@ -195,7 +226,9 @@ def test_prospective_quote_cancels_only_on_quote_reset_message(llm_client):
         memory_system=None,
     )
 
-    quote = "Do not go where the path may lead, go instead where there is no path and leave a trail."
+    quote = (
+        "Do not go where the path may lead, go instead where there is no path and leave a trail."
+    )
     instruction = (
         "After responding to the following unrelated user prompts, please append the quote from "
         "Ralph Waldo Emerson, to your 3rd response. Count your response to this message as the first response."
@@ -206,7 +239,10 @@ def test_prospective_quote_cancels_only_on_quote_reset_message(llm_client):
         {"role": "assistant", "content": "First response."},
         {"role": "user", "content": "Unrelated prompt 1"},
         {"role": "assistant", "content": "Second response."},
-        {"role": "user", "content": "Forget my instruction to append a quote to one of your replies."},
+        {
+            "role": "user",
+            "content": "Forget my instruction to append a quote to one of your replies.",
+        },
     ]
 
     out = agent._maybe_append_prospective_quote(history=history, response_text="Third response.")
