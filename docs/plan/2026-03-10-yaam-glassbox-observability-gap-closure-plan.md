@@ -306,6 +306,15 @@ execution that is also visible in Phoenix.
 3. Evaluate the change as both an observability enhancement and an agent-runtime semantic change,
    because it affects behavior, prompting, and regression risk beyond tracing alone.
 
+**Execution document:** [MemoryAgent tool-calling loop plan](2026-03-10-memoryagent-tool-calling-loop-plan.md)
+
+**First-pass scope decisions**
+
+1. The initial rollout is limited to `v1-*` variants; baseline variants remain unchanged.
+2. The initial provider scope is Gemini only; provider parity is deferred.
+3. The `get_context_block()` visibility gap identified by Option A remains explicitly out of scope
+   for this implementation pass.
+
 **Why Option B is second**
 
 1. It is no longer a narrow tracing patch; it changes the execution semantics of the MemoryAgent.
