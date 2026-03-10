@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from src.llm.client import LLMClient, ProviderConfig
-from src.llm.providers.base import BaseProvider, LLMResponse, ProviderHealth
+from src.llm.providers.base import BaseProvider, LLMResponse, LLMToolCall, ProviderHealth
 
 __all__ = [
     "BaseProvider",
     "LLMClient",
     "LLMResponse",
+    "LLMToolCall",
     "ProviderConfig",
     "ProviderHealth",
 ]
