@@ -44,6 +44,13 @@ This directory contains technical reports, status updates, and debugging documen
 | [2026-02-22-goodai-smoke5-groq-routing-20260222_141622.md](2026-02-22-goodai-smoke5-groq-routing-20260222_141622.md) | Smoke5 run routed to Groq (`openai/gpt-oss-120b`), with artifact-level provider/model attribution and per-turn timing decomposition |
 | [2026-02-21-variant-a-smoke-runs.md](2026-02-21-variant-a-smoke-runs.md) | Variant A smoke run attempts (5 datasets x 1 example), observed failures, mitigations, and next iterations |
 
+### Phoenix & Observability Validation
+| Report | Description |
+|--------|-------------|
+| [2026-03-10-phoenix-retriever-live-validation-report.md](2026-03-10-phoenix-retriever-live-validation-report.md) | First live Phoenix validation of the API-Wall retriever span chain |
+| [2026-03-10-phoenix-option-a-write-enabled-api-wall-report.md](2026-03-10-phoenix-option-a-write-enabled-api-wall-report.md) | Controlled write-enabled API-Wall validation preserving benchmark-safe defaults |
+| [2026-03-10-phoenix-option-b-live-tool-loop-report.md](2026-03-10-phoenix-option-b-live-tool-loop-report.md) | Successful live Option B validation of normal-request tool execution and nested retriever spans |
+
 ## Naming Conventions
 
 - **Date-prefixed:** `YYYY-MM-DD-topic.md` for time-specific reports

@@ -11,6 +11,8 @@ progressive disclosure of repository knowledge.
 - `docs/plan/adr010-implementation-plan-repository-harness-and-skills-v1.md` — Implementation plan for
   ADR-010 (workstreams, milestones, acceptance criteria).
 - `docs/plan/2026-03-10-yaam-glassbox-observability-gap-closure-plan.md` — Execution plan for implementing Phoenix/OpenInference glass-box observability, including CIAR ADR-004 conformance and query-aware L3/L4 retrieval.
+- `docs/plan/2026-03-10-memoryagent-tool-calling-loop-plan.md` — Execution plan for the bounded
+  `MemoryAgent` tool-calling loop used to surface live `yaam.tool.*` spans through the API Wall.
 - `docs/plan/2026-02-22-fast-llm-memory-barrier-provider-parity-plan.md` — Provider parity plan for
   fast-inference models, specifying promotion barriers, artifact-level observability, and replication
   requirements across Groq/Gemini/Mistral.

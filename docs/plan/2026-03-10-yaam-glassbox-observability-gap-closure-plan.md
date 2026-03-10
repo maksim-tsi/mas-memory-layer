@@ -1,6 +1,6 @@
 # Plan: YAAM Glass-Box Observability Gap Closure (Phoenix/OpenInference + CIAR + L3/L4 Retrieval)
 
-**Status:** Proposed  
+**Status:** In progress  
 **Date:** March 10, 2026  
 **Owners:** YAAM maintainers, observability owners, memory subsystem owners  
 **Related:** [ADR-013](../ADR/013-phoenix-tracing-strategy.md), [RFC: Phoenix tracing (glass-box)](../RFC/phoenix-tracing-rfc.md), [Spec: Phoenix span contract](../specs/observability/phoenix-span-contract.md), [ADR-004](../ADR/004-ciar-scoring-formula.md)
@@ -307,6 +307,8 @@ execution that is also visible in Phoenix.
    because it affects behavior, prompting, and regression risk beyond tracing alone.
 
 **Execution document:** [MemoryAgent tool-calling loop plan](2026-03-10-memoryagent-tool-calling-loop-plan.md)
+
+**Evidence report:** [Phoenix Option B live tool-loop report](../reports/2026-03-10-phoenix-option-b-live-tool-loop-report.md)
 
 **First-pass scope decisions**
 
