@@ -23,6 +23,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from src.memory.ciar_formula import (
+    DEFAULT_AGE_DECAY_LAMBDA,
+    DEFAULT_RECENCY_ALPHA,
+    calculate_ciar_score,
+)
 from src.memory.models import Fact, FactType
 from src.memory.tiers.base_tier import BaseTier, TierOperationError
 from src.storage.metrics.collector import MetricsCollector
@@ -74,8 +79,8 @@ class WorkingMemoryTier(BaseTier[Fact]):
     # Configuration defaults
     DEFAULT_CIAR_THRESHOLD = 0.6
     DEFAULT_TTL_DAYS = 7
-    RECENCY_BOOST_ALPHA = 0.05  # 5% boost per access
-    AGE_DECAY_LAMBDA = 0.1  # Decay rate per day
+    RECENCY_BOOST_ALPHA = DEFAULT_RECENCY_ALPHA
+    AGE_DECAY_LAMBDA = DEFAULT_AGE_DECAY_LAMBDA
 
     def __init__(
         self,
@@ -93,8 +98,8 @@ class WorkingMemoryTier(BaseTier[Fact]):
             config: Optional configuration with keys:
                 - ciar_threshold: Minimum CIAR score (default: 0.6)
                 - ttl_days: TTL in days (default: 7)
-                - recency_boost_alpha: Boost factor per access (default: 0.05)
-                - age_decay_lambda: Decay rate per day (default: 0.1)
+                - recency_boost_alpha: Boost factor per access (default: 0.1)
+                - age_decay_lambda: Decay rate per day (default: 0.0231)
             telemetry_stream: Optional stream for emitting events
         """
         storage_adapters = {"postgres": postgres_adapter}
@@ -572,7 +577,7 @@ class WorkingMemoryTier(BaseTier[Fact]):
                 age_decay = components.get("age_decay", current.age_decay)
                 recency_boost = components.get("recency_boost", current.recency_boost)
 
-                calculated_ciar = (certainty * impact) * age_decay * recency_boost
+                calculated_ciar = calculate_ciar_score(certainty, impact, age_decay, recency_boost)
 
                 update_data["certainty"] = certainty
                 update_data["impact"] = impact
@@ -746,10 +751,7 @@ class WorkingMemoryTier(BaseTier[Fact]):
         """
         try:
             # Update fact object
-            fact.mark_accessed()
-
-            # Calculate new recency boost
-            recency_boost = 1.0 + (self.recency_boost_alpha * fact.access_count)
+            fact.mark_accessed(alpha=self.recency_boost_alpha)
 
             # Update in database
             await self.postgres.update(
@@ -758,14 +760,14 @@ class WorkingMemoryTier(BaseTier[Fact]):
                 data={
                     "last_accessed": fact.last_accessed,
                     "access_count": fact.access_count,
-                    "recency_boost": round(recency_boost, 4),
+                    "recency_boost": round(fact.recency_boost, 4),
                     "ciar_score": round(fact.ciar_score, 4),
                 },
             )
 
             logger.debug(
                 f"Updated access tracking for {fact.fact_id}: "
-                f"count={fact.access_count}, boost={recency_boost:.4f}"
+                f"count={fact.access_count}, boost={fact.recency_boost:.4f}"
             )
 
         except Exception as e:
