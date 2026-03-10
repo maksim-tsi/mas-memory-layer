@@ -3,7 +3,7 @@
 **Status:** Proposed  
 **Date:** March 10, 2026  
 **Audience:** Maintainers, observability owners, and reviewers  
-**Related:** [ADR-003](../ADR/003-four-layers-memory.md), [ADR-007](../ADR/007-agent-integration-layer.md), [ADR-009](../ADR/009-decoupling-benchmark-api-wall.md), [ADR-010](../ADR/010-mechanism-policy-split-and-skills-v1.md), [Concept 02: MAS Memory Inspector](../concept-02-memory-inspector.md), [Benchmark Use Cases](../benchmark_use_cases.md), [Phoenix API Wall Live Observability Validation Plan](../plan/2026-03-09-phoenix-api-wall-observability-validation-plan.md), [Phoenix API Wall Observability Progress Report](../reports/2026-03-09-phoenix-api-wall-observability-progress-report.md)
+**Related:** [ADR-003](../ADR/003-four-layers-memory.md), [ADR-007](../ADR/007-agent-integration-layer.md), [ADR-009](../ADR/009-decoupling-benchmark-api-wall.md), [ADR-010](../ADR/010-mechanism-policy-split-and-skills-v1.md), [Spec: Phoenix span contract](../specs/observability/phoenix-span-contract.md), [Concept 02: MAS Memory Inspector](../concept-02-memory-inspector.md), [Benchmark Use Cases](../benchmark_use_cases.md), [Phoenix API Wall Live Observability Validation Plan](../plan/2026-03-09-phoenix-api-wall-observability-validation-plan.md), [Phoenix API Wall Observability Progress Report](../reports/2026-03-09-phoenix-api-wall-observability-progress-report.md)
 
 ## 1. Purpose
 
@@ -39,6 +39,10 @@ External references:
 
 1. Arize Phoenix "Setup Tracing" documentation: <https://arize.com/docs/phoenix/tracing/how-to-tracing/setup-tracing> (accessed March 10, 2026).
 2. Arize Phoenix repository: <https://github.com/Arize-ai/phoenix> (accessed March 10, 2026).
+
+Normative contract reference:
+
+1. [Spec: Phoenix span contract](../specs/observability/phoenix-span-contract.md) defines the span inventory, required attributes, and code attachment points for YAAM glass-box observability.
 
 ### 2.1 OpenInference semantic vocabulary (normative keys)
 
