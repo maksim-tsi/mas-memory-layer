@@ -2,7 +2,7 @@
 
 **Status:** Proposed  
 **Date:** March 10, 2026  
-**Related:** [ADR-003](003-four-layers-memory.md), [ADR-007](007-agent-integration-layer.md), [ADR-009](009-decoupling-benchmark-api-wall.md), [ADR-010](010-mechanism-policy-split-and-skills-v1.md), [RFC: Arize Phoenix Tracing for YAAM and GoodAI Benchmark Integration](../integrations/phoenix-tracing-rfc.md)
+**Related:** [ADR-003](003-four-layers-memory.md), [ADR-007](007-agent-integration-layer.md), [ADR-009](009-decoupling-benchmark-api-wall.md), [ADR-010](010-mechanism-policy-split-and-skills-v1.md), [RFC: Arize Phoenix Tracing for YAAM Glass-Box Observability](../RFC/phoenix-tracing-rfc.md)
 
 ## 1. Context
 

@@ -1,8 +1,8 @@
-# RFC: Arize Phoenix Tracing for YAAM and GoodAI Benchmark Integration
+# RFC: Arize Phoenix Tracing for YAAM Glass-Box Observability
 
 **Status:** Proposed  
 **Date:** March 10, 2026  
-**Audience:** Maintainers, benchmark operators, observability owners, and reviewers  
+**Audience:** Maintainers, observability owners, and reviewers  
 **Related:** [ADR-003](../ADR/003-four-layers-memory.md), [ADR-007](../ADR/007-agent-integration-layer.md), [ADR-009](../ADR/009-decoupling-benchmark-api-wall.md), [ADR-010](../ADR/010-mechanism-policy-split-and-skills-v1.md), [Concept 02: MAS Memory Inspector](../concept-02-memory-inspector.md), [Benchmark Use Cases](../benchmark_use_cases.md), [Phoenix API Wall Live Observability Validation Plan](../plan/2026-03-09-phoenix-api-wall-observability-validation-plan.md), [Phoenix API Wall Observability Progress Report](../reports/2026-03-09-phoenix-api-wall-observability-progress-report.md)
 
 ## 1. Purpose
@@ -14,7 +14,13 @@ This RFC defines the intended Arize Phoenix tracing strategy for the YAAM reposi
 3. tracing requirements implied by YAAM architecture and benchmark usage,
 4. and tracing enhancements proposed for later implementation.
 
-The motivating requirement is stronger "glass box" observability for YAAM cognition. The desired outcome is not merely request timing or trace identifiers, but a trace graph that exposes LLM calls, memory retrieval from YAAM layers, lifecycle operations such as promotion and consolidation, and benchmark-level context required for evaluation and debugging.
+The motivating requirement is stronger "glass box" observability for YAAM cognition. The desired outcome is not merely request timing or trace identifiers, but a trace graph that exposes:
+
+1. what YAAM agents did (workflow stages and decisions),
+2. how information was retrieved from and written to L1-L4,
+3. and how LLM-dependent modules behaved (e.g., CIAR scoring, fact extraction, consolidation/distillation prompts).
+
+Benchmark-related trace correlation is treated as a transitional development concern rather than a production objective because the benchmark harness is expected to be removed from the repository distribution when YAAM enters a production lifecycle.
 
 ## 2. Background
 
@@ -33,6 +39,41 @@ External references:
 
 1. Arize Phoenix "Setup Tracing" documentation: <https://arize.com/docs/phoenix/tracing/how-to-tracing/setup-tracing> (accessed March 10, 2026).
 2. Arize Phoenix repository: <https://github.com/Arize-ai/phoenix> (accessed March 10, 2026).
+
+### 2.1 OpenInference semantic vocabulary (normative keys)
+
+This RFC treats the OpenInference semantic conventions as normative for span kinds and core
+attributes. The following keys are expected to be used consistently when emitting spans that
+Phoenix should interpret as LLM/application-level telemetry.
+
+**Span kind**
+
+- `openinference.span.kind`: One of `AGENT`, `CHAIN`, `RETRIEVER`, `LLM`, `TOOL` (and other OpenInference kinds).
+
+**Correlation and high-level I/O**
+
+- `session.id`: YAAM session identifier (`yaam_session_id`).
+- `user.id`: Stable user identifier when available (optional).
+- `input.value`: User-facing input at the boundary where it is meaningful (e.g., user message for `run_turn`).
+- `output.value`: User-facing output at the boundary where it is meaningful (e.g., final assistant response).
+- `tag.tags`: Optional tags used for grouping and slicing traces (e.g., agent variant, experiment id).
+
+**Graph/phase structure**
+
+- `graph.node.id`, `graph.node.parent_id`, `graph.node.name`: Use to represent a YAAM workflow DAG (e.g., LangGraph nodes).
+
+**Retrieval evidence**
+
+- `retrieval.documents`: An indexed list of retrieved documents/snippets.
+- `document.id`, `document.content`, `document.score`, `document.metadata`: Per-document fields for retrieval transparency.
+
+**LLM calls**
+
+- `llm.provider`, `llm.model_name`: Provider and effective model.
+- `llm.invocation_parameters`: Temperature, max tokens, structured-output schema pointers, etc.
+- `llm.input_messages`, `llm.output_messages`: Message arrays for chat-style interactions where capture is permitted.
+- `llm.prompt_template.template`, `llm.prompt_template.version`, `llm.prompt_template.variables`: Prompt-template governance fields.
+- `llm.token_count.prompt`, `llm.token_count.completion`, `llm.token_count.total`: Token accounting fields.
 
 ## 3. Current Repository State
 
@@ -64,7 +105,19 @@ The API Wall currently provides:
 
 This is the strongest implemented tracing surface in the repository today. It establishes a stable request boundary and a consistent trace-correlation contract for downstream consumers.
 
-### 3.3 Implemented benchmark metadata preservation
+### 3.3 Implemented span annotation (attributes only)
+
+The repository can attach agent metadata to the currently active span (typically the API Wall root
+span) without creating additional child spans.
+
+This behavior is implemented in [src/llm/client.py](../../src/llm/client.py) through the
+`agent_metadata` mechanism, and is used by YAAM agents to attach coarse-grained attribution
+attributes such as agent type, session id, turn id, and variant.
+
+This mechanism is useful for trace slicing, but it does not satisfy the "glass box" requirement by
+itself because it does not create semantic spans for retrieval, lifecycle, or workflow phases.
+
+### 3.4 Implemented benchmark metadata preservation (transitional)
 
 The GoodAI benchmark integration currently preserves YAAM tracing metadata rather than creating benchmark-owned spans.
 
@@ -72,9 +125,9 @@ The relevant behavior is implemented in:
 
 1. [benchmarks/goodai-ltm-benchmark/model_interfaces/remote_agent.py](../../benchmarks/goodai-ltm-benchmark/model_interfaces/remote_agent.py),
 2. [benchmarks/goodai-ltm-benchmark/runner/scheduler.py](../../benchmarks/goodai-ltm-benchmark/runner/scheduler.py),
-3. and [benchmarks/goodai-ltm-benchmark/runner/turn_metrics.py](../../benchmarks/goodai-ltm-benchmark/runner/turn_metrics.py).
+3. and [benchmarks/goodai-ltm-benchmark/runner/master_log.py](../../benchmarks/goodai-ltm-benchmark/runner/master_log.py).
 
-The benchmark currently preserves:
+The benchmark currently propagates and persists (sanitized) YAAM response metadata that may include:
 
 1. `yaam_trace_id`,
 2. `yaam_span_id`,
@@ -85,9 +138,13 @@ The benchmark currently preserves:
 7. `llm_model`,
 8. and aggregate latency fields such as `llm_ms` and `storage_ms`.
 
-This is sufficient to pivot from benchmark artifacts into Phoenix for a given turn. However, it is not equivalent to full benchmark-side tracing.
+This is sufficient to pivot from benchmark artifacts into Phoenix for a given turn. However:
 
-### 3.4 Implemented memory telemetry and metrics
+1. the benchmark does not supply `traceparent` to YAAM and therefore does not create benchmark-owned parent spans,
+2. `TurnMetrics` currently focuses on latency/token counters and does not act as the authoritative store for trace identifiers,
+3. and the benchmark integration should be treated as a development harness rather than a long-term architectural dependency.
+
+### 3.5 Implemented memory telemetry and metrics
 
 The memory subsystem already emits internal observability signals, but most of them are not currently represented as Phoenix traces.
 
@@ -108,7 +165,7 @@ The current observability model here consists primarily of:
 
 This is valuable for diagnostics, but it is not yet aligned with Phoenix's OpenInference span model.
 
-### 3.5 Validated March 2026 live behavior
+### 3.6 Validated March 2026 live behavior
 
 Live validation in March 2026, documented in [Phoenix API Wall Observability Progress Report](../reports/2026-03-09-phoenix-api-wall-observability-progress-report.md), shows that:
 
@@ -182,9 +239,11 @@ The YAAM runtime should ultimately satisfy the following tracing requirements.
 | Prompt-template metadata | Not implemented | Implemented where applicable |
 | Tool spans for future skill wiring | Not implemented | Implemented when tool execution is enabled |
 
-### 5.2 GoodAI benchmark requirements
+### 5.2 Transitional benchmark requirements (development only)
 
-The benchmark integration should satisfy the following tracing requirements.
+The benchmark integration is treated as a transitional development harness and is expected to be
+excluded from the repository distribution when YAAM enters a production lifecycle. The following
+requirements are therefore development-only and should not drive mechanism-layer design.
 
 | Requirement | Current State | Target State |
 |---|---|---|
@@ -216,7 +275,7 @@ The following capabilities are already done and should be treated as repository 
 1. Phoenix initialization exists and is environment-configurable.
 2. The API Wall emits request-level Phoenix spans.
 3. Request responses expose `yaam_trace_id` and `yaam_span_id`.
-4. The benchmark `mas-remote` path preserves Phoenix correlation metadata.
+4. The benchmark `mas-remote` path can preserve Phoenix correlation metadata (transitional).
 5. Live March 2026 validation confirmed direct and benchmark-path trace correlation for Gemini, Groq, and Mistral.
 
 ### 6.2 What remains absent or incomplete
@@ -246,7 +305,7 @@ Phoenix cannot yet answer, in a semantically structured manner:
 2. why a fact was promoted or filtered,
 3. which CIAR values informed memory selection,
 4. how lifecycle engines transformed state between tiers,
-5. or which benchmark example or dataset property caused a failure pattern.
+5. or which evaluation example or dataset property caused a failure pattern (development-only).
 
 ## 7. Proposed Target Architecture
 
@@ -303,7 +362,7 @@ Recommended attribute groups include:
 
 1. session and conversation identifiers,
 2. agent type and variant,
-3. benchmark run id, dataset name, test id, and example id,
+3. optional evaluation harness identifiers (run id, dataset name, test id, example id),
 4. CIAR thresholds and selected CIAR scores,
 5. retrieval counts by tier,
 6. prompt template version and variables,
@@ -311,11 +370,13 @@ Recommended attribute groups include:
 
 ### 7.5 Privacy and content-capture policy
 
-The target architecture should support full content capture in controlled development and benchmark environments because the explicit project requirement is to inspect LLM calls and retrieved information from YAAM layers.
+The target architecture should support full content capture in controlled development and evaluation
+environments because the explicit project requirement is to inspect LLM calls and retrieved
+information from YAAM layers.
 
 However, the design should also define a future privacy policy with at least three modes:
 
-1. full capture for development and benchmark diagnostics,
+1. full capture for development and evaluation diagnostics,
 2. redacted capture for production-like environments,
 3. and metadata-only capture for highly restricted contexts.
 
@@ -327,7 +388,7 @@ Objectives:
 
 1. stabilize provider instrumentation guarantees,
 2. standardize model and provider metadata naming,
-3. and eliminate known request-model or response-model inconsistencies in benchmark traces.
+3. and eliminate known request-model or response-model inconsistencies across YAAM clients.
 
 Expected outcome:
 
@@ -357,13 +418,13 @@ Expected outcome:
 
 Phoenix becomes a first-class view of YAAM cognitive flow rather than an API envelope.
 
-### Phase 4: Benchmark-owned spans and evaluation overlays
+### Phase 4 (optional): Evaluation harness spans and overlays
 
 Objectives:
 
-1. emit benchmark-level parent spans,
-2. attach run and dataset metadata to benchmark and request spans,
-3. and explore annotations or evaluation overlays in Phoenix for benchmark failure analysis.
+1. emit evaluation harness parent spans (when such a harness is present),
+2. attach run and dataset metadata to harness and request spans,
+3. and explore annotations or evaluation overlays in Phoenix for failure analysis.
 
 Expected outcome:
 
@@ -374,17 +435,17 @@ Operators can move bidirectionally between benchmark artifacts and Phoenix trace
 The future implementation should be considered complete only when the following statements are true.
 
 1. A single Phoenix trace can show the request root, LLM invocation, and memory retrieval from applicable YAAM layers.
-2. Benchmark artifacts can be correlated to Phoenix traces without manual guesswork.
+2. YAAM responses can be correlated to Phoenix traces without manual guesswork.
 3. CIAR-informed memory-selection behavior is visible in trace metadata or child spans.
 4. At least one lifecycle operation, such as promotion, is visible as a semantic span rather than only a timing field.
-5. Provider routing and model identity are consistent across API responses, benchmark logs, and Phoenix span attributes.
+5. Provider routing and model identity are consistent across API responses and Phoenix span attributes.
 
 ## 10. Risks and Trade-offs
 
 ### Positive consequences
 
 1. YAAM observability will become materially closer to the glass-box objective described in [Concept 02](../concept-02-memory-inspector.md).
-2. Benchmark debugging will become faster and more defensible.
+2. Evaluation debugging will become faster and more defensible.
 3. The project will gain stronger evidence for research and review contexts because internal memory behavior will be inspectable.
 
 ### Negative consequences
@@ -396,12 +457,15 @@ The future implementation should be considered complete only when the following 
 ### Neutral implementation considerations
 
 1. Some current metrics pipelines should remain in place even after Phoenix enhancement because metrics and traces serve different operational purposes.
-2. The benchmark should retain JSONL artifact generation even if Phoenix coverage improves, because Phoenix is not a replacement for all benchmark reporting outputs.
+2. Evaluation harnesses should retain JSONL artifact generation even if Phoenix coverage improves, because Phoenix is not a replacement for all evaluation reporting outputs.
 
 ## 11. Recommendation
 
 The repository should adopt Phoenix as the canonical tracing substrate for YAAM request execution while expanding the trace model from request-level visibility to memory-aware cognitive visibility.
 
-The present implementation already justifies an architectural commitment because the request root and benchmark correlation path are real and validated. The recommended next step is therefore not a fresh proof-of-concept, but a disciplined extension of the existing Phoenix integration into YAAM retrieval, lifecycle, and benchmark orchestration semantics.
+The present implementation already justifies an architectural commitment because the request root and
+trace-correlation path are real and validated. The recommended next step is therefore not a fresh
+proof-of-concept, but a disciplined extension of the existing Phoenix integration into YAAM
+retrieval, lifecycle, and workflow semantics.
 
 No code changes are authorized by this RFC. It is a planning and alignment document intended to guide later implementation.
