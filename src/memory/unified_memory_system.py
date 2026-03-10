@@ -9,6 +9,7 @@ from typing import Any, Literal, cast
 import redis
 from pydantic import BaseModel, Field, ValidationError
 
+from src.llm.client import LLMClient
 from src.memory.artifacts.repository import ArtifactRepository
 from src.memory.artifacts.service import ArtifactService
 from src.memory.engines.consolidation_engine import ConsolidationEngine
@@ -137,6 +138,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
         self,
         redis_client: redis.StrictRedis,
         knowledge_manager: KnowledgeStoreManager,
+        llm_client: LLMClient | None = None,
         l1_tier: ActiveContextTier | None = None,
         l2_tier: WorkingMemoryTier | None = None,
         l3_tier: EpisodicMemoryTier | None = None,
@@ -151,6 +153,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
         Args:
             redis_client: Redis client for Operating Memory
             knowledge_manager: Facade for persistent knowledge stores
+            llm_client: Optional LLM client used for embedding-backed retrieval
             l1_tier: Active Context tier (L1) - optional for backward compatibility
             l2_tier: Working Memory tier (L2) - optional for backward compatibility
             l3_tier: Episodic Memory tier (L3) - optional for backward compatibility
@@ -170,6 +173,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
 
         # --- Persistent Knowledge Layer Client ---
         self.knowledge_manager = knowledge_manager
+        self.llm_client = llm_client
 
         # --- Memory Tiers ---
         self.l1_tier = l1_tier
@@ -193,6 +197,32 @@ class UnifiedMemorySystem(HybridMemorySystem):
                 )
             )
             self.artifacts = self.artifact_service
+
+    @staticmethod
+    def _normalize_score(score: float, min_score: float, max_score: float) -> float:
+        """Normalize a score to the unit interval using min-max normalization."""
+        score_range = max_score - min_score
+        if score_range <= 0:
+            return 0.5
+        return (score - min_score) / score_range
+
+    async def _query_l3_episodes(self, session_id: str, query: str, limit: int) -> list[Any]:
+        """Run query-conditioned L3 retrieval when episodic memory is configured."""
+        if not self.l3_tier or not self.llm_client:
+            return []
+
+        query_embedding = await self.llm_client.get_embedding(query)
+        return await self.l3_tier.search_similar(
+            query_embedding=query_embedding,
+            limit=limit,
+            filters={"session_id": session_id},
+        )
+
+    async def _query_l4_documents(self, query: str, limit: int) -> list[Any]:
+        """Run query-conditioned L4 retrieval when semantic memory is configured."""
+        if not self.l4_tier:
+            return []
+        return await self.l4_tier.search(query_text=query, limit=limit)
 
     # --- Private Key Helpers for Redis ---
     def _get_personal_key(self, agent_id: str) -> str:
@@ -401,20 +431,24 @@ class UnifiedMemorySystem(HybridMemorySystem):
         # L3: Episodic Memory (Episodes)
         if self.l3_tier and weights.l3_weight > 0:
             try:
-                l3_episodes = await self.l3_tier.query(
-                    filters={"session_id": session_id}, limit=limit
+                l3_episodes = await self._query_l3_episodes(
+                    session_id=session_id,
+                    query=query,
+                    limit=limit,
                 )
-                # Normalize importance scores
                 if l3_episodes:
-                    l3_scores = [e.importance_score for e in l3_episodes]
+                    l3_scores = [
+                        float(e.metadata.get("similarity_score", e.importance_score))
+                        for e in l3_episodes
+                    ]
                     min_score, max_score = min(l3_scores), max(l3_scores)
-                    score_range = max_score - min_score if max_score > min_score else 1.0
 
                     for episode in l3_episodes:
-                        normalized_score = (
-                            (episode.importance_score - min_score) / score_range
-                            if score_range > 0
-                            else 0.5
+                        similarity_score = float(
+                            episode.metadata.get("similarity_score", episode.importance_score)
+                        )
+                        normalized_score = self._normalize_score(
+                            similarity_score, min_score, max_score
                         )
                         weighted_score = normalized_score * weights.l3_weight
                         all_results.append(
@@ -426,6 +460,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
                                     "episode_id": episode.episode_id,
                                     "fact_count": episode.fact_count,
                                     "importance_score": episode.importance_score,
+                                    "similarity_score": similarity_score,
                                     "topics": episode.topics,
                                     "consolidated_at": episode.consolidated_at.isoformat(),
                                 },
@@ -437,21 +472,16 @@ class UnifiedMemorySystem(HybridMemorySystem):
         # L4: Semantic Memory (Knowledge Documents)
         if self.l4_tier and weights.l4_weight > 0:
             try:
-                # L4 retrieve typically takes filters or query_text depending on implementation.
-                # Assuming simple retrieval for now as per error message/signature.
-                l4_docs = await self.l4_tier.query(limit=limit)
-                # Normalize confidence scores
+                l4_docs = await self._query_l4_documents(query=query, limit=limit)
                 if l4_docs:
-                    l4_scores = [d.confidence_score for d in l4_docs]
+                    l4_scores = [
+                        float(d.metadata.get("search_score", d.confidence_score)) for d in l4_docs
+                    ]
                     min_score, max_score = min(l4_scores), max(l4_scores)
-                    score_range = max_score - min_score if max_score > min_score else 1.0
 
                     for doc in l4_docs:
-                        normalized_score = (
-                            (doc.confidence_score - min_score) / score_range
-                            if score_range > 0
-                            else 0.5
-                        )
+                        search_score = float(doc.metadata.get("search_score", doc.confidence_score))
+                        normalized_score = self._normalize_score(search_score, min_score, max_score)
                         weighted_score = normalized_score * weights.l4_weight
                         all_results.append(
                             {
@@ -463,6 +493,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
                                     "title": doc.title,
                                     "knowledge_type": doc.knowledge_type,
                                     "confidence_score": doc.confidence_score,
+                                    "search_score": search_score,
                                     "tags": doc.tags,
                                     "distilled_at": doc.distilled_at.isoformat(),
                                 },
