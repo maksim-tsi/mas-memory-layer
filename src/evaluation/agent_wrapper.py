@@ -262,6 +262,7 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
     memory_system = UnifiedMemorySystem(
         redis_client=redis_client,
         knowledge_manager=NullKnowledgeStoreManager(),
+        llm_client=llm_client,
         l1_tier=l1_tier,
         l2_tier=l2_tier,
         promotion_engine=promotion_engine,
