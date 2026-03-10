@@ -2,7 +2,7 @@
 
 **Status:** Proposed  
 **Date:** March 10, 2026  
-**Related:** [ADR-003](003-four-layers-memory.md), [ADR-007](007-agent-integration-layer.md), [ADR-009](009-decoupling-benchmark-api-wall.md), [ADR-010](010-mechanism-policy-split-and-skills-v1.md), [RFC: Arize Phoenix Tracing for YAAM Glass-Box Observability](../RFC/phoenix-tracing-rfc.md)
+**Related:** [ADR-003](003-four-layers-memory.md), [ADR-007](007-agent-integration-layer.md), [ADR-009](009-decoupling-benchmark-api-wall.md), [ADR-010](010-mechanism-policy-split-and-skills-v1.md), [RFC: Arize Phoenix Tracing for YAAM Glass-Box Observability](../RFC/phoenix-tracing-rfc.md), [Spec: Phoenix span contract](../specs/observability/phoenix-span-contract.md)
 
 ## 1. Context
 
@@ -15,6 +15,9 @@ At the same time, [ADR-010](010-mechanism-policy-split-and-skills-v1.md) constra
 ## 2. Decision
 
 We will standardize YAAM tracing on **Arize Phoenix with OpenInference semantic conventions** and treat it as the primary tracing substrate for both YAAM request execution and benchmark correlation.
+
+The normative span inventory, required attributes, and code attachment points are defined in
+[Spec: Phoenix span contract](../specs/observability/phoenix-span-contract.md).
 
 ### 2.1 Root span ownership
 
