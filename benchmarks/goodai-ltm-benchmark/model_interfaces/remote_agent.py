@@ -11,6 +11,16 @@ from utils.llm import count_tokens_for_model
 
 from model_interfaces.interface import ChatSession
 
+DEFAULT_REMOTE_MODEL = "gemini"
+
+
+def _resolve_remote_model(default: str = DEFAULT_REMOTE_MODEL) -> str:
+    for env_var in ("MAS_REMOTE_MODEL", "MAS_MODEL"):
+        value = os.environ.get(env_var)
+        if value and value.strip():
+            return value.strip()
+    return default
+
 
 @dataclass
 class RemoteMASAgentSession(ChatSession):
@@ -24,8 +34,8 @@ class RemoteMASAgentSession(ChatSession):
     request_timeout: float = 90.0
     max_retries: int = 3
     backoff_seconds: float = 0.5
-    model: str = "gemini"
-    model_for_cost: str = "gemini-2.5-flash-lite"
+    model: str = field(default_factory=_resolve_remote_model)
+    model_for_cost: str = field(default_factory=_resolve_remote_model)
     session_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     history: list[dict[str, str]] = field(default_factory=list)
 
@@ -58,9 +68,19 @@ class RemoteMASAgentSession(ChatSession):
         self.history.append({"role": "assistant", "content": response_text})
 
         metadata = cast(dict[str, Any], response_json.get("metadata") or {})
+        self._sync_model_from_metadata(metadata)
         self.last_metadata = metadata
         self._update_costs(user_message, response_text, response_json)
         return response_text, metadata
+
+    def _sync_model_from_metadata(self, metadata: dict[str, Any]) -> None:
+        for key in ("yaam_configured_model", "llm_model"):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                resolved_model = value.strip()
+                self.model = resolved_model
+                self.model_for_cost = resolved_model
+                return
 
     def _post_with_retry(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
         last_error: Exception | None = None
@@ -141,5 +161,12 @@ class RemoteMASAgentSession(ChatSession):
             payload = json.load(fd)
         self.session_id = payload.get("session_id", self.session_id)
         self.endpoint = payload.get("endpoint", self.endpoint)
-        self.model = payload.get("model", self.model)
+        loaded_model = payload.get("model")
+        if isinstance(loaded_model, str) and loaded_model.strip():
+            self.model = loaded_model.strip()
+            self.model_for_cost = loaded_model.strip()
+        else:
+            resolved_model = _resolve_remote_model(self.model)
+            self.model = resolved_model
+            self.model_for_cost = resolved_model
         self.history = payload.get("history", self.history)
