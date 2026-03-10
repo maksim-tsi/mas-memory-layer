@@ -11,6 +11,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
+from src.memory.ciar_formula import (
+    DEFAULT_AGE_DECAY_LAMBDA,
+    DEFAULT_RECENCY_ALPHA,
+    calculate_age_decay,
+    calculate_ciar_score,
+    calculate_recency_boost,
+)
+
 
 class FactType(StrEnum):
     """Classification of fact types."""
@@ -113,6 +121,7 @@ class Fact(BaseModel):
     justification: str | None = None  # Explanation for extraction/promotion logic
 
     # Timestamps
+    created_at: datetime | None = None
     extracted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     last_accessed: datetime | None = Field(default_factory=lambda: datetime.now(UTC))
     access_count: int = Field(default=0, ge=0)
@@ -125,39 +134,62 @@ class Fact(BaseModel):
         """Ensure CIAR score is consistent with components if all are present."""
         values = info.data
         if all(k in values for k in ["certainty", "impact", "age_decay", "recency_boost"]):
-            expected: float = float(
-                (values["certainty"] * values["impact"])
-                * values["age_decay"]
-                * values["recency_boost"]
+            expected = calculate_ciar_score(
+                values["certainty"],
+                values["impact"],
+                values["age_decay"],
+                values["recency_boost"],
             )
             # Allow small floating point differences
             if abs(v - expected) > 0.01:
                 return float(round(expected, 4))
         return v
 
-    def mark_accessed(self) -> None:
+    def mark_accessed(self, alpha: float = DEFAULT_RECENCY_ALPHA) -> None:
         """Update access tracking."""
         self.last_accessed = datetime.now(UTC)
         self.access_count += 1
-        # Recalculate recency boost based on access pattern
-        self.recency_boost = 1.0 + (0.05 * self.access_count)  # 5% boost per access
-        # Recalculate CIAR score
+        self.recency_boost = round(calculate_recency_boost(self.access_count, alpha=alpha), 4)
         self.ciar_score = round(
-            (self.certainty * self.impact) * self.age_decay * self.recency_boost, 4
+            calculate_ciar_score(
+                self.certainty,
+                self.impact,
+                self.age_decay,
+                self.recency_boost,
+            ),
+            4,
         )
 
-    def calculate_age_decay(self, decay_lambda: float = 0.1) -> None:
+    def calculate_age_decay(
+        self,
+        decay_lambda: float = DEFAULT_AGE_DECAY_LAMBDA,
+        max_age_days: float | None = None,
+        min_score: float = 0.0,
+    ) -> None:
         """
         Calculate age decay factor based on time since extraction.
 
         Args:
             decay_lambda: Decay rate (default: 0.1 per day)
         """
-        age_days = (datetime.now(UTC) - self.extracted_at).days
-        self.age_decay = round(max(0.0, min(1.0, 2 ** (-decay_lambda * age_days))), 4)
-        # Recalculate CIAR score
+        source_timestamp = self.created_at or self.extracted_at
+        self.age_decay = round(
+            calculate_age_decay(
+                source_timestamp,
+                decay_lambda=decay_lambda,
+                max_age_days=max_age_days,
+                min_score=min_score,
+            ),
+            4,
+        )
         self.ciar_score = round(
-            (self.certainty * self.impact) * self.age_decay * self.recency_boost, 4
+            calculate_ciar_score(
+                self.certainty,
+                self.impact,
+                self.age_decay,
+                self.recency_boost,
+            ),
+            4,
         )
 
     # Provide lightweight dict-style access for compatibility with callers that
@@ -192,7 +224,7 @@ class Fact(BaseModel):
             if isinstance(self.fact_category, FactCategory)
             else self.fact_category,
             "metadata": json.dumps(self.metadata) if self.metadata else "{}",
-            "extracted_at": self.extracted_at,
+            "extracted_at": self.created_at or self.extracted_at,
             "last_accessed": self.last_accessed,
             "access_count": self.access_count,
             "justification": self.justification,
