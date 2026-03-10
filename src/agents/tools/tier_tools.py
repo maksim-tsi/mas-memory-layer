@@ -35,6 +35,16 @@ else:
 from src.agents.runtime import MASToolRuntime
 from src.memory.graph_templates import get_template, validate_and_execute_template
 
+
+def _get_memory_component(memory_system: Any, *attribute_names: str) -> Any | None:
+    """Resolve a memory-system component across current and legacy attribute names."""
+    for attribute_name in attribute_names:
+        component = getattr(memory_system, attribute_name, None)
+        if component is not None:
+            return component
+    return None
+
+
 # ============================================================================
 # Input Schemas (Pydantic Models)
 # ============================================================================
@@ -121,7 +131,7 @@ async def l2_search_facts(
         await mas_runtime.stream_status(f"Searching L2 Working Memory for: {query}")
 
         # Get L2 tier
-        l2_tier = memory_system.working_memory
+        l2_tier = _get_memory_component(memory_system, "l2_tier", "working_memory")
         if not l2_tier:
             return "Error: L2 Working Memory tier not initialized"
 
@@ -213,7 +223,7 @@ async def l3_query_graph(
             return f"Error: {error_msg}"
 
         # Get L3 tier
-        l3_tier = memory_system.episodic_memory
+        l3_tier = _get_memory_component(memory_system, "l3_tier", "episodic_memory")
         if not l3_tier:
             return "Error: L3 Episodic Memory tier not initialized"
 
@@ -273,22 +283,61 @@ async def l3_search_episodes(
         await mas_runtime.stream_status(f"Searching L3 episodes for: {query}")
 
         # Get L3 tier
-        l3_tier = memory_system.episodic_memory
+        l3_tier = _get_memory_component(memory_system, "l3_tier", "episodic_memory")
         if not l3_tier:
             return "Error: L3 Episodic Memory tier not initialized"
 
-        # Note: This requires embedding generation which is not yet implemented
-        # For now, return a placeholder error
-        return json.dumps(
-            {
-                "error": "Episode embedding search not yet implemented",
-                "message": "This tool requires LLM embedding generation which will be added in Phase 3 Week 4",
-                "query": query,
-                "session_id": session_id,
-                "workaround": "Use l3_query_graph with get_related_episodes template for now",
-            },
-            indent=2,
+        llm_client = _get_memory_component(memory_system, "llm_client")
+        if not llm_client:
+            return "Error: LLM client not available for L3 episode search"
+
+        search_filters = dict(filters or {})
+        search_filters["session_id"] = session_id
+
+        query_embedding = await llm_client.get_embedding(query)
+        episodes = await l3_tier.search_similar(
+            query_embedding=query_embedding,
+            limit=limit,
+            filters=search_filters,
         )
+
+        if not episodes:
+            return json.dumps(
+                {
+                    "query": query,
+                    "session_id": session_id,
+                    "filters": search_filters,
+                    "results_count": 0,
+                    "message": "No similar episodes found",
+                    "episodes": [],
+                },
+                indent=2,
+            )
+
+        results = {
+            "query": query,
+            "session_id": session_id,
+            "filters": search_filters,
+            "results_count": len(episodes),
+            "episodes": [
+                {
+                    "episode_id": episode.episode_id,
+                    "summary": episode.summary,
+                    "narrative": episode.narrative,
+                    "fact_count": episode.fact_count,
+                    "importance_score": round(episode.importance_score, 4),
+                    "similarity_score": round(
+                        float(episode.metadata.get("similarity_score", 0.0)), 4
+                    ),
+                    "topics": episode.topics,
+                    "time_window_start": episode.time_window_start.isoformat(),
+                    "time_window_end": episode.time_window_end.isoformat(),
+                }
+                for episode in episodes
+            ],
+        }
+
+        return json.dumps(results, indent=2)
 
     except Exception as e:
         return f"Error searching L3 episodes: {e!s}"
@@ -326,7 +375,7 @@ async def l4_search_knowledge(
         await mas_runtime.stream_status(f"Searching L4 knowledge base for: {query}")
 
         # Get L4 tier
-        l4_tier = memory_system.semantic_memory
+        l4_tier = _get_memory_component(memory_system, "l4_tier", "semantic_memory")
         if not l4_tier:
             return "Error: L4 Semantic Memory tier not initialized"
 
@@ -359,10 +408,11 @@ async def l4_search_knowledge(
                     if hasattr(doc.knowledge_type, "value")
                     else doc.knowledge_type,
                     "confidence_score": round(doc.confidence_score, 4),
+                    "search_score": round(float(doc.metadata.get("search_score", 0.0)), 4),
                     "episode_count": doc.episode_count,
                     "category": doc.category,
                     "tags": doc.tags,
-                    "created_at": doc.created_at.isoformat() if doc.created_at else None,
+                    "distilled_at": doc.distilled_at.isoformat() if doc.distilled_at else None,
                 }
                 for doc in documents
             ],
