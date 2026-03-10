@@ -39,9 +39,13 @@ The target span model is:
 
 ### 2.3 Benchmark correlation strategy
 
-The GoodAI benchmark integration will continue preserving current `yaam_*` correlation metadata while the project incrementally adds stronger session and metadata alignment with OpenInference conventions.
+Evaluation harness integrations (including the GoodAI benchmark while it remains in-repository) will
+continue preserving current `yaam_*` correlation metadata while the project incrementally adds
+stronger session and metadata alignment with OpenInference conventions.
 
-Benchmark tracing enhancements should occur at the benchmark or API boundary, not by collapsing the current HTTP separation.
+Harness-owned tracing enhancements should occur at the harness or API boundary, not by collapsing
+the current HTTP separation. The repository's primary long-term objective is YAAM runtime
+observability; evaluation harness visibility is considered a transitional development concern.
 
 ### 2.4 Implementation boundary
 
@@ -61,7 +65,7 @@ Initial phases will not require changes to [src/storage](../../src/storage) unle
 
 1. YAAM tracing becomes aligned with an established observability standard rather than remaining a repository-specific set of metrics and metadata fields.
 2. Phoenix can evolve from a request-level debugging tool into a genuine cognitive observability surface for YAAM.
-3. Benchmark failures become easier to diagnose because benchmark artifacts and Phoenix traces can be correlated systematically.
+3. Evaluation failures become easier to diagnose because harness artifacts and Phoenix traces can be correlated systematically.
 4. The project gains stronger evidence for architectural claims related to retrieval, memory layering, and lifecycle processing.
 
 ### Negative

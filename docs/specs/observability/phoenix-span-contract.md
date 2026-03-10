@@ -84,8 +84,11 @@ This section defines the required spans for a single YAAM request.
 | `yaam.lifecycle.promotion` | `CHAIN` | `src/memory/unified_memory_system.py:run_promotion_cycle` | `yaam.workflow.update` | `openinference.span.kind`, `session.id`, `yaam.ciar.threshold`, `yaam.lifecycle.result` | Use when promotion is synchronous under request |
 | `yaam.lifecycle.consolidation` | `CHAIN` | `src/memory/unified_memory_system.py:run_consolidation_cycle` | `yaam.workflow.update` | `openinference.span.kind`, `session.id`, `yaam.lifecycle.result` | Use when consolidation is executed |
 | `yaam.lifecycle.distillation` | `CHAIN` | `src/memory/unified_memory_system.py:run_distillation_cycle` | `yaam.workflow.update` | `openinference.span.kind`, `session.id`, `yaam.lifecycle.result` | Use when distillation is executed |
-| `yaam.llm.ciar_score` | `LLM` | CIAR scorer module (planned) | `yaam.lifecycle.promotion` or `yaam.workflow.retrieve` | `openinference.span.kind`, `session.id`, `llm.*`, `output.value`, `yaam.ciar.threshold` | Output SHOULD be structured JSON for per-fact scores |
-| `yaam.llm.fact_extract` | `LLM` | Fact extractor module (planned) | `yaam.lifecycle.promotion` | `openinference.span.kind`, `session.id`, `llm.*`, `output.value` | Output SHOULD be structured JSON of extracted facts |
+| `yaam.ciar.score` | `TOOL` | `src/memory/ciar_scorer.py:CIARScorer` and call sites | `yaam.lifecycle.promotion` or `yaam.workflow.retrieve` | `openinference.span.kind`, `session.id`, `output.value`, `yaam.ciar.threshold` | Deterministic CIAR scoring should be represented as a tool-like span |
+| `yaam.llm.fact_extract` | `LLM` | `src/memory/engines/fact_extractor.py:FactExtractor._extract_with_llm` | `yaam.lifecycle.promotion` | `openinference.span.kind`, `session.id`, `llm.*`, `output.value` | Output SHOULD be structured JSON of extracted facts |
+
+If CIAR scoring is later upgraded to an LLM-mediated scorer, it MAY additionally emit a dedicated
+`LLM` span (e.g., `yaam.llm.ciar_score`), but this is not required for baseline conformance.
 
 ### 4.2 Retrieval document schema (per tier)
 

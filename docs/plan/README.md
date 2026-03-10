@@ -10,6 +10,7 @@ progressive disclosure of repository knowledge.
   goals, and non-goals for repository harness hardening and Skills v1 (feedback-only benchmark posture).
 - `docs/plan/adr010-implementation-plan-repository-harness-and-skills-v1.md` — Implementation plan for
   ADR-010 (workstreams, milestones, acceptance criteria).
+- `docs/plan/2026-03-10-phoenix-glassbox-tracing-implementation-plan.md` — Execution plan for implementing Phoenix/OpenInference glass-box tracing for YAAM agents and memory tiers.
 - `docs/plan/2026-02-22-fast-llm-memory-barrier-provider-parity-plan.md` — Provider parity plan for
   fast-inference models, specifying promotion barriers, artifact-level observability, and replication
   requirements across Groq/Gemini/Mistral.
