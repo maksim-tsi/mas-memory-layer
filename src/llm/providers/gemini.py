@@ -102,14 +102,14 @@ class GeminiProvider(BaseProvider):
             }
 
         tool_calls = self._extract_tool_calls(response)
-        raw_content = self._extract_raw_content(response)
+        raw_content = response
         metadata: dict[str, Any] = {}
         finish_reason = self._extract_finish_reason(response)
         if finish_reason:
             metadata["finish_reason"] = finish_reason
 
         return LLMResponse(
-            text=getattr(response, "text", ""),
+            text=self._extract_text(response),
             provider=self.name,
             model=model,
             usage=usage_dict,
@@ -204,12 +204,6 @@ class GeminiProvider(BaseProvider):
             call_id=str(call_id) if call_id is not None else None,
         )
 
-    def _extract_raw_content(self, response: Any) -> Any | None:
-        candidates = getattr(response, "candidates", None) or []
-        if not candidates:
-            return None
-        return getattr(candidates[0], "content", None)
-
     def _extract_finish_reason(self, response: Any) -> str | None:
         candidates = getattr(response, "candidates", None) or []
         if not candidates:
@@ -218,6 +212,23 @@ class GeminiProvider(BaseProvider):
         if finish_reason is None:
             return None
         return str(finish_reason)
+
+    def _extract_text(self, response: Any) -> str:
+        try:
+            text = getattr(response, "text", "")
+        except Exception:
+            text = ""
+        if text:
+            return str(text)
+
+        candidates = getattr(response, "candidates", None) or []
+        if not candidates:
+            return ""
+
+        content = getattr(candidates[0], "content", None)
+        parts = getattr(content, "parts", None) or []
+        text_parts = [str(part.text) for part in parts if getattr(part, "text", None)]
+        return "\n".join(text_parts)
 
     async def get_embedding(
         self, text: str, model: str | None = None, output_dimensionality: int = 768
