@@ -195,7 +195,7 @@ async def test_gemini_generate_extracts_tool_calls(monkeypatch):
     assert resp.tool_calls[0].arguments == {"query": "tea"}
     assert resp.tool_calls[0].call_id == "call-1"
     assert resp.metadata["finish_reason"] == "FUNCTION_CALL"
-    assert resp.raw_content is fake_response.candidates[0].content
+    assert resp.raw_content is fake_response
 
 
 @pytest.mark.asyncio
@@ -243,3 +243,46 @@ async def test_gemini_generate_builds_followup_contents_for_tool_results(monkeyp
     assert contents[1] is previous_response
     assert contents[2].parts[0].name == "l2_search_facts"
     assert contents[2].parts[0].response == {"results_count": 1}
+
+
+@pytest.mark.asyncio
+async def test_gemini_generate_handles_function_call_only_response_text(monkeypatch):
+    class FunctionCallOnlyResponse:
+        def __init__(self):
+            self.usage_metadata = FakeUsage()
+            self.function_calls = [
+                SimpleNamespace(name="l2_search_facts", args={"query": "tea"}, tool_use_id=None)
+            ]
+            self.candidates = [
+                SimpleNamespace(
+                    finish_reason="FUNCTION_CALL",
+                    content=SimpleNamespace(parts=[SimpleNamespace(text=None)]),
+                )
+            ]
+
+        @property
+        def text(self):
+            raise ValueError("GenerateContentResponse.text only supports text parts")
+
+    fake_client = FakeClient(FunctionCallOnlyResponse())
+    register_fake_genai(fake_client, monkeypatch)
+
+    provider = GeminiProvider(api_key="testkey")
+    resp = await provider.generate(
+        "Find facts about tea.",
+        tools=[
+            {
+                "name": "l2_search_facts",
+                "description": "Search facts.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                },
+            }
+        ],
+        tool_calling_mode="AUTO",
+    )
+
+    assert resp.text == ""
+    assert resp.tool_calls[0].name == "l2_search_facts"
