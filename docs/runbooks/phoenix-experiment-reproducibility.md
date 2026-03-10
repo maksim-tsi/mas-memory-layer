@@ -223,8 +223,22 @@ Expected interpretation:
 
 1. The API Wall request should still return `yaam_trace_id` and `yaam_span_id`.
 2. Phoenix should show the API root span plus the agent and retrieval spans above.
-3. `yaam.retriever.l3` and `yaam.retriever.l4` should carry truthful `input.value` and populated
-   `retrieval.documents` values.
+3. The retriever spans should carry truthful `input.value` values for the live query.
+4. Populated `retrieval.documents` values should only be expected when the runtime path actually has
+   retrievable tier content available for that session.
+
+Observed runtime note on March 10, 2026:
+
+1. The current API-Wall endpoint initializes request metadata internally and applies
+   `skip_l1_write = true` by default in `src/server.py`.
+2. Because that default is applied inside the endpoint rather than read from inbound request
+   metadata, routine API-Wall validation requests do not currently persist new L1 content through
+   this route.
+3. Consequently, a live request can validly produce the expected agent and retriever spans while
+   still returning empty `retrieval.documents` payloads unless the target session was populated by
+   some other path beforehand.
+4. Treat this as a runtime validation boundary, not as evidence that Phoenix retriever
+   instrumentation failed.
 
 ### 7.3 Tier-Tool Span Inventory and Current Validation Boundary
 
@@ -252,6 +266,9 @@ Current runtime limitation:
 3. Therefore, API-Wall-only experiments currently validate request, agent, and retriever spans end
    to end, while tier-tool spans are validated through direct tool invocation and focused tests
    until a live tool-execution path is added to the request workflow.
+4. The same API-Wall route currently defaults `skip_l1_write` to `true`, so a live request may show
+   retriever span structure without populated retrieval evidence unless the session already contains
+   retrievable content.
 
 ## 8. Observation Retrieval Through the Live OpenAPI
 
