@@ -16,7 +16,7 @@ For installation, configuration, and execution guidance, see
 ## Phoenix Tracing Strategy
 
 The repository-level tracing strategy for YAAM and the GoodAI benchmark integration is documented in
-[docs/integrations/phoenix-tracing-rfc.md](phoenix-tracing-rfc.md).
+[docs/RFC/phoenix-tracing-rfc.md](../RFC/phoenix-tracing-rfc.md).
 
 ## ✅ Provider Status
 
