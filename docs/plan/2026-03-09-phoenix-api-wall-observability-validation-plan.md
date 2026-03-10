@@ -1,113 +1,75 @@
-# Phoenix API Wall Observability Validation Plan
+# Phoenix API Wall Live Observability Validation Plan
 
-**Status:** Draft  
+**Status:** Ready for Execution  
 **Date:** March 9, 2026  
 **Audience:** Maintainers, benchmark operators, observability owners  
-**Related:** `docs/ADR/009-decoupling-benchmark-api-wall.md`, `docs/specs/spec-goodai-agent-variant-evaluation-protocol.md`, `docs/plan/2026-02-22-provider-parity-experiment-matrix.md`, `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`
+**Related:** `docs/ADR/009-decoupling-benchmark-api-wall.md`, `docs/specs/spec-goodai-agent-variant-evaluation-protocol.md`, `docs/plan/2026-02-22-provider-parity-experiment-matrix.md`, `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`, `docs/reports/2026-03-09-phoenix-api-wall-observability-progress-report.md`
 
 ## 1. Objective
 
-This document defines a validation plan for Arize Phoenix monitoring and observability across the YAAM API Wall and the GoodAI benchmark integration. The immediate goal is to determine, on host `skz-dev-lv`, whether Gemini, Groq, and Mistral calls are traceable in Phoenix both when invoked directly through the API Wall and when invoked indirectly through the benchmark runner. The broader architectural goal is to assess whether Phoenix ownership should be relocated from the LLM client layer to the OpenAI-compatible `POST /v1/chat/completions` ingress boundary.
+This document defines the live execution procedure for validating Arize Phoenix observability on host `skz-dev-lv` across the YAAM API Wall and the GoodAI benchmark integration. The validation matrix covers three providers, namely Gemini, Groq, and Mistral, and two execution modes, namely direct API Wall calls and benchmark-originated `mas-remote` calls.
 
-The plan is intentionally constrained to one benchmark example per provider. The benchmark configuration selected for this purpose is `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`, which executes a single `prospective_memory` example with `dataset_examples: 1` and `memory_span: 32000`.
+The procedure is intentionally ordered so that Phoenix infrastructure is validated before any YAAM or benchmark traffic is exercised. This sequencing is required to prevent misclassification of infrastructure failures as provider or application failures. The benchmark portion remains constrained to one example per provider, using `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`, which targets a single `prospective_memory` example with `dataset_examples: 1` and `memory_span: 32000`.
 
-## 2. Current Repository State
+## 2. Operational Context
 
-### 2.1 Two Poetry Environments
+### 2.1 Environment Topology
 
-The repository is intentionally split into two Python environments:
+The repository uses two distinct Python environments:
 
-1. The root YAAM environment in the repository root, targeting Python `>=3.12,<3.14`.
-2. The GoodAI benchmark environment in `benchmarks/goodai-ltm-benchmark/`, targeting Python `>=3.11,<3.13`.
+1. The root YAAM environment at the repository root, targeting Python `>=3.12,<3.14`.
+2. The GoodAI benchmark environment under `benchmarks/goodai-ltm-benchmark/`, targeting Python `>=3.11,<3.13`.
 
-This split is materially relevant for Phoenix analysis because only the root environment declares Phoenix and OpenInference dependencies, while the benchmark environment acts primarily as an HTTP client when it is operated in `mas-remote` mode.
+This distinction is operationally significant because Phoenix, OpenTelemetry, and OpenInference instrumentation reside in the root environment, whereas the benchmark environment acts as an HTTP client when executed in `mas-remote` mode.
 
-### 2.2 Phoenix Initialization Today
+### 2.2 Validated Host Service Topology on `skz-dev-lv`
 
-Current Phoenix initialization is centered in `src/llm/client.py`. The file:
+Live preflight on `skz-dev-lv` established the following service topology:
 
-- checks `PHOENIX_COLLECTOR_ENDPOINT`,
-- registers OpenTelemetry through `phoenix.otel.register(...)`,
-- enables `auto_instrument=True`,
-- and applies explicit `GoogleGenAIInstrumentor` instrumentation when `google.genai` is importable.
+1. Arize Phoenix is running locally on `skz-dev-lv` and is reachable via HTTP on port `6006`.
+2. Redis is running locally on `skz-dev-lv` and is reachable on port `6379`.
+3. PostgreSQL, Qdrant, Neo4j, and Typesense are not intended to be started locally for this validation. Instead, they are hosted on `skz-data-lv` at `192.168.107.187` and were confirmed reachable on ports `5432`, `6333`, `7687`, and `8108`, respectively.
 
-This design yields provider-centric instrumentation, but it does not make the API Wall the clear tracing owner. Consequently, request-level benchmarking evidence can be partially decoupled from tracing evidence, especially when requests traverse `src/server.py` and benchmark-originated context is not promoted into an ingress span.
+This finding is operationally decisive. On `skz-dev-lv`, the validation procedure SHALL use the existing local Phoenix and Redis services together with the remote data services on `skz-data-lv`. The `docker compose --profile local-db up` path SHALL NOT be used for routine execution on this host because it can conflict with already-running local services, as evidenced by a Redis port collision on `6379` during execution.
 
-### 2.3 API Wall Behavior Today
+### 2.3 Current Tracing Architecture
 
-The API Wall in `src/server.py` already provides several observability primitives:
+The implemented tracing model is API-Wall-first:
 
-- `POST /v1/chat/completions` as the primary benchmark-facing data-plane endpoint,
-- `X-Session-Id` for session isolation,
-- optional `traceparent` header intake,
-- and response metadata including `yaam_session_id`, `client_session_id`, `yaam_configured_model`, `llm_ms`, `storage_ms_pre`, `storage_ms_post`, and aggregate `storage_ms`.
+1. `src/server.py` owns request-level tracing for `POST /v1/chat/completions`.
+2. `src/llm/client.py` remains responsible for Phoenix initialization and provider-level instrumentation.
+3. API responses expose correlation metadata including `yaam_trace_id`, `yaam_span_id`, `client_session_id`, `yaam_session_id`, `yaam_configured_model`, `llm_ms`, and `storage_ms`.
 
-These features provide strong correlation hooks, but they do not yet constitute a complete request-level tracing strategy. The API Wall records metadata; it does not presently appear to create a dedicated request span that becomes the parent of all downstream work.
+This architecture materially improves diagnosability because request ingress tracing can now be evaluated independently of provider-specific child instrumentation.
 
-### 2.4 Benchmark Invocation Modes
+### 2.4 Benchmark Execution Boundary
 
-The GoodAI benchmark runner supports two materially different classes of execution:
+The GoodAI benchmark supports both direct provider sessions and remote YAAM execution. Only `mas-remote` is valid for the present validation because direct benchmark agents such as `gemini`, `groq`, and `mistral` bypass the YAAM API Wall and therefore cannot serve as Phoenix evidence for YAAM.
 
-1. Direct provider sessions such as `gemini`, `groq`, and `mistral`.
-2. Remote API Wall execution via `mas-remote`.
+### 2.5 Known Gemini Risk
 
-Only the second mode is suitable for Phoenix validation of YAAM. Direct benchmark provider sessions bypass the root YAAM process and therefore do not validate the tracing path implemented in `src/llm/client.py` and `src/server.py`.
+The root environment presently pins `google-genai = "1.2.0"`, while lockfile metadata for `openinference-instrumentation-google-genai` suggests compatibility pressure toward substantially newer `google-genai` versions. This remains a plausible explanation for the historical symptom in which Gemini calls succeed while Google-specific Phoenix instrumentation is degraded.
 
-### 2.5 Potential Gemini Compatibility Concern
+## 3. Validation Scope
 
-The root environment pins `google-genai = "1.2.0"` in `pyproject.toml`. The lockfile metadata for `openinference-instrumentation-google-genai` indicates an extras relationship that targets substantially newer `google-genai` versions. This mismatch does not prove runtime incompatibility by itself, but it provides a credible explanation for the observed phenomenon in which Gemini calls succeed while Google GenAI tracing is degraded or unavailable.
+### 3.1 Provider Matrix
 
-## 3. Architectural Assessment
+The live matrix SHALL use the following provider-model pairs:
 
-### 3.1 Recommended Ownership Model
+- Gemini with `gemini-3-flash-preview`
+- Groq with `openai/gpt-oss-120b`
+- Mistral with `mistral-large-latest`
 
-If Phoenix is to be deepened, the recommended architecture is to make `src/server.py` the tracing owner for `POST /v1/chat/completions`, while retaining `src/llm/client.py` as the provider instrumentation layer.
+These choices align with the routing behavior currently implemented in `src/llm/client.py`.
 
-Under this model:
+### 3.2 Execution Modes
 
-1. The API Wall creates an ingress span per request.
-2. The ingress span carries benchmark-facing identifiers such as session id, agent type, agent variant, configured model, and latency decomposition.
-3. The LLM client contributes provider-level child spans and provider-specific attributes.
-4. Trace context propagation becomes explicit and stable at the HTTP boundary defined by ADR-009.
+Each provider SHALL be evaluated in two modes:
 
-This separation is preferable to the current arrangement because it distinguishes request observability from provider SDK observability. If Gemini tracing fails while ingress tracing remains healthy, the failure can be classified precisely as a Google/OpenInference integration issue rather than as a Phoenix platform failure.
+1. Direct API Wall request without benchmark involvement.
+2. GoodAI benchmark request through `mas-remote` using `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`.
 
-### 3.2 Why API Wall Integration Is Superior
-
-An API-Wall-first integration provides the following advantages:
-
-- It aligns tracing ownership with the boundary defined in `docs/ADR/009-decoupling-benchmark-api-wall.md`.
-- It enables a unified observability model for benchmark-originated and non-benchmark-originated requests.
-- It allows direct correlation between benchmark artifacts and Phoenix traces, even if provider-specific SDK instrumentation is partial.
-- It reduces ambiguity when diagnosing mixed symptoms such as successful LLM responses with incomplete tracing.
-
-### 3.3 Risks of Preserving the Current Ownership Model
-
-If tracing remains conceptually centered in `src/llm/client.py`, several ambiguities remain:
-
-- Phoenix may capture provider spans without a strong request root span.
-- Benchmark evidence may need to be reconstructed indirectly from timestamps and session metadata rather than from an explicit trace tree.
-- Duplicate or competing tracer-provider initialization remains harder to reason about.
-- Symptoms such as the reported Gemini warning may appear to be benchmark problems even when they are not.
-
-## 4. Validation Scope
-
-The validation matrix covers three providers and two execution modes.
-
-### 4.1 Providers
-
-- Gemini using `gemini-3-flash-preview`
-- Groq using `openai/gpt-oss-120b`
-- Mistral using `mistral-large-latest`
-
-These model choices are selected to remain aligned with the repository’s current provider wiring. In particular, `src/llm/client.py` contains explicit routing for `openai/gpt-oss-120b`, while other candidate Groq models are not mapped as cleanly for wrapper-driven validation.
-
-### 4.2 Modes
-
-1. Direct API Wall request, without the benchmark runner.
-2. GoodAI benchmark request via `mas-remote`, using `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`.
-
-This yields a six-cell validation matrix:
+The resulting six-cell validation matrix is shown below.
 
 | Provider | Direct API Wall | GoodAI `mas-remote` |
 |---|---|---|
@@ -115,178 +77,197 @@ This yields a six-cell validation matrix:
 | Groq | Required | Required |
 | Mistral | Required | Required |
 
-## 5. Invariants
+## 4. Invariants and Constraints
 
-Unless explicitly noted otherwise, all runs in this plan MUST preserve the following invariants:
+All runs in this procedure SHALL preserve the following invariants:
 
-- identical host context: `skz-dev-lv`,
-- root API Wall process launched from the root YAAM environment,
-- benchmark runner launched from the benchmark Poetry environment,
-- `mas-remote` used for all benchmark-side Phoenix validation,
-- unique `PHOENIX_PROJECT_NAME` and benchmark `--run-name` values per provider run,
-- identical benchmark config file: `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`,
-- and identical agent identity unless an agent-type experiment is explicitly introduced.
+- host context remains `skz-dev-lv`,
+- Phoenix readiness is validated before any traced provider traffic,
+- existing local and remote service availability is verified before any attempt to start replacement containers,
+- the root API Wall runs from the root YAAM environment,
+- the benchmark runs from the benchmark Poetry environment,
+- benchmark-side validation uses `mas-remote` exclusively,
+- the benchmark configuration remains `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`,
+- each provider run uses unique Phoenix project naming, session identifiers, and benchmark `--run-name` values,
+- and traced provider runs execute serially because `MAS_MODEL` is process-scoped at API Wall startup.
 
-## 6. Detailed Execution Plan
+In addition, `.env` contents SHALL NOT be printed or copied into logs. When runtime values are needed, the procedure MAY load them into the shell environment using `set -a && source .env && set +a`, but only presence checks and derived non-secret connectivity results should be recorded.
 
-### Phase 0. Host and Environment Preflight
+Provider readiness scripts may execute in parallel after Phoenix readiness has been confirmed because they do not constitute Phoenix evidence.
+
+## 5. Detailed Execution Procedure
+
+### Phase 0. Host and Phoenix Infrastructure Preflight
+
+The validation SHALL begin with infrastructure readiness on the same machine.
 
 1. Confirm host context with `uname -a`, `hostname`, and `pwd`.
-2. Verify the root interpreter path required by repository instructions: `/home/max/code/mas-memory-layer/.venv/bin/python`.
-3. Verify the benchmark interpreter in `benchmarks/goodai-ltm-benchmark/.venv/`.
-4. Record installed package versions in the root environment for:
+2. Verify the YAAM interpreter path required by repository instructions: `/home/max/code/mas-memory-layer/.venv/bin/python`.
+3. Verify the benchmark interpreter path in the benchmark Poetry project without activating shells.
+4. Load `.env` into the current shell only for execution purposes using `set -a && source .env && set +a`, without printing any secret values.
+5. Confirm that the Phoenix server is running locally by inspecting Docker state first.
+6. Identify the Phoenix container using `docker ps` or an equivalent filtered command.
+7. If the container is unhealthy or absent, inspect `docker logs` for the Phoenix service before proceeding.
+8. Execute `scripts/check_phoenix_connectivity.sh` from the repository root.
+9. Confirm that the resolved HTTP UI and OTLP HTTP collector endpoint correspond to the intended local Phoenix instance.
+10. Verify that Redis is reachable locally on port `6379`.
+11. Verify that PostgreSQL, Qdrant, Neo4j, and Typesense are reachable on `skz-data-lv` before starting the API Wall.
+12. Only after the existing topology has been confirmed may any container startup decision be made.
+
+If this phase fails, the entire live validation SHALL be classified as blocked on observability infrastructure.
+
+### Phase 1. Environment and Dependency Gate
+
+After Phoenix infrastructure is confirmed, validate the runtime assumptions.
+
+1. Confirm the presence, but not the values, of `PHOENIX_COLLECTOR_ENDPOINT`, `PHOENIX_PROJECT_NAME`, `REDIS_URL`, `POSTGRES_URL`, `GOOGLE_API_KEY`, `GROQ_API_KEY`, and `MISTRAL_API_KEY`.
+2. Record the root-environment versions of:
    - `google-genai`,
    - `arize-phoenix`,
    - `openinference-instrumentation-google-genai`,
-   - `opentelemetry-exporter-otlp`.
-5. Record installed package versions in the benchmark environment for:
-   - `google-genai`,
-   - and whether Phoenix-related packages are absent, as expected.
+   - and `opentelemetry-exporter-otlp`.
+3. Record the benchmark-environment version of `google-genai` and confirm that Phoenix-related packages are absent, as expected.
+4. Confirm that the loaded `REDIS_URL` and `POSTGRES_URL` align with the validated topology, namely Redis on `skz-dev-lv` and PostgreSQL on `skz-data-lv`.
 
-This phase establishes the evidentiary basis for later interpretation of any Gemini-specific tracing anomaly.
+If a provider key is missing, the corresponding provider branch SHALL be marked blocked before any tracing conclusion is drawn.
 
-### Phase 1. Phoenix Collector Readiness
+### Phase 2. Lock Artifact Naming and Project Separation
 
-1. Execute `scripts/check_phoenix_connectivity.sh` from the root repository.
-2. Confirm the HTTP UI endpoint and OTLP HTTP collector endpoint are reachable.
-3. Confirm the intended values for:
-   - `PHOENIX_COLLECTOR_ENDPOINT`,
-   - `PHOENIX_PROJECT_NAME`,
-   - and, if used, `AGENT_TYPE`.
+Before any live request is issued, establish unique identifiers for each provider branch.
 
-If Phoenix is not reachable, all subsequent failures MUST be classified as infrastructure blockage rather than provider or benchmark failures.
+1. Assign a unique Phoenix project name per provider, for example `mlm-mas-dev-phoenix-gemini`, `mlm-mas-dev-phoenix-groq`, and `mlm-mas-dev-phoenix-mistral`.
+2. Assign a unique direct-call `X-Session-Id` pattern per provider.
+3. Assign a unique benchmark `--run-name` per provider that includes provider id, model id, and timestamp.
+4. Preserve the mapping between provider, project name, session identifiers, and run names in the execution notes.
 
-### Phase 2. Direct API Wall Validation
+This separation prevents trace and artifact collision across the six validation cells.
 
-For each provider:
+### Phase 3. Direct API Wall Validation
 
-1. Start or restart the API Wall from `src/server.py` in the root environment.
-2. Set `MAS_MODEL` to the provider-specific model.
-3. Enable Phoenix through `PHOENIX_COLLECTOR_ENDPOINT` and a unique `PHOENIX_PROJECT_NAME`.
-4. Send a trivial `POST /v1/chat/completions` request with a unique `X-Session-Id`.
-5. Record:
-   - HTTP response payload,
-   - response metadata,
-   - API Wall logs,
-   - and Phoenix trace evidence.
+The direct validation phase SHALL be executed serially, one provider at a time.
 
-This phase validates that Phoenix can observe the full YAAM request path without benchmark involvement.
+1. Start or restart the API Wall using the root environment and the production serving path defined by `src/server.py` and `Dockerfile`.
+2. Export provider-specific values for `MAS_MODEL`, `PHOENIX_COLLECTOR_ENDPOINT`, `PHOENIX_PROJECT_NAME`, `MAS_AGENT_TYPE`, `REDIS_URL`, and `POSTGRES_URL`.
+3. Reuse the validated host service topology rather than attempting to replace Redis or PostgreSQL with local Compose services unless an explicit recovery procedure has been approved.
+4. Verify `/health` before issuing any traced request.
+5. Send one trivial `POST /v1/chat/completions` request with a unique `X-Session-Id`.
+6. Capture the HTTP response body and response metadata.
+7. Capture API Wall logs for startup and request handling.
+8. Inspect Phoenix and confirm the presence of a corresponding request trace rooted at `yaam.api_wall.chat_completions`.
 
-### Phase 3. Provider Readiness Gates
+The minimum direct-call evidence SHALL include the following metadata when present:
 
-The following scripts SHOULD be used as readiness gates only:
+- `client_session_id`
+- `yaam_session_id`
+- `yaam_configured_model`
+- `llm_ms`
+- `storage_ms`
+- `yaam_trace_id`
+- `yaam_span_id`
+
+### Phase 4. Provider Readiness Gates
+
+Provider readiness checks SHALL be executed only as prerequisites for later benchmark runs.
+
+The relevant scripts are:
 
 - `scripts/test_gemini.py`
 - `scripts/test_groq.py`
 - `scripts/test_mistral.py`
 
-These scripts validate credentials and basic provider availability. They do not validate API Wall tracing and MUST NOT be treated as conclusive Phoenix tests.
+These scripts validate credentials and basic provider availability. They SHALL NOT be treated as Phoenix evidence because they bypass the API Wall.
 
-### Phase 4. GoodAI Benchmark Validation
+### Phase 5. GoodAI Benchmark Validation Through `mas-remote`
 
-For each provider:
+Benchmark validation SHALL be executed serially by provider.
 
-1. Keep the benchmark on `mas-remote` so that all benchmark traffic traverses the API Wall.
-2. Use `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml` unchanged for dataset scope.
-3. Override `--run-name` with a provider-specific value that includes provider id, model id, and timestamp.
-4. Point `AGENT_URL` to the active API Wall endpoint.
-5. Run a single benchmark example.
-6. Preserve benchmark outputs, especially:
-   - `turnmetrics-mas-remote.jsonl`,
-   - `runstats-mas-remote.json`,
-   - and the run result directory.
+1. Keep the benchmark on `mas-remote` so all traffic traverses the active API Wall.
+2. Use `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml` unchanged.
+3. Point `AGENT_URL` to the live API Wall endpoint, typically `http://localhost:8080/v1/chat/completions` or the host-local equivalent on `skz-dev-lv`.
+4. Run `python -m runner.run_benchmark` from the benchmark Poetry environment with:
+   - `-c configurations/mas_single_test.yml`,
+   - `-a mas-remote`,
+   - `-y`,
+   - a provider-specific `--run-name`,
+   - and a headless-safe progress mode such as `--progress tqdm`.
+5. Preserve the run directory created under `benchmarks/goodai-ltm-benchmark/data/tests/<run_name>/results/mas-remote/`.
 
-This phase validates whether Phoenix still captures and correlates requests when they originate from the separate benchmark environment.
+Because provider selection is controlled by `MAS_MODEL` on the API Wall, the API Wall SHALL be restarted or reconfigured between Gemini, Groq, and Mistral benchmark runs.
 
-### Phase 5. Correlation and Classification
+### Phase 6. Correlation and Classification
 
-For each benchmark run, correlate:
-
-- benchmark session identifiers,
-- API Wall response metadata,
-- request timestamps,
-- latency decomposition,
-- and Phoenix traces.
-
-The expected correlation keys are:
+For each benchmark run, correlate benchmark artifacts, API Wall metadata, and Phoenix traces using:
 
 - `client_session_id`,
 - `yaam_session_id`,
 - `yaam_configured_model`,
+- request and benchmark timestamps,
 - `llm_ms`,
-- `storage_ms`,
-- and run timestamps.
+- and `storage_ms`.
 
-The benchmark client currently captures response metadata in `benchmarks/goodai-ltm-benchmark/model_interfaces/remote_agent.py`. This is sufficient for operational correlation even if explicit `traceparent` propagation is not yet fully exploited.
+The benchmark client currently relies on response metadata captured in `benchmarks/goodai-ltm-benchmark/model_interfaces/remote_agent.py`. Explicit `traceparent` propagation is not required for a passing result in the present procedure.
 
-## 7. Evidence Requirements
+## 6. Evidence Requirements
 
-Each provider-mode cell in the matrix MUST produce the following evidence:
+Each provider-mode cell in the matrix SHALL produce the following evidence:
 
-1. The exact command invocation.
-2. The YAAM git revision.
-3. The benchmark revision or current working revision.
-4. The API response metadata.
-5. The benchmark artifacts, if applicable.
-6. A Phoenix trace or span screenshot or an equivalent exported trace record.
-7. The classification outcome: Pass, Warn, or Fail.
+1. Exact command invocation.
+2. YAAM git revision.
+3. Benchmark git revision or working revision.
+4. API Wall response metadata.
+5. Benchmark artifacts, when applicable.
+6. Phoenix trace evidence, either as a screenshot or exported trace record.
+7. Final classification outcome, namely `Pass`, `Warn`, or `Fail`.
 
-## 8. Outcome Definitions
+Benchmark artifact collection SHOULD include, when present:
+
+- `run_meta.json`,
+- `run_console.log`,
+- `turn_metrics.jsonl` or `turnmetrics-mas-remote.jsonl`,
+- `runstats.json` or `runstats-mas-remote.json`,
+- and the per-example result JSON file.
+
+## 7. Outcome Definitions
 
 ### Pass
 
-A run is classified as Pass when:
+A run SHALL be classified as `Pass` when:
 
 - the provider call succeeds,
-- the API Wall returns expected metadata,
-- Phoenix records a corresponding trace or span,
-- and the provider/model/session can be identified with sufficient confidence.
+- the API Wall returns expected correlation metadata,
+- Phoenix records a corresponding request trace,
+- and the provider, model, and session can be identified with sufficient confidence.
 
 ### Warn
 
-A run is classified as Warn when:
+A run SHALL be classified as `Warn` when:
 
 - the provider call succeeds,
 - but Phoenix observability is degraded.
 
-Examples include:
+Representative warning conditions include:
 
-- ingress trace present but provider span missing,
-- generic spans without useful provider detail,
+- request trace present but provider child span missing,
+- generic spans without sufficient provider detail,
 - benchmark artifacts present but trace correlation weak,
 - or a reproducible Gemini-specific instrumentation warning with otherwise successful request execution.
 
 ### Fail
 
-A run is classified as Fail when:
+A run SHALL be classified as `Fail` when:
 
 - the provider call fails,
 - Phoenix is unreachable,
 - no corresponding trace can be found,
-- or the benchmark path does not traverse the traced YAAM process.
+- or the exercised path does not traverse the traced YAAM API Wall.
 
-## 9. Analytical Interpretation of the Reported Gemini Symptom
+## 8. Analytical Interpretation of the Gemini Symptom
 
-The reported observation is internally coherent: Gemini-backed agents can function while Phoenix reports that Google GenAI instrumentation cannot start. This is plausible under the present architecture for at least three reasons.
+The historical Gemini symptom remains logically consistent with the current system behavior. Gemini-backed requests may succeed while Google-specific Phoenix instrumentation is degraded if the provider SDK is operational but the corresponding OpenInference instrumentation path is version-incompatible or otherwise impaired.
 
-1. The provider SDK may be operational while OpenInference instrumentation for that SDK is version-incompatible.
-2. Phoenix may be initialized successfully at the platform level while the Google-specific instrumentor fails.
-3. Request-level observability may be under-specified because the request ingress boundary does not yet clearly own tracing.
+Accordingly, if Gemini reproduces the warning while request-level traces remain healthy, the result SHOULD be interpreted as a provider-instrumentation defect in the root environment rather than as a Phoenix platform failure or a benchmark-path failure.
 
-Accordingly, reproduction of the warning SHOULD be interpreted as a targeted observability defect until evidence shows broader platform failure.
-
-## 10. Recommended Next Design Step
-
-If implementation work is approved, the preferred next step is to refactor tracing so that:
-
-1. `src/server.py` creates and owns the request-level span for `POST /v1/chat/completions`.
-2. `src/llm/client.py` retains provider instrumentation and span enrichment.
-3. Benchmark-originated context is propagated into Phoenix from the API Wall boundary.
-4. The response metadata may optionally expose `trace_id` for stronger benchmark-to-Phoenix joins.
-
-This architecture would preserve the benchmark’s black-box posture while providing more rigorous and interpretable observability.
-
-## 11. Files of Primary Interest
+## 9. Files of Primary Interest
 
 - `src/server.py`
 - `src/llm/client.py`
@@ -297,23 +278,22 @@ This architecture would preserve the benchmark’s black-box posture while provi
 - `scripts/test_gemini.py`
 - `scripts/test_groq.py`
 - `scripts/test_mistral.py`
-- `tests/integration/test_llmclient_real.py`
-- `benchmarks/goodai-ltm-benchmark/pyproject.toml`
 - `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`
 - `benchmarks/goodai-ltm-benchmark/runner/run_benchmark.py`
 - `benchmarks/goodai-ltm-benchmark/model_interfaces/remote_agent.py`
 - `benchmarks/goodai-ltm-benchmark/runner/turn_metrics.py`
-- `benchmarks/goodai-ltm-benchmark/docs/visibility-analysis.md`
 - `docker-compose.yml`
 - `Dockerfile`
+- `docs/reports/2026-03-09-phoenix-api-wall-observability-progress-report.md`
 
-## 12. Scope Exclusions
+## 10. Scope Exclusions
 
-This document does not itself authorize:
+This document does not authorize:
 
 - dependency upgrades,
 - tracer refactors,
 - instrumentation package changes,
-- or benchmark code modifications.
+- benchmark code modifications,
+- or operational recovery work beyond confirming Phoenix readiness.
 
-Those actions are follow-up implementation tasks and should be approved separately if the validation exercise confirms a defect.
+If the live validation exposes a defect, remediation SHALL be handled as a separate implementation task.
