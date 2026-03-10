@@ -44,10 +44,14 @@ Evaluation harness artifacts remain explicitly secondary and MUST NOT drive arch
 
 **Implementation requirements**
 
-1. Update `config/ciar_config.yaml` to ADR-004 keys and defaults:
-   - `lambda_decay: 0.0231`
-   - `alpha_reinforcement: 0.1`
-   - `promotion_threshold: 0.6`
+1. Update `config/ciar_config.yaml` and `src/memory/ciar_scorer.py` together so the
+   effective ADR-004 defaults are enforced without introducing an uncoordinated configuration
+   schema break:
+   - decay rate `λ = 0.0231`,
+   - reinforcement rate `α = 0.1`,
+   - promotion threshold `= 0.6`,
+   - and no standalone key rename in `config/ciar_config.yaml` unless the scorer parser is
+     migrated in the same changeset.
 2. Update `src/memory/ciar_scorer.py` to implement:
    - `score = clamp((C * I) * exp(-λ * age_days) * (1 + α * access_count), 0..1)`
 3. Remove or refactor duplicate CIAR math so the repository has one normative scoring implementation:
@@ -123,7 +127,10 @@ Evaluation harness artifacts remain explicitly secondary and MUST NOT drive arch
 **Implementation requirements**
 
 1. Update `docs/specs/observability/phoenix-span-contract.md`:
-   - require recording the retrieval query as `input.value` on retriever spans.
+   - require recording the retrieval query as `input.value` on retriever spans,
+   - remove residual language that classifies CIAR scoring as an LLM-dependent module,
+   - and keep CIAR semantics consistently documented as deterministic/tool-like unless a later
+     ADR explicitly introduces an LLM-mediated scorer.
 2. Re-run Phoenix validation after Milestones B–C:
    - validate `yaam.retriever.l3` and `yaam.retriever.l4` represent query-conditioned evidence selection,
    - validate CIAR spans reflect ADR-004 components and thresholds.
@@ -146,3 +153,100 @@ Evaluation harness artifacts remain explicitly secondary and MUST NOT drive arch
   - query-aware L3 and L4 retrieval, and
   - CIAR scoring in the promotion path (when applicable).
 - Export trace JSON or capture screenshots for an evidence report.
+
+## 6. Task breakdown
+
+This section decomposes the milestone plan into execution tasks with owners, dependencies, and
+verification targets. It is intended to make sequencing explicit and reviewable in a single
+artifact.
+
+### 6.1 Task table
+
+| Task ID | Task | Scope | Primary owner | Depends on | Verification target |
+|---|---|---|---|---|---|
+| A1 | Finalize CIAR implementation contract | Confirm ADR-004 remains normative; confirm no isolated CIAR config-schema rename | Architecture owner | None | Milestone A wording is internally consistent and implementation-safe |
+| A2 | Normalize CIAR defaults | Apply ADR-004 effective defaults in config and scorer parser together | Memory subsystem owner | A1 | `CIARScorer` uses λ=0.0231, α=0.1, threshold=0.6 |
+| A3 | Replace logarithmic recency with ADR-004 linear reinforcement | Align scoring behavior with `(1 + α * access_count)` | Memory subsystem owner | A2 | Same CIAR input yields ADR-004-consistent output |
+| A4 | Remove duplicate CIAR math | Consolidate or refactor CIAR computations in models, tiers, and tools | Memory subsystem owner | A3 | No code path emits a divergent CIAR score for identical inputs |
+| A5 | Add CIAR conformance tests | Add unit and integration coverage for CIAR defaults and promotion-threshold behavior | Test owner | A2, A3, A4 | `./.venv/bin/pytest tests/ -v` passes with explicit CIAR assertions |
+| B1 | Confirm embedding reuse path | Reuse `LLMClient.get_embedding(...)` rather than introducing a parallel embedding API | LLM owner | None | Retrieval code calls existing embedding entry point |
+| B2 | Implement query-aware L3 retrieval | Replace enumeration-only L3 retrieval with session-scoped vector similarity search | Memory subsystem owner | B1 | Different queries can return different L3 results for the same session |
+| B3 | Implement query-aware L4 retrieval | Replace wildcard-style L4 retrieval with text-query search | Memory subsystem owner | None | Different queries can return different L4 results where indexed data exists |
+| B4 | Preserve graceful degradation | Keep `query_memory()` safe when L3 or L4 are absent or unconfigured | Memory subsystem owner | B2, B3 | Backward compatibility maintained for partially configured systems |
+| C1 | Implement `l3_search_episodes` | Replace stub with embedding-backed similarity search | Agent owner | B1 | Tool returns retrieved episodes with similarity metadata |
+| C2 | Align tool/runtime tier references | Ensure tier tools use the runtime memory-system attribute names actually exposed in production | Agent owner | C1 | Tier tools execute without attribute-resolution errors |
+| C3 | Expose tier-capable tool pool for v1-* variants | Keep baseline variants on `UNIFIED_TOOLS`; widen v1-* variants so skill gating can reach tier tools | Agent owner | C1, C2 | v1-* skills can select tier tools; baseline behavior remains unchanged |
+| D1 | Correct CIAR paper terminology | Replace incorrect CIAR expansion in the paper draft | Docs owner | A1 | No remaining “Context-Item-Action-Result” CIAR wording |
+| D2 | Clarify CIAR upstream semantics in paper | Document certainty/impact as upstream signals and CIAR as deterministic gating | Docs owner | A1 | Paper no longer implies that CIAR scoring itself is an LLM invocation |
+| E1 | Update retriever-span contract language | Require retriever query capture via `input.value` and align retriever semantics with implemented behavior | Observability owner | B2, B3 | Span contract matches runtime retrieval semantics |
+| E2 | Remove residual CIAR-as-LLM contract language | Make the span contract consistently describe CIAR as deterministic/tool-like | Observability owner | A1 | No internal contradiction remains in the span contract |
+| E3 | Re-run Phoenix validation | Collect traces after B and C are complete | Observability owner | A5, B4, C3, E1, E2 | Phoenix shows query-conditioned retriever spans and deterministic CIAR spans |
+| E4 | Publish evidence report | Record trace identifiers, artifacts, and validation outcomes under `docs/reports/` | Observability owner | E3 | Reviewable evidence report exists |
+
+### 6.2 Execution sequence
+
+The recommended execution order is as follows:
+
+1. Complete A1 before coding so Milestone A cannot be misread as a standalone configuration-schema change.
+2. Complete A2-A5 before Phoenix validation, because CIAR spans and thresholds must be semantically truthful before they are used as evidence.
+3. Complete B1-B4 before claiming query-conditioned L3/L4 retriever spans.
+4. Complete C1-C3 after the retrieval path is stable enough to support the tier tool implementation.
+5. Complete D1-D2 in parallel with A and B, because documentation drift does not block runtime implementation but should be corrected in the same workstream.
+6. Complete E1-E4 only after A, B, and C have reached a verifiable state.
+
+### 6.3 Work packages for implementation tracking
+
+#### Work package WP-1: CIAR normalization
+
+**Tasks:** A1-A5  
+**Primary files:**
+- `config/ciar_config.yaml`
+- `src/memory/ciar_scorer.py`
+- `src/memory/models.py`
+- `src/memory/tiers/working_memory_tier.py`
+- `src/agents/tools/ciar_tools.py`
+
+**Exit criteria:**
+1. ADR-004 effective defaults are enforced.
+2. CIAR formula behavior is consistent across all call sites.
+3. Tests prove conformance.
+
+#### Work package WP-2: Query-aware retrieval
+
+**Tasks:** B1-B4  
+**Primary files:**
+- `src/llm/client.py`
+- `src/memory/unified_memory_system.py`
+- `src/memory/tiers/episodic_memory_tier.py`
+- `src/memory/tiers/semantic_memory_tier.py`
+
+**Exit criteria:**
+1. L3 retrieval is session-scoped and query-conditioned.
+2. L4 retrieval is query-conditioned.
+3. Systems without L3/L4 remain operational.
+
+#### Work package WP-3: Tier-tool reachability
+
+**Tasks:** C1-C3  
+**Primary files:**
+- `src/agents/tools/tier_tools.py`
+- `src/agents/memory_agent.py`
+- `src/agents/tools/__init__.py`
+
+**Exit criteria:**
+1. `l3_search_episodes` is no longer a stub.
+2. Tier tools resolve the runtime memory-system interfaces correctly.
+3. v1-* skill-wired variants can reach tier tools without changing baseline variants.
+
+#### Work package WP-4: Documentation and validation alignment
+
+**Tasks:** D1-D2, E1-E4  
+**Primary files:**
+- `docs/notes/paper-emas-draft-ru.md`
+- `docs/specs/observability/phoenix-span-contract.md`
+- `docs/reports/*.md`
+
+**Exit criteria:**
+1. The paper and span contract are semantically aligned with ADR-004 and the implemented runtime.
+2. Phoenix evidence is re-collected after the runtime changes land.
+3. Reviewers can trace each claim in this plan to either code or an evidence report.
