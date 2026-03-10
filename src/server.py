@@ -38,6 +38,7 @@ class ChatCompletionRequest(BaseModel):
     model: str | None = None
     messages: list[ChatCompletionMessage]
     stream: bool = False
+    metadata: dict[str, Any] | None = None
 
     model_config = ConfigDict(extra="allow")
 
@@ -219,7 +220,7 @@ def create_app(config: agent_wrapper.WrapperConfig) -> FastAPI:
         latest_message = _latest_message(request.messages)
         mock_timestamp = _parse_mock_time(x_mock_time)
 
-        metadata: dict[str, Any] = {}
+        metadata: dict[str, Any] = dict(request.metadata or {})
         if traceparent:
             metadata["traceparent"] = traceparent
         if x_mock_time:

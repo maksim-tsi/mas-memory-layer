@@ -159,8 +159,15 @@ PHOENIX_PROJECT_NAME="$PHOENIX_PROJECT_NAME" \
 MAS_AGENT_TYPE=full \
 MAS_AGENT_VARIANT=baseline \
 MAS_MODEL="gemini-3-flash-preview" \
+MAS_PROMOTION_MODE=barrier \
 ./.venv/bin/uvicorn src.server:app --host 0.0.0.0 --port 8080
 ```
+
+Operational guidance:
+
+1. `MAS_PROMOTION_MODE=barrier` is recommended for controlled retriever-evidence experiments so the
+   promotion cycle completes within the request rather than racing the next turn.
+2. This setting is not required for basic request-root tracing checks.
 
 Before sending traced traffic, verify API Wall health:
 
@@ -231,14 +238,50 @@ Observed runtime note on March 10, 2026:
 
 1. The current API-Wall endpoint initializes request metadata internally and applies
    `skip_l1_write = true` by default in `src/server.py`.
-2. Because that default is applied inside the endpoint rather than read from inbound request
-   metadata, routine API-Wall validation requests do not currently persist new L1 content through
-   this route.
+2. Routine API-Wall validation requests therefore do not persist new L1 content unless the request
+   explicitly overrides that metadata.
 3. Consequently, a live request can validly produce the expected agent and retriever spans while
    still returning empty `retrieval.documents` payloads unless the target session was populated by
    some other path beforehand.
 4. Treat this as a runtime validation boundary, not as evidence that Phoenix retriever
    instrumentation failed.
+
+### 7.2.1 Controlled write-enabled API-Wall experiment
+
+The API Wall now accepts request metadata in the chat-completions payload. This allows a
+controlled experiment to enable writes without changing the default benchmark posture.
+
+Example request:
+
+```bash
+curl -s -X POST http://localhost:8080/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "X-Session-Id: phoenix-option-a-$(date +%Y%m%d-%H%M%S)" \
+  -d '{
+    "model": "gemini-3-flash-preview",
+    "messages": [{
+      "role": "user",
+      "content": "Operational note: pre-submit invoices 48 hours before arrival."
+    }],
+    "metadata": {
+      "skip_l1_write": false,
+      "experiment_label": "phoenix-option-a"
+    }
+  }'
+```
+
+Interpretation rules for this controlled mode:
+
+1. The default remains benchmark-safe because requests that omit `metadata.skip_l1_write` still run
+   with `skip_l1_write = true`.
+2. The controlled override only changes the current request.
+3. Promotion evidence still depends on promotion-engine preconditions. In the live March 10 run,
+   promotion required enough stored turns to cross the promotion engine's batch threshold.
+4. In practice, a single write-enabled turn is not sufficient for rich L2 evidence. A short
+   scripted sequence of multiple write-enabled requests may be required before a retrieval turn.
+5. When barrier promotion is enabled, the response metadata should be inspected for
+   `promotion_status`, `promotion_result`, and context counts before concluding whether Phoenix
+   retriever payloads are expected to be populated.
 
 ### 7.3 Tier-Tool Span Inventory and Current Validation Boundary
 
@@ -269,6 +312,33 @@ Current runtime limitation:
 4. The same API-Wall route currently defaults `skip_l1_write` to `true`, so a live request may show
    retriever span structure without populated retrieval evidence unless the session already contains
    retrievable content.
+5. Even after a controlled write-enabled experiment populates working-memory context, the current
+   retriever spans still reflect the `query_memory()` path rather than the `get_context_block()`
+   path used to assemble prompt context. This distinction matters when interpreting why response
+   quality and `working_facts_count` may improve while `yaam.retriever.l2` still reports an empty
+   `retrieval.documents` payload.
+
+### 7.3.1 March 10, 2026 controlled Option A result
+
+The March 10 controlled API-Wall rerun established the following:
+
+1. The API Wall now accepts a per-request `metadata.skip_l1_write = false` override.
+2. With `MAS_PROMOTION_MODE=barrier`, the promotion cycle reports completion or timeout directly in
+   response metadata.
+3. A five-request scripted priming sequence produced `working_facts_count = 10` by the retrieval
+   turn, which demonstrates that the API-Wall route can now drive live write-enabled memory state in
+   a reproducible Phoenix experiment.
+4. The Phoenix trace for that retrieval request still showed an empty `yaam.retriever.l2`
+   `retrieval.documents` payload because the current traced retriever path covers `query_memory()`
+   while the observed working-memory context was assembled through `get_context_block()`.
+5. Therefore, the write-policy experiment is successful, and the remaining gap is now more precise:
+   prompt-context retrieval visibility is incomplete even when live write-enabled memory state is
+   present.
+
+See the dated evidence artifact:
+
+- [2026-03-10-phoenix-option-a-write-enabled-api-wall-report.md](../reports/2026-03-10-phoenix-option-a-write-enabled-api-wall-report.md)
+
 
 ## 8. Observation Retrieval Through the Live OpenAPI
 

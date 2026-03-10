@@ -250,3 +250,74 @@ The recommended execution order is as follows:
 1. The paper and span contract are semantically aligned with ADR-004 and the implemented runtime.
 2. Phoenix evidence is re-collected after the runtime changes land.
 3. Reviewers can trace each claim in this plan to either code or an evidence report.
+
+## 7. Post-validation execution branch: Option A before Option B
+
+The first live Phoenix retriever validation completed after WP-4 established an important project
+boundary. The API-Wall request path now emits a coherent live span chain
+(`yaam.api_wall.chat_completions -> yaam.agent.run_turn -> yaam.workflow.retrieve -> yaam.retriever.*`),
+but routine `POST /v1/chat/completions` requests still default to `skip_l1_write=true`. As a
+result, the current API-Wall validation path proves span reachability and correlation, but it does
+not yet prove that the same production-facing route can expose rich retrieved-memory evidence from a
+freshly written session.
+
+This creates two follow-on options that must be sequenced deliberately.
+
+### Option A: Controlled write-enabled API-Wall evidence collection
+
+**Research objective:** Strengthen the evidentiary value of Phoenix traces for the core YAAM claim
+that memory-layer activity is inspectable through the API-Wall execution boundary.
+
+**Decision:** Implement Option A before Option B.
+
+**Implementation requirements**
+
+1. Preserve the current API-Wall default behavior for benchmark-style traffic unless an explicit,
+   controlled override is provided. The repository already contains plans that rely on
+   `skip_l1_write=true` as the default benchmark posture; this MUST NOT be broken by an
+   unreviewed default inversion.
+2. Allow `POST /v1/chat/completions` to accept a controlled per-request metadata override for
+   `skip_l1_write` so Phoenix experiments can enable write-through behavior without bypassing the
+   API Wall.
+3. Keep ADR-009 semantics intact: the preferred evidence path remains the public API Wall, not only
+   the internal `POST /run_turn` wrapper endpoint.
+4. Re-run the Phoenix validation workflow through the API Wall and confirm that live retriever spans
+   still nest correctly while now carrying non-empty `retrieval.documents` when retrievable content
+   exists.
+
+**Why Option A comes first**
+
+1. It improves the quality of the research evidence without changing core agent reasoning behavior.
+2. It separates an observability/evidence gap from a future agent-capability change.
+3. It preserves methodological clarity for the paper and ADR trail: first prove truthful live
+   memory retrieval visibility, then expand the agent's execution model.
+
+### Option B: End-to-end tier-tool execution in normal requests
+
+**Research objective:** Upgrade YAAM from retriever-visible execution to tool-mediated cognitive
+execution that is also visible in Phoenix.
+
+**Implementation requirements**
+
+1. Add a real tool-calling path in `src/agents/memory_agent.py` so the existing instrumented tier
+   tools in `src/agents/tools/tier_tools.py` execute during ordinary API-Wall requests.
+2. Ensure the resulting trace tree preserves correct parent-child relationships from the request
+   root through agent and workflow spans into `yaam.tool.*` and nested retriever spans.
+3. Evaluate the change as both an observability enhancement and an agent-runtime semantic change,
+   because it affects behavior, prompting, and regression risk beyond tracing alone.
+
+**Why Option B is second**
+
+1. It is no longer a narrow tracing patch; it changes the execution semantics of the MemoryAgent.
+2. It carries materially higher regression risk than Option A.
+3. It is easier to review and justify after the API-Wall evidence path already produces rich live
+   retrieval traces.
+
+### Post-validation acceptance sequence
+
+1. Complete Option A and publish a dated evidence artifact showing live API-Wall traces with both
+   correct structure and meaningful retrieval payloads.
+2. Only then open Option B as a separate implementation pass for end-to-end `yaam.tool.*`
+   visibility in normal requests.
+3. Treat Option B evidence as a second-stage claim: not merely that YAAM retrieves memory, but that
+   YAAM can explicitly select and execute memory tools within the observable request flow.

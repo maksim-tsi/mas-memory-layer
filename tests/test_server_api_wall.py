@@ -180,7 +180,7 @@ def test_client(server_module, wrapper_config, wrapper_state, mocker: pytest.Moc
 
 @pytest.mark.unit
 def test_chat_completions_adds_trace_metadata(
-    server_module, test_client, mocker: pytest.MockFixture
+    server_module, test_client, wrapper_state, mocker: pytest.MockFixture
 ):
     """Ensure API Wall responses expose trace ids and enrich the request span."""
     fake_span = _FakeSpan(
@@ -228,3 +228,31 @@ def test_chat_completions_adds_trace_metadata(
     assert fake_span.attributes["yaam.llm_provider"] == "groq"
     assert fake_span.attributes["yaam.llm_model"] == "openai/gpt-oss-120b"
     assert fake_span.attributes["yaam.trace_id"] == "1234567890abcdef1234567890abcdef"
+
+    run_request = wrapper_state.agent.run_turn.await_args.args[0]
+    assert run_request.metadata is not None
+    assert run_request.metadata["skip_l1_write"] is True
+
+
+@pytest.mark.unit
+def test_chat_completions_allows_metadata_override_for_skip_l1_write(test_client, wrapper_state):
+    """Ensure request metadata can explicitly enable L1 writes for controlled experiments."""
+    response = test_client.post(
+        "/v1/chat/completions",
+        json={
+            "messages": [{"role": "user", "content": "Persist this turn for retrieval."}],
+            "model": "openai/gpt-oss-120b",
+            "metadata": {
+                "skip_l1_write": False,
+                "experiment_label": "phoenix-option-a",
+            },
+        },
+        headers={"X-Session-Id": "override-test"},
+    )
+
+    assert response.status_code == 200
+
+    run_request = wrapper_state.agent.run_turn.await_args.args[0]
+    assert run_request.metadata is not None
+    assert run_request.metadata["skip_l1_write"] is False
+    assert run_request.metadata["experiment_label"] == "phoenix-option-a"
