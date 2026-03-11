@@ -302,16 +302,21 @@ Retrieval-oriented tier tools also emit nested retriever spans:
 The graph-query tool currently emits a `TOOL` span only. This is intentional because its output is
 structured graph-query data rather than ranked retrieval evidence.
 
-Current runtime limitation:
+Runtime gating (as of March 10, 2026):
 
-1. The present `MemoryAgent.run_turn()` flow emits the agent and retriever spans above.
-2. The current turn loop does not yet execute tier tools directly during an API Wall request.
-3. Therefore, API-Wall-only experiments currently validate request, agent, and retriever spans end
-   to end, while tier-tool spans are validated through direct tool invocation and focused tests
-   until a live tool-execution path is added to the request workflow.
-4. The same API-Wall route currently defaults `skip_l1_write` to `true`, so a live request may show
-   retriever span structure without populated retrieval evidence unless the session already contains
-   retrievable content.
+1. The API-Wall-rooted request path always emits request and agent spans when tracing is enabled:
+   `yaam.api_wall.chat_completions` and `yaam.agent.run_turn`.
+2. Retriever spans (`yaam.retriever.l2/l3/l4`) are emitted from the policy-layer retrieval flow and
+   are query-conditioned when `UnifiedMemorySystem.query_memory()` is executed. This is typically
+   driven by the user query routed through `MemoryAgent._retrieve_node()`.
+3. Tier-tool spans (`yaam.tool.*`) are emitted only when the agent executes a tool loop and invokes
+   the corresponding tool coroutine. In the current implementation this requires:
+   - a `v1-*` skill-wired agent variant (so the tool pool can be constrained by skills), and
+   - a Gemini model path (the current bounded tool loop is Gemini-first).
+4. The API Wall defaults `skip_l1_write` to `true`. Therefore, routine same-session “prime then
+   retrieve” experiments may validate span structure while still returning empty
+   `retrieval.documents` unless the session already contains retrievable content or the request
+   explicitly overrides `metadata.skip_l1_write = false`.
 5. Even after a controlled write-enabled experiment populates working-memory context, the current
    retriever spans still reflect the `query_memory()` path rather than the `get_context_block()`
    path used to assemble prompt context. This distinction matters when interpreting why response
