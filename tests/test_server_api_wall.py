@@ -188,7 +188,7 @@ def test_chat_completions_adds_trace_metadata(
         span_id=int("1234567890abcdef", 16),
     )
     fake_tracer = _FakeTracer(fake_span)
-    parent_context = object()
+    parent_context = {}
     mocker.patch.object(server_module, "_get_api_wall_tracer", return_value=fake_tracer)
     mocker.patch.object(server_module, "_extract_parent_context", return_value=parent_context)
 
@@ -268,7 +268,7 @@ def test_episode_consolidation_endpoint(
         span_id=int("1234567890abcdef", 16),
     )
     fake_tracer = _FakeTracer(fake_span)
-    parent_context = object()
+    parent_context = {}
     mocker.patch.object(server_module, "_get_api_wall_tracer", return_value=fake_tracer)
     mocker.patch.object(server_module, "_extract_parent_context", return_value=parent_context)
 
