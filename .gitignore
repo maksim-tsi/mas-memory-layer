@@ -3,6 +3,7 @@
 # See .env.example for template with placeholders
 .env
 .env.old
+.env.production
 *.env.local
 .env.*.local
 
