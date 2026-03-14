@@ -13,6 +13,14 @@ apply session prefixing (`full:`, `rag:`, `full_context:`) for database isolatio
 For installation, configuration, and execution guidance, see
 [docs/integrations/goodai-benchmark-setup.md](goodai-benchmark-setup.md).
 
+## Phoenix Tracing Strategy
+
+The repository-level tracing strategy for YAAM and the GoodAI benchmark integration is documented in
+[docs/RFC/phoenix-tracing-rfc.md](../RFC/phoenix-tracing-rfc.md).
+
+The reusable execution and evidence-collection procedure for live Phoenix experiments is documented
+in [docs/runbooks/phoenix-experiment-reproducibility.md](../runbooks/phoenix-experiment-reproducibility.md).
+
 ## ✅ Provider Status
 
 **Multi-Provider Strategy: SELECTED**

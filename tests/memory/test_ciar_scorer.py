@@ -25,8 +25,11 @@ class TestCIARScorerInitialization:
         scorer = CIARScorer()
 
         assert scorer.threshold == 0.6
-        assert scorer.age_decay_lambda == 0.1
-        assert scorer.recency_boost_factor == 0.05
+        assert scorer.age_decay_lambda == 0.0231
+        assert scorer.max_age_days is None
+        assert scorer.min_age_score == 0.0
+        assert scorer.recency_boost_factor == 0.1
+        assert scorer.max_recency_boost is None
         assert scorer.default_certainty == 0.7
         assert "preference" in scorer.impact_weights
         assert scorer.impact_weights["preference"] == 0.9
@@ -195,9 +198,9 @@ class TestCIARScorerAgeDecay:
         fact = {"created_at": one_day_ago}
         decay = scorer._calculate_age_decay(fact)
 
-        expected = math.exp(-0.1 * 1)  # lambda=0.1, age=1
+        expected = math.exp(-0.0231 * 1)
         assert decay == pytest.approx(expected, rel=0.01)
-        assert 0.9 < decay < 0.91
+        assert 0.97 < decay < 0.98
 
     def test_age_decay_one_week_old(self, scorer):
         """Should decay significantly for 7-day-old fact"""
@@ -205,9 +208,9 @@ class TestCIARScorerAgeDecay:
         fact = {"created_at": one_week_ago}
         decay = scorer._calculate_age_decay(fact)
 
-        expected = math.exp(-0.1 * 7)  # lambda=0.1, age=7
+        expected = math.exp(-0.0231 * 7)
         assert decay == pytest.approx(expected, rel=0.01)
-        assert 0.49 < decay < 0.51
+        assert 0.84 < decay < 0.86
 
     def test_age_decay_very_old_fact(self, scorer):
         """Should apply minimum score for very old facts"""
@@ -215,9 +218,9 @@ class TestCIARScorerAgeDecay:
         fact = {"created_at": very_old}
         decay = scorer._calculate_age_decay(fact)
 
-        # Should be capped at min_score (0.1)
-        assert decay >= 0.1
-        assert decay < 0.2
+        expected = math.exp(-0.0231 * 100)
+        assert decay == pytest.approx(expected, rel=0.01)
+        assert 0.09 < decay < 0.11
 
     def test_age_decay_with_string_timestamp(self, scorer):
         """Should handle ISO format string timestamps"""
@@ -225,7 +228,7 @@ class TestCIARScorerAgeDecay:
         fact = {"created_at": timestamp_str}
         decay = scorer._calculate_age_decay(fact)
 
-        assert 0.9 < decay < 0.91
+        assert 0.97 < decay < 0.98
 
 
 class TestCIARScorerRecency:
@@ -252,27 +255,48 @@ class TestCIARScorerRecency:
         fact = {"access_count": 5}
         boost = scorer._calculate_recency(fact)
 
-        expected = 1.0 + (0.05 * math.log(6))  # boost_factor * log(1+5)
+        expected = 1.0 + (0.1 * 5)
         assert boost == pytest.approx(expected, rel=0.01)
-        assert boost > 1.0
-        assert boost < 1.1
+        assert boost == 1.5
 
     def test_recency_high_access(self, scorer):
         """Should apply larger boost for high access count"""
         fact = {"access_count": 50}
         boost = scorer._calculate_recency(fact)
 
-        expected = 1.0 + (0.05 * math.log(51))  # boost_factor * log(1+50)
+        expected = 1.0 + (0.1 * 50)
         assert boost == pytest.approx(expected, rel=0.01)
-        assert boost > 1.1
+        assert boost == 6.0
 
-    def test_recency_capped_at_max_boost(self, scorer):
-        """Should cap recency boost at max_boost (1.3)"""
+    def test_recency_capped_at_max_boost(self, tmp_path):
+        """Should cap recency boost when compatibility max_boost is configured."""
+        config_content = """
+ciar:
+    threshold: 0.6
+    age_decay:
+        lambda: 0.0231
+        max_age_days: null
+        min_score: 0.0
+    recency:
+        boost_factor: 0.1
+        max_boost: 0.3
+    certainty:
+        default: 0.7
+    impact_weights:
+        mention: 0.3
+    formula:
+        certainty_weight: 1.0
+        impact_weight: 1.0
+        temporal_weight: 1.0
+"""
+        config_path = tmp_path / "test_ciar_config.yaml"
+        config_path.write_text(config_content)
+        scorer = CIARScorer(config_path=str(config_path))
+
         fact = {"access_count": 10000}
         boost = scorer._calculate_recency(fact)
 
-        assert boost <= 1.3
-        assert boost == 1.3  # Should hit the cap
+        assert boost == 1.3
 
 
 class TestCIARScorerCalculate:
@@ -310,8 +334,8 @@ class TestCIARScorerCalculate:
         }
         score = scorer.calculate(fact)
 
-        # Low certainty (0.6) x low impact (0.3) x decay (~0.5) x no boost (1.0)
-        assert score < 0.15
+        # Low certainty (0.6) x low impact (0.3) x decay (~0.85) x no boost (1.0)
+        assert score < 0.16
 
     def test_calculate_with_recency_boost(self, scorer):
         """Should boost score for frequently accessed facts"""
@@ -320,7 +344,7 @@ class TestCIARScorerCalculate:
             "fact_type": "entity",
             "certainty": 0.8,
             "created_at": datetime.now(UTC),
-            "access_count": 20,
+            "access_count": 2,
         }
         score = scorer.calculate(fact)
 
@@ -344,6 +368,20 @@ class TestCIARScorerCalculate:
         assert isinstance(score, float)
         assert score > 0.0
 
+    def test_calculate_uses_extracted_at_when_created_at_missing(self, scorer):
+        """Should fall back to extracted_at when created_at is absent."""
+        fact = {
+            "content": "Fallback timestamp fact",
+            "fact_type": "preference",
+            "certainty": 0.8,
+            "extracted_at": datetime.now(UTC) - timedelta(days=10),
+            "access_count": 0,
+        }
+
+        score = scorer.calculate(fact)
+
+        assert score < (0.8 * 0.9)
+
     def test_calculate_formula_structure(self, scorer):
         """Should apply formula: (C x I) x AD x RB"""
         fact = {
@@ -359,7 +397,7 @@ class TestCIARScorerCalculate:
         # Verify formula structure
         expected_base = components["certainty"] * components["impact"]
         expected_temporal = components["age_decay"] * components["recency_boost"]
-        expected_final = expected_base * expected_temporal
+        expected_final = min(1.0, expected_base * expected_temporal)
 
         assert components["base_score"] == pytest.approx(expected_base, rel=0.01)
         assert components["temporal_score"] == pytest.approx(expected_temporal, rel=0.01)
@@ -519,6 +557,19 @@ class TestCIARScorerEdgeCases:
         # Negative age should be handled
         assert decay >= 0.0
         assert decay <= 1.0
+
+    def test_calculate_clamps_final_score(self, scorer):
+        """Should clamp final CIAR score to 1.0 for extreme reinforcement values."""
+        fact = {
+            "content": "Very strong fact",
+            "fact_type": "preference",
+            "certainty": 1.0,
+            "impact": 1.0,
+            "created_at": datetime.now(UTC),
+            "access_count": 50,
+        }
+
+        assert scorer.calculate(fact) == 1.0
 
     def test_case_insensitive_fact_type(self, scorer):
         """Should handle fact_type case insensitively"""

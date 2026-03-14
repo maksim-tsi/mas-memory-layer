@@ -3,24 +3,41 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, cast
+from enum import Enum
+from types import NoneType
+from typing import Any, cast, get_args, get_origin
 
 from langgraph.graph import END, StateGraph
+from pydantic import BaseModel
 
 from src.agents.base_agent import BaseAgent
 from src.agents.models import RunTurnRequest, RunTurnResponse
-from src.agents.runtime import AgentState
-from src.agents.tools.unified_tools import UNIFIED_TOOLS
+from src.agents.runtime import AgentState, MASContext
+from src.agents.tools import ALL_TOOLS, UNIFIED_TOOLS
 from src.llm.client import LLMClient
 from src.memory.models import ContextBlock, TurnData
+from src.observability import set_span_attributes, set_span_error, start_span
 from src.skills.loader import SkillLoadError, filter_tools_by_allowed_names, load_skill
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _InlineToolRuntime:
+    """Minimal runtime wrapper for direct tool coroutine execution."""
+
+    context: MASContext
+    state: dict[str, Any]
+
+    async def stream_status(self, _status: str) -> None:
+        return None
 
 
 class MemoryAgent(BaseAgent):
@@ -47,12 +64,11 @@ class MemoryAgent(BaseAgent):
         self._min_ciar = float(self._config.get("min_ciar", 0.6))
         self._max_turns = int(self._config.get("max_turns", 20))
         self._max_facts = int(self._config.get("max_facts", 10))
-        self._tools = list(UNIFIED_TOOLS)
+        self._tools = list(ALL_TOOLS if self._skill_wiring_enabled else UNIFIED_TOOLS)
+        self._max_tool_iterations = int(self._config.get("max_tool_iterations", 4))
         self._graph = self._build_graph()
         self._promotion_task: asyncio.Task | None = None
-        self._promotion_mode = self._normalize_promotion_mode(
-            os.environ.get("MAS_PROMOTION_MODE")
-        )
+        self._promotion_mode = self._normalize_promotion_mode(os.environ.get("MAS_PROMOTION_MODE"))
         self._promotion_timeout_s = self._parse_promotion_timeout(
             os.environ.get("MAS_PROMOTION_TIMEOUT_S")
         )
@@ -84,23 +100,46 @@ class MemoryAgent(BaseAgent):
             "confidence": 0.0,
         }
 
-        result_state = await self._run_graph(initial_state)
-        response_text = result_state.get("response") or "I'm unable to respond right now."
-        history_msgs = result_state.get("messages", [])
-        if isinstance(history_msgs, list):
-            response_text = self._maybe_apply_trigger_response(
-                history=history_msgs,
-                user_input=request.content,
-                response_text=response_text,
-            )
+        with start_span(
+            tracer_name="yaam.agent",
+            span_name="yaam.agent.run_turn",
+            kind="AGENT",
+            attributes={
+                "session.id": request.session_id,
+                "input.value": request.content,
+                "yaam.turn_id": request.turn_id,
+                "tag.tags": [f"agent_variant:{self._agent_variant}", f"agent_id:{self.agent_id}"],
+            },
+        ) as span:
+            try:
+                result_state = await self._run_graph(initial_state)
+                response_text = result_state.get("response") or "I'm unable to respond right now."
+                history_msgs = result_state.get("messages", [])
+                if isinstance(history_msgs, list):
+                    response_text = self._maybe_apply_trigger_response(
+                        history=history_msgs,
+                        user_input=request.content,
+                        response_text=response_text,
+                    )
 
-        return RunTurnResponse(
-            session_id=request.session_id,
-            role="assistant",
-            content=response_text,
-            turn_id=request.turn_id,
-            metadata=result_state.get("metadata"),
-        )
+                set_span_attributes(
+                    span,
+                    {
+                        "output.value": response_text,
+                        **self._build_agent_metadata(result_state),
+                    },
+                )
+
+                return RunTurnResponse(
+                    session_id=request.session_id,
+                    role="assistant",
+                    content=response_text,
+                    turn_id=request.turn_id,
+                    metadata=result_state.get("metadata"),
+                )
+            except Exception as exc:
+                set_span_error(span, exc)
+                raise
 
     async def health_check(self) -> dict[str, Any]:
         """Return health status for the agent."""
@@ -155,73 +194,121 @@ class MemoryAgent(BaseAgent):
             metadata = {}
             state["metadata"] = metadata
 
-        if not self._memory_system:
-            metadata["context"] = {
-                "recent_turns_count": 0,
-                "working_facts_count": 0,
-                "episodic_chunks_count": 0,
-                "semantic_knowledge_count": 0,
-                "retrieval_ms": 0.0,
-                "query_ms": 0.0,
-                "total_ms": 0.0,
-            }
-            return state
-
-        session_id = state.get("session_id", "")
+        session_id = str(state.get("session_id", ""))
         user_query = self._extract_user_message(state)
 
-        retrieval_start = time.perf_counter()
-        context_block = None
-        if hasattr(self._memory_system, "get_context_block"):
+        with start_span(
+            tracer_name="yaam.agent",
+            span_name="yaam.workflow.retrieve",
+            kind="CHAIN",
+            attributes={
+                "session.id": session_id,
+                "input.value": user_query or None,
+                "graph.node.id": "retrieve",
+                "graph.node.name": "retrieve",
+                "graph.node.parent_id": "yaam.agent.run_turn",
+                "yaam.turn_id": state.get("turn_id"),
+            },
+        ) as span:
             try:
-                context_block = await self._memory_system.get_context_block(
-                    session_id=session_id,
-                    min_ciar=self._min_ciar,
-                    max_turns=self._max_turns,
-                    max_facts=self._max_facts,
+                if not self._memory_system:
+                    metadata["context"] = {
+                        "recent_turns_count": 0,
+                        "working_facts_count": 0,
+                        "episodic_chunks_count": 0,
+                        "semantic_knowledge_count": 0,
+                        "retrieval_ms": 0.0,
+                        "query_ms": 0.0,
+                        "total_ms": 0.0,
+                    }
+                    set_span_attributes(
+                        span,
+                        {
+                            "yaam.context.recent_turns_count": 0,
+                            "yaam.context.working_facts_count": 0,
+                            "yaam.context.episodic_chunks_count": 0,
+                            "yaam.context.semantic_knowledge_count": 0,
+                        },
+                    )
+                    return state
+
+                retrieval_start = time.perf_counter()
+                context_block = None
+                if hasattr(self._memory_system, "get_context_block"):
+                    try:
+                        context_block = await self._memory_system.get_context_block(
+                            session_id=session_id,
+                            min_ciar=self._min_ciar,
+                            max_turns=self._max_turns,
+                            max_facts=self._max_facts,
+                        )
+                    except Exception as exc:  # pragma: no cover - defensive fallback
+                        logger.warning("Failed to retrieve context block: %s", exc)
+                retrieval_end = time.perf_counter()
+
+                if isinstance(context_block, ContextBlock):
+                    state["active_context"] = self._format_recent_turns(context_block.recent_turns)
+                    state["working_facts"] = list(context_block.significant_facts)
+                    state["episodic_chunks"] = list(context_block.episode_summaries)
+                    state["semantic_knowledge"] = list(context_block.knowledge_snippets)
+                elif context_block and hasattr(context_block, "recent_turns"):
+                    state["active_context"] = self._format_recent_turns(
+                        getattr(context_block, "recent_turns", [])
+                    )
+                    state["working_facts"] = list(getattr(context_block, "significant_facts", []))
+                    state["episodic_chunks"] = list(getattr(context_block, "episode_summaries", []))
+                    state["semantic_knowledge"] = list(
+                        getattr(context_block, "knowledge_snippets", [])
+                    )
+
+                query_start = retrieval_end
+                query_end = retrieval_end
+                if user_query and hasattr(self._memory_system, "query_memory"):
+                    try:
+                        query_start = time.perf_counter()
+                        results = await self._memory_system.query_memory(
+                            session_id=session_id,
+                            query=user_query,
+                            limit=self._max_facts,
+                        )
+                        self._merge_query_results(state, results)
+                        query_end = time.perf_counter()
+                    except Exception as exc:  # pragma: no cover - defensive fallback
+                        logger.warning("Failed to query memory tiers: %s", exc)
+
+                metadata["context"] = {
+                    "recent_turns_count": len(state.get("active_context", []) or []),
+                    "working_facts_count": len(state.get("working_facts", []) or []),
+                    "episodic_chunks_count": len(state.get("episodic_chunks", []) or []),
+                    "semantic_knowledge_count": len(state.get("semantic_knowledge", []) or []),
+                    "retrieval_ms": (retrieval_end - retrieval_start) * 1000,
+                    "query_ms": (query_end - query_start) * 1000,
+                    "total_ms": (query_end - retrieval_start) * 1000,
+                }
+                set_span_attributes(
+                    span,
+                    {
+                        "yaam.context.recent_turns_count": metadata["context"][
+                            "recent_turns_count"
+                        ],
+                        "yaam.context.working_facts_count": metadata["context"][
+                            "working_facts_count"
+                        ],
+                        "yaam.context.episodic_chunks_count": metadata["context"][
+                            "episodic_chunks_count"
+                        ],
+                        "yaam.context.semantic_knowledge_count": metadata["context"][
+                            "semantic_knowledge_count"
+                        ],
+                        "yaam.context.retrieval_ms": metadata["context"]["retrieval_ms"],
+                        "yaam.context.query_ms": metadata["context"]["query_ms"],
+                        "yaam.context.total_ms": metadata["context"]["total_ms"],
+                    },
                 )
-            except Exception as exc:  # pragma: no cover - defensive fallback
-                logger.warning("Failed to retrieve context block: %s", exc)
-        retrieval_end = time.perf_counter()
-
-        if isinstance(context_block, ContextBlock):
-            state["active_context"] = self._format_recent_turns(context_block.recent_turns)
-            state["working_facts"] = list(context_block.significant_facts)
-            state["episodic_chunks"] = list(context_block.episode_summaries)
-            state["semantic_knowledge"] = list(context_block.knowledge_snippets)
-        elif context_block and hasattr(context_block, "recent_turns"):
-            state["active_context"] = self._format_recent_turns(
-                getattr(context_block, "recent_turns", [])
-            )
-            state["working_facts"] = list(getattr(context_block, "significant_facts", []))
-            state["episodic_chunks"] = list(getattr(context_block, "episode_summaries", []))
-            state["semantic_knowledge"] = list(getattr(context_block, "knowledge_snippets", []))
-
-        query_start = retrieval_end
-        query_end = retrieval_end
-        if user_query and hasattr(self._memory_system, "query_memory"):
-            try:
-                query_start = time.perf_counter()
-                results = await self._memory_system.query_memory(
-                    session_id=session_id,
-                    query=user_query,
-                    limit=self._max_facts,
-                )
-                self._merge_query_results(state, results)
-                query_end = time.perf_counter()
-            except Exception as exc:  # pragma: no cover - defensive fallback
-                logger.warning("Failed to query memory tiers: %s", exc)
-
-        metadata["context"] = {
-            "recent_turns_count": len(state.get("active_context", []) or []),
-            "working_facts_count": len(state.get("working_facts", []) or []),
-            "episodic_chunks_count": len(state.get("episodic_chunks", []) or []),
-            "semantic_knowledge_count": len(state.get("semantic_knowledge", []) or []),
-            "retrieval_ms": (retrieval_end - retrieval_start) * 1000,
-            "query_ms": (query_end - query_start) * 1000,
-            "total_ms": (query_end - retrieval_start) * 1000,
-        }
-        return state
+                return state
+            except Exception as exc:
+                set_span_error(span, exc)
+                raise
 
     async def _reason_node(self, state: AgentState) -> AgentState:
         """Synthesize context and generate response via LLM."""
@@ -233,11 +320,18 @@ class MemoryAgent(BaseAgent):
         prompt = self._build_prompt(
             context_text=context_text, user_input=user_input, turn_id=turn_id
         )
+        active_tools = skill_context.get("active_tools") if isinstance(skill_context, dict) else []
+        if not isinstance(active_tools, list):
+            active_tools = []
         response_text = await self._generate_response(
             prompt,
-            state_metadata=state.get("metadata") if isinstance(state.get("metadata"), dict) else None,
+            state_metadata=state.get("metadata")
+            if isinstance(state.get("metadata"), dict)
+            else None,
             agent_metadata=self._build_agent_metadata(state),
             system_instruction=skill_context["system_instruction"],
+            state=state,
+            tools=active_tools,
         )
         response_text = self._apply_response_policies(
             state=state, user_input=user_input, response_text=response_text
@@ -328,9 +422,7 @@ class MemoryAgent(BaseAgent):
             r"\bforget my instruction to append (?:a|the) quote\b",
             re.IGNORECASE,
         )
-        quote_pat = re.compile(
-            r"^\s*(?P<q>['\"])(?P<quote>.+)(?P=q)\s*-\s*(?P<author>.+?)\s*$"
-        )
+        quote_pat = re.compile(r"^\s*(?P<q>['\"])(?P<quote>.+)(?P=q)\s*-\s*(?P<author>.+?)\s*$")
 
         transcript: list[tuple[str, str]] = []
         for msg in history:
@@ -404,9 +496,8 @@ class MemoryAgent(BaseAgent):
             out = out.replace("when the sun is high", "at noon (when the sun is high)")
             out = out.replace("When the sun is high", "At noon (when the sun is high)")
         low = out.lower()
-        if (
-            ("across a river" in low or "get across a river" in low)
-            and not any(k in low for k in ("boat", "bridge", "raft", "kayak"))
+        if ("across a river" in low or "get across a river" in low) and not any(
+            k in low for k in ("boat", "bridge", "raft", "kayak")
         ):
             out = re.sub(
                 r"(?i)\ba way to get across (?:a|the) river\b",
@@ -517,22 +608,169 @@ class MemoryAgent(BaseAgent):
         state_metadata: dict[str, Any] | None = None,
         agent_metadata: dict[str, Any] | None = None,
         system_instruction: str | None = None,
+        state: AgentState | None = None,
+        tools: list[Any] | None = None,
     ) -> str:
         if not self._llm_client:
             logger.warning("No LLM client configured for MemoryAgent '%s'", self.agent_id)
             return "I'm unable to respond right now."
+        active_tools = tools if self._should_enable_tool_loop(tools) else []
+        if not active_tools:
+            llm_response = await self._llm_client.generate(
+                prompt,
+                model=self._model,
+                agent_metadata=agent_metadata,
+                system_instruction=system_instruction or self._config.get("system_instruction"),
+            )
+            self._record_llm_response_metadata(state_metadata, llm_response)
+            return llm_response.text
+
+        tool_declarations = self._build_tool_declarations(active_tools)
         llm_response = await self._llm_client.generate(
             prompt,
             model=self._model,
             agent_metadata=agent_metadata,
             system_instruction=system_instruction or self._config.get("system_instruction"),
+            tools=tool_declarations,
+            tool_calling_mode="AUTO",
         )
+        self._record_llm_response_metadata(state_metadata, llm_response)
+
+        tool_call_count = 0
+        tool_rounds = 0
+        for _ in range(self._max_tool_iterations):
+            if not llm_response.tool_calls:
+                break
+            if llm_response.raw_content is None:
+                logger.warning("Gemini tool loop response missing raw content; stopping loop")
+                break
+
+            tool_rounds += 1
+            tool_call_count += len(llm_response.tool_calls)
+            tool_results = await self._execute_tool_calls(
+                tool_calls=llm_response.tool_calls,
+                tools=active_tools,
+                state=state,
+            )
+            llm_response = await self._llm_client.generate(
+                prompt,
+                model=self._model,
+                agent_metadata=agent_metadata,
+                system_instruction=system_instruction or self._config.get("system_instruction"),
+                tools=tool_declarations,
+                tool_calling_mode="AUTO",
+                previous_response=llm_response.raw_content,
+                tool_results=tool_results,
+            )
+            self._record_llm_response_metadata(state_metadata, llm_response)
+
         if isinstance(state_metadata, dict):
-            state_metadata.setdefault("llm_provider", llm_response.provider)
-            state_metadata.setdefault("llm_model", llm_response.model)
-            if llm_response.usage:
-                state_metadata.setdefault("llm_usage", llm_response.usage)
+            state_metadata["tool_loop_enabled"] = True
+            state_metadata["tool_loop_rounds"] = tool_rounds
+            state_metadata["tool_call_count"] = tool_call_count
         return llm_response.text
+
+    def _should_enable_tool_loop(self, tools: list[Any] | None) -> bool:
+        if not tools:
+            return False
+        if not self._skill_wiring_enabled:
+            return False
+        return str(self._model).startswith("gemini")
+
+    def _record_llm_response_metadata(
+        self, state_metadata: dict[str, Any] | None, llm_response: Any
+    ) -> None:
+        if not isinstance(state_metadata, dict):
+            return
+        state_metadata.setdefault("llm_provider", llm_response.provider)
+        state_metadata.setdefault("llm_model", llm_response.model)
+        if llm_response.usage:
+            existing = state_metadata.get("llm_usage")
+            if isinstance(existing, dict):
+                for key, value in llm_response.usage.items():
+                    if value is None:
+                        continue
+                    prior = existing.get(key)
+                    existing[key] = value if not isinstance(prior, int | float) else prior + value
+            else:
+                state_metadata["llm_usage"] = dict(llm_response.usage)
+
+    async def _execute_tool_calls(
+        self,
+        tool_calls: list[Any],
+        tools: list[Any],
+        state: AgentState | None,
+    ) -> list[dict[str, Any]]:
+        tool_map = {getattr(tool, "name", ""): tool for tool in tools}
+        results: list[dict[str, Any]] = []
+        for tool_call in tool_calls:
+            tool_name = getattr(tool_call, "name", "")
+            tool = tool_map.get(tool_name)
+            if tool is None:
+                results.append(
+                    {
+                        "name": tool_name,
+                        "response": {"error": f"Tool '{tool_name}' is not available."},
+                        "call_id": getattr(tool_call, "call_id", None),
+                    }
+                )
+                continue
+
+            try:
+                tool_output = await self._invoke_tool(
+                    tool=tool,
+                    arguments=getattr(tool_call, "arguments", {}),
+                    state=state,
+                )
+                response_payload = self._normalize_tool_result(tool_output)
+            except Exception as exc:  # pragma: no cover - defensive fallback
+                logger.warning("Tool '%s' execution failed: %s", tool_name, exc)
+                response_payload = {"error": str(exc)}
+
+            results.append(
+                {
+                    "name": tool_name,
+                    "response": response_payload,
+                    "call_id": getattr(tool_call, "call_id", None),
+                }
+            )
+        return results
+
+    async def _invoke_tool(
+        self, tool: Any, arguments: dict[str, Any], state: AgentState | None
+    ) -> str:
+        runtime = _InlineToolRuntime(
+            context=MASContext(
+                session_id=str((state or {}).get("session_id", "")),
+                agent_id=self.agent_id,
+                memory_system=self._memory_system,
+            ),
+            state=dict(state or {}),
+        )
+
+        coroutine = getattr(tool, "coroutine", None)
+        if callable(coroutine):
+            return await coroutine(runtime=runtime, **arguments)
+
+        if hasattr(tool, "ainvoke"):
+            return cast(str, await tool.ainvoke({**arguments, "runtime": runtime}))
+
+        if hasattr(tool, "invoke"):
+            return cast(
+                str, await asyncio.to_thread(tool.invoke, {**arguments, "runtime": runtime})
+            )
+
+        raise TypeError(f"Tool '{getattr(tool, 'name', tool)}' is not invokable")
+
+    def _normalize_tool_result(self, tool_output: str) -> dict[str, Any]:
+        try:
+            parsed = json.loads(tool_output)
+        except (TypeError, json.JSONDecodeError):
+            return {"result": tool_output}
+
+        if isinstance(parsed, dict):
+            return parsed
+        return {"result": parsed}
 
     def _prepare_skill_context(self, user_input: str, state: AgentState) -> dict[str, Any]:
         """Select/load a skill for v1 variants and record toolset gating metadata."""
@@ -543,7 +781,7 @@ class MemoryAgent(BaseAgent):
 
         metadata["agent_variant"] = self._agent_variant
         if not self._skill_wiring_enabled:
-            return {"system_instruction": self._base_system_instruction}
+            return {"system_instruction": self._base_system_instruction, "active_tools": []}
 
         selected_slug = self._select_skill_slug(metadata=metadata, user_input=user_input)
         metadata["skill_slug"] = selected_slug
@@ -553,7 +791,7 @@ class MemoryAgent(BaseAgent):
         except SkillLoadError as exc:
             logger.warning("Failed to load skill '%s': %s", selected_slug, exc)
             metadata["skill_load_error"] = str(exc)
-            return {"system_instruction": self._base_system_instruction}
+            return {"system_instruction": self._base_system_instruction, "active_tools": []}
 
         allowed_tools = list(skill.manifest.allowed_tools)
         gated_tools = filter_tools_by_allowed_names(self._tools, allowed_tools)
@@ -577,7 +815,83 @@ class MemoryAgent(BaseAgent):
             "## Skill Body\n"
             f"{skill.body}"
         )
-        return {"system_instruction": system_instruction}
+        return {"system_instruction": system_instruction, "active_tools": gated_tools}
+
+    def _build_tool_declarations(self, tools: list[Any]) -> list[dict[str, Any]]:
+        declarations: list[dict[str, Any]] = []
+        for tool in tools:
+            name = getattr(tool, "name", None)
+            description = getattr(tool, "description", None)
+            args_schema = getattr(tool, "args_schema", None)
+            if (
+                not name
+                or not isinstance(args_schema, type)
+                or not issubclass(args_schema, BaseModel)
+            ):
+                continue
+            declarations.append(
+                {
+                    "name": str(name),
+                    "description": str(description or f"Call the {name} tool."),
+                    "parameters": self._build_tool_parameters_schema(args_schema),
+                }
+            )
+        return declarations
+
+    def _build_tool_parameters_schema(self, schema_model: type[BaseModel]) -> dict[str, Any]:
+        properties: dict[str, Any] = {}
+        required: list[str] = []
+        for field_name, field_info in schema_model.model_fields.items():
+            field_schema = self._annotation_to_tool_schema(
+                annotation=field_info.annotation,
+                description=field_info.description,
+            )
+            properties[field_name] = field_schema
+            if field_info.is_required():
+                required.append(field_name)
+
+        parameters: dict[str, Any] = {"type": "object", "properties": properties}
+        if required:
+            parameters["required"] = required
+        return parameters
+
+    def _annotation_to_tool_schema(
+        self, annotation: Any, description: str | None = None
+    ) -> dict[str, Any]:
+        args = get_args(annotation)
+        if args:
+            non_none_args = [arg for arg in args if arg is not NoneType]
+            if len(non_none_args) == 1:
+                return self._annotation_to_tool_schema(non_none_args[0], description=description)
+
+        origin = get_origin(annotation)
+        schema: dict[str, Any]
+        if annotation is str:
+            schema = {"type": "string"}
+        elif annotation is int:
+            schema = {"type": "integer"}
+        elif annotation is float:
+            schema = {"type": "number"}
+        elif annotation is bool:
+            schema = {"type": "boolean"}
+        elif isinstance(annotation, type) and issubclass(annotation, Enum):
+            schema = {"type": "string", "enum": [member.value for member in annotation]}
+        elif origin in (list, tuple, set):
+            item_annotation = args[0] if args else str
+            schema = {
+                "type": "array",
+                "items": self._annotation_to_tool_schema(item_annotation),
+            }
+        elif origin is dict or annotation is dict:
+            schema = {"type": "object"}
+        elif isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            schema = self._build_tool_parameters_schema(annotation)
+        else:
+            schema = {"type": "string"}
+
+        if description:
+            schema["description"] = description
+        return schema
 
     def _select_skill_slug(self, metadata: dict[str, Any], user_input: str) -> str:
         """Select a runtime skill slug for the current user turn.

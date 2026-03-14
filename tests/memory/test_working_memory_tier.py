@@ -234,7 +234,7 @@ class TestWorkingMemoryTierRetrieve:
         postgres_adapter.update = AsyncMock()
 
         tier = WorkingMemoryTier(
-            postgres_adapter=postgres_adapter, config={"recency_boost_alpha": 0.05}
+            postgres_adapter=postgres_adapter, config={"recency_boost_alpha": 0.1}
         )
         await tier.initialize()
 
@@ -245,8 +245,9 @@ class TestWorkingMemoryTierRetrieve:
         # Verify recency boost increased
         update_data = postgres_adapter.update.call_args[1]["data"]
         assert "recency_boost" in update_data
-        # With access_count=6, recency_boost should be 1 + (0.05 * 6) = 1.3
-        assert update_data["recency_boost"] == pytest.approx(1.3, rel=0.01)
+        # With access_count=6, recency_boost should be 1 + (0.1 * 6) = 1.6
+        assert update_data["recency_boost"] == pytest.approx(1.6, rel=0.01)
+        assert update_data["ciar_score"] <= 1.0
 
         await tier.cleanup()
 
@@ -472,8 +473,8 @@ class TestWorkingMemoryTierCIARUpdates:
 
         # Check that CIAR was recalculated with updated recency_boost
         update_data = postgres_adapter.update.call_args[1]["data"]
-        # The retrieve call in update_ciar_score updates recency_boost to 1.05 (access_count=1)
-        expected_ciar = (0.95 * 0.90) * 1.0 * 1.05
+        # The retrieve call in update_ciar_score updates recency_boost to 1.1 (access_count=1)
+        expected_ciar = (0.95 * 0.90) * 1.0 * 1.1
         assert update_data["ciar_score"] == pytest.approx(expected_ciar, rel=0.02)
 
         await tier.cleanup()

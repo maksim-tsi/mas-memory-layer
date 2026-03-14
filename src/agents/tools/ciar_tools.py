@@ -107,7 +107,7 @@ async def ciar_calculate(
     to L2 Working Memory (threshold: 0.6). The CIAR score combines certainty,
     impact, age decay, and recency boost.
 
-    Formula: (Certainty x Impact) x Age_Decay x Recency_Boost
+    Formula: clamp((Certainty x Impact) x Age_Decay x Recency_Boost, 0..1)
 
     Returns JSON with final_score, all components, and promotion eligibility.
     """
@@ -290,7 +290,7 @@ async def ciar_explain(
         explanation.append("   → Access frequency reward")
         explanation.append(f"   → Access count: {access_count}")
         explanation.append(
-            f"   → Formula: 1 + (alpha x log(1 + count)) where alpha={scorer.recency_boost_factor}"
+            f"   → Formula: 1 + (alpha x count) where alpha={scorer.recency_boost_factor}"
         )
         explanation.append("")
 

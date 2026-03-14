@@ -7,7 +7,6 @@ CIARScorer dependency.
 
 import json
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -95,10 +94,9 @@ class TestCIARCalculateTool:
     """Test ciar_calculate tool functionality."""
 
     @pytest.mark.asyncio
-    async def test_ciar_calculate_high_score(self):
+    async def test_ciar_calculate_high_score(self, mocker):
         """Test CIAR calculation for high-scoring fact."""
-        # Mock runtime
-        mock_runtime = AsyncMock()
+        mock_runtime = mocker.AsyncMock()
 
         result = await ciar_calculate.coroutine(
             content="Critical: Port closure announced",
@@ -118,9 +116,9 @@ class TestCIARCalculateTool:
         assert "PROMOTE to L2" in data["verdict"]
 
     @pytest.mark.asyncio
-    async def test_ciar_calculate_low_score(self):
+    async def test_ciar_calculate_low_score(self, mocker):
         """Test CIAR calculation for low-scoring fact."""
-        mock_runtime = AsyncMock()
+        mock_runtime = mocker.AsyncMock()
 
         result = await ciar_calculate.coroutine(
             content="Minor: Status check",
@@ -139,9 +137,9 @@ class TestCIARCalculateTool:
         assert "REJECT" in data["verdict"]
 
     @pytest.mark.asyncio
-    async def test_ciar_calculate_with_age_decay(self):
+    async def test_ciar_calculate_with_age_decay(self, mocker):
         """Test CIAR calculation with age decay applied."""
-        mock_runtime = AsyncMock()
+        mock_runtime = mocker.AsyncMock()
 
         result = await ciar_calculate.coroutine(
             content="Old event",
@@ -158,9 +156,9 @@ class TestCIARCalculateTool:
         assert data["final_score"] < (0.9 * 0.8)  # Base score without decay
 
     @pytest.mark.asyncio
-    async def test_ciar_calculate_with_recency_boost(self):
+    async def test_ciar_calculate_with_recency_boost(self, mocker):
         """Test CIAR calculation with recency boost."""
-        mock_runtime = AsyncMock()
+        mock_runtime = mocker.AsyncMock()
 
         result = await ciar_calculate.coroutine(
             content="Frequently accessed fact",
@@ -181,9 +179,9 @@ class TestCIARFilterTool:
     """Test ciar_filter tool functionality."""
 
     @pytest.mark.asyncio
-    async def test_ciar_filter_mixed_scores(self):
+    async def test_ciar_filter_mixed_scores(self, mocker):
         """Test filtering with mixed high/low CIAR scores."""
-        mock_runtime = AsyncMock()
+        mock_runtime = mocker.AsyncMock()
 
         now = datetime.now(UTC)
         facts = [
@@ -225,9 +223,9 @@ class TestCIARFilterTool:
             assert fact["ciar_score"] >= 0.6
 
     @pytest.mark.asyncio
-    async def test_ciar_filter_all_pass(self):
+    async def test_ciar_filter_all_pass(self, mocker):
         """Test filtering where all facts pass threshold."""
-        mock_runtime = AsyncMock()
+        mock_runtime = mocker.AsyncMock()
 
         now = datetime.now(UTC)
         facts = [
@@ -254,9 +252,9 @@ class TestCIARExplainTool:
     """Test ciar_explain tool functionality."""
 
     @pytest.mark.asyncio
-    async def test_ciar_explain_breakdown(self):
+    async def test_ciar_explain_breakdown(self, mocker):
         """Test CIAR score explanation with component breakdown."""
-        mock_runtime = Mock()
+        mock_runtime = mocker.Mock()
 
         result = await ciar_explain.coroutine(
             content="Container MAEU1234567 departed from Port of LA",
@@ -277,11 +275,12 @@ class TestCIARExplainTool:
         assert "Temporal Score" in result
         assert "Final CIAR Score" in result
         assert "Verdict:" in result
+        assert "Formula: 1 + (alpha x count)" in result
 
     @pytest.mark.asyncio
-    async def test_ciar_explain_promotable_verdict(self):
+    async def test_ciar_explain_promotable_verdict(self, mocker):
         """Test explanation shows promotable verdict for high score."""
-        mock_runtime = Mock()
+        mock_runtime = mocker.Mock()
 
         result = await ciar_explain.coroutine(
             content="High priority event",
@@ -296,9 +295,9 @@ class TestCIARExplainTool:
         assert "✅ PROMOTE to L2 Working Memory" in result
 
     @pytest.mark.asyncio
-    async def test_ciar_explain_reject_verdict(self):
+    async def test_ciar_explain_reject_verdict(self, mocker):
         """Test explanation shows reject verdict for low score."""
-        mock_runtime = Mock()
+        mock_runtime = mocker.Mock()
 
         result = await ciar_explain.coroutine(
             content="Low priority observation",

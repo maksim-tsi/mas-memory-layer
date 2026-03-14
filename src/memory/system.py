@@ -10,6 +10,8 @@ import logging
 from typing import Any
 
 from src.llm.client import LLMClient
+from src.memory.artifacts.repository import ArtifactRepository
+from src.memory.artifacts.service import ArtifactService
 from src.memory.ciar_scorer import CIARScorer
 from src.memory.engines.consolidation_engine import ConsolidationEngine
 from src.memory.engines.distillation_engine import DistillationEngine
@@ -89,6 +91,15 @@ class UnifiedMemorySystem:
         self.l4_tier = SemanticMemoryTier(
             typesense_adapter=typesense_adapter, telemetry_stream=self.telemetry_stream
         )
+        self.artifact_service = ArtifactService(
+            ArtifactRepository(
+                neo4j_adapter=neo4j_adapter,
+                l1_tier=self.l1_tier,
+                l2_tier=self.l2_tier,
+                l4_tier=self.l4_tier,
+            )
+        )
+        self.artifacts = self.artifact_service
 
         # Components
         self.topic_segmenter = TopicSegmenter(self.llm_client)

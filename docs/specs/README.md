@@ -9,6 +9,10 @@ YAAM subsystems. Specs are intended to be referenced by ADRs, plans, and skill d
   mechanism layer (`src/storage/`), maturity criteria, evidence requirements, and change control for
   freeze-by-default operation.
 
+## Observability
+
+- `docs/specs/observability/phoenix-span-contract.md` — Defines the OpenInference/Phoenix span contract for YAAM glass-box observability above the mechanism layer.
+
 ## Conventions
 
 - Specs must be precise and testable (requirements should have evidence).
