@@ -256,3 +256,48 @@ def test_chat_completions_allows_metadata_override_for_skip_l1_write(test_client
     assert run_request.metadata is not None
     assert run_request.metadata["skip_l1_write"] is False
     assert run_request.metadata["experiment_label"] == "phoenix-option-a"
+
+
+@pytest.mark.unit
+def test_episode_consolidation_endpoint(
+    server_module, test_client, wrapper_state, mocker: pytest.MockFixture
+):
+    """Ensure the consolidation endpoint accepts episodes and offloads to L2."""
+    fake_span = _FakeSpan(
+        trace_id=int("1234567890abcdef1234567890abcdef", 16),
+        span_id=int("1234567890abcdef", 16),
+    )
+    fake_tracer = _FakeTracer(fake_span)
+    parent_context = object()
+    mocker.patch.object(server_module, "_get_api_wall_tracer", return_value=fake_tracer)
+    mocker.patch.object(server_module, "_extract_parent_context", return_value=parent_context)
+
+    # Mock the handle_external_episode function to ensure it gets called
+    wrapper_state.memory_system.handle_external_episode = mocker.AsyncMock()
+
+    payload = {
+        "session_id": "test_sandwich_session",
+        "agent_id": "sandwich-orchestrator",
+        "final_state": {
+            "prompt": "Test prompt",
+            "drafts": ["draft 1", "draft 2"],
+            "solver_iis_logs": [],
+            "final_routing_parameters": {"strategy": "default"},
+        },
+        "metadata": {"status": "success", "duration_seconds": 12.5, "solver_attempts": 2},
+    }
+
+    headers = {"traceparent": "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01"}
+
+    response = test_client.post("/v1/memory/episode/consolidate", json=payload, headers=headers)
+
+    assert response.status_code == 202
+    assert response.json() == {"status": "accepted"}
+
+    # The BackgroundTask should have executed the handoff logic
+    wrapper_state.memory_system.handle_external_episode.assert_called_once_with(
+        session_id="test_sandwich_session",
+        agent_id="sandwich-orchestrator",
+        final_state=payload["final_state"],
+        metadata=payload["metadata"],
+    )

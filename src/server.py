@@ -14,8 +14,8 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 import uvicorn
-from fastapi import FastAPI, Header, HTTPException
-from pydantic import BaseModel, ConfigDict
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.agents.models import RunTurnRequest
 from src.evaluation import agent_wrapper
@@ -61,6 +61,26 @@ class ChatCompletionResponse(BaseModel):
     choices: list[ChatCompletionChoice]
     usage: dict[str, int] | None = None
     metadata: dict[str, Any] | None = None
+
+
+class FinalState(BaseModel):
+    prompt: str | None = None
+    drafts: list[Any] = Field(default_factory=list)
+    solver_iis_logs: list[Any] = Field(default_factory=list)
+    final_routing_parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConsolidationMetadata(BaseModel):
+    status: Literal["success", "infeasible", "timeout"]
+    duration_seconds: float
+    solver_attempts: int
+
+
+class ConsolidationRequest(BaseModel):
+    session_id: str
+    agent_id: str
+    final_state: FinalState
+    metadata: ConsolidationMetadata
 
 
 def _parse_mock_time(value: str | None) -> datetime | None:
@@ -346,6 +366,79 @@ def create_app(config: agent_wrapper.WrapperConfig) -> FastAPI:
                 },
                 metadata=response_metadata,
             )
+
+    @app.post("/v1/memory/episode/consolidate", status_code=202)
+    async def consolidate_episode(
+        request: ConsolidationRequest,
+        background_tasks: BackgroundTasks,
+        traceparent: str | None = Header(default=None),
+    ) -> dict[str, str]:
+        """
+        Accept a completed reasoning episode from an external cognitive architecture
+        and asynchronously offload it to YAAM for Long-Term Memory processing.
+        """
+        state: agent_wrapper.AgentWrapperState = app.state.wrapper
+
+        # We need to explicitly extract the parent context to pass it to the background task
+        parent_context = _extract_parent_context(traceparent) if traceparent else None
+
+        async def _process_consolidation_handoff(
+            session_id: str,
+            agent_id: str,
+            final_state: dict[str, Any],
+            metadata: dict[str, Any],
+            context: Any,
+        ) -> None:
+            # Re-attach the trace context in the background worker thread
+            try:
+                from opentelemetry import trace
+
+                tracer = trace.get_tracer("yaam.api_wall.background")
+            except Exception:
+                tracer = None
+
+            span_context = (
+                tracer.start_as_current_span(
+                    "yaam.api_wall.process_consolidation_handoff",
+                    context=context,
+                )
+                if tracer
+                else nullcontext(None)
+            )
+
+            with span_context as span:
+                _set_span_attributes(
+                    span,
+                    {
+                        "yaam.session_id": session_id,
+                        "yaam.agent_id": agent_id,
+                        "yaam.route": "/v1/memory/episode/consolidate",
+                    },
+                )
+                try:
+                    await state.memory_system.handle_external_episode(
+                        session_id=session_id,
+                        agent_id=agent_id,
+                        final_state=final_state,
+                        metadata=metadata,
+                    )
+                except Exception as exc:
+                    _set_span_error(span, exc)
+                    logger.exception(
+                        f"Failed to process external episode consolidation for session {session_id}"
+                    )
+
+        # Dispatch the background task
+        background_tasks.add_task(
+            _process_consolidation_handoff,
+            session_id=request.session_id,
+            agent_id=request.agent_id,
+            final_state=request.final_state.model_dump(),
+            metadata=request.metadata.model_dump(),
+            context=parent_context,
+        )
+
+        return {"status": "accepted"}
 
     @app.post("/control/session/reset")
     async def reset_session(
