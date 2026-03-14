@@ -431,6 +431,54 @@ class UnifiedMemorySystem(HybridMemorySystem):
         else:
             return await self.distillation_engine.distill()
 
+    async def handle_external_episode(
+        self, session_id: str, agent_id: str, final_state: dict[str, Any], metadata: dict[str, Any]
+    ) -> None:
+        """
+        Process a completed reasoning episode from an external cognitive architecture.
+
+        Stores the final state directly into L2 Working Memory and triggers an immediate
+        consolidation cycle to move it into L3 Episodic Memory, bypassing L1 caching.
+        """
+        if not self.l2_tier:
+            raise RuntimeError("L2 tier required to handle external episodes")
+
+        import json
+        import uuid
+
+        from src.memory.models import Fact, FactType
+
+        fact_id = f"ext_ep_{uuid.uuid4().hex}"
+        content = json.dumps(final_state)
+
+        # We store the episode summary as a high-CIAR Fact in L2
+        fact = Fact(
+            fact_id=fact_id,
+            session_id=session_id,
+            content=content[:5000],  # Enforce max length
+            fact_type=FactType.EVENT,
+            ciar_score=1.0,  # Ensure it is prioritized for consolidation
+            certainty=1.0,
+            impact=1.0,
+            source_type="external_handoff",
+            metadata={
+                "agent_id": agent_id,
+                "status": metadata.get("status", "unknown"),
+                "duration_seconds": metadata.get("duration_seconds", 0.0),
+                "solver_attempts": metadata.get("solver_attempts", 0),
+            },
+        )
+
+        # 1. Store directly to L2
+        await self.l2_tier.store(fact)
+
+        # 2. Trigger L2->L3 Consolidation Cycle
+        try:
+            await self.run_consolidation_cycle(session_id)
+        except Exception as e:
+            # We log but do not bubble up, as this is an async background task usually
+            print(f"Failed to run consolidation cycle for external episode: {e}")
+
     # --- Cross-Tier Query Implementation ---
 
     async def query_memory(
