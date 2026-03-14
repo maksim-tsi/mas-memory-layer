@@ -7,12 +7,16 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
+      - "8002:8080"
     environment:
       MAS_AGENT_TYPE: ${MAS_AGENT_TYPE:-full}
       MAS_MODEL: ${MAS_MODEL:-gemini-2.5-flash-lite}
       MAS_PORT: "8080"
       POSTGRES_URL: ${POSTGRES_URL:-postgresql://mas:mas@localhost:5432/mas}
       REDIS_URL: ${REDIS_URL:-redis://localhost:6379/0}
+      QDRANT_URL: ${QDRANT_URL:-http://localhost:6333}
+      NEO4J_URI: ${NEO4J_URI:-bolt://localhost:7687}
+      TYPESENSE_URL: ${TYPESENSE_URL:-http://localhost:8108}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
