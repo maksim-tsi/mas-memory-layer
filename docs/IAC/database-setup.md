@@ -1,6 +1,6 @@
 # Database Setup - mas-memory-layer
 
-**Date:** October 20, 2025  
+**Date:** March 15, 2026  
 **Database Name:** `mas_memory`  
 **Purpose:** Dedicated PostgreSQL database for the multi-layered memory system
 
@@ -39,10 +39,10 @@ psql --version
 ## Database Configuration
 
 - **Database Name:** `mas_memory`
-- **Host:** `skz-dev-lv` (192.168.107.172)
+- **Host:** `skz-data-lv` (192.168.107.187)
 - **Port:** 5432
 - **Owner:** See `.env` file for credentials
-- **Connection URL:** `postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@192.168.107.172:5432/mas_memory`
+- **Connection URL:** `postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@192.168.107.187:5432/mas_memory`
 
 ## Initial Database Creation
 
@@ -55,10 +55,10 @@ Before running any migrations, the `mas_memory` database must be created. This i
 set -a; source .env; set +a
 
 # Connect to default postgres database and create mas_memory database
-psql "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DEV_IP}:${POSTGRES_PORT}/postgres" -c "CREATE DATABASE mas_memory;"
+psql "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/postgres" -c "CREATE DATABASE mas_memory;"
 
 # Verify database exists
-psql "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DEV_IP}:${POSTGRES_PORT}/postgres" -c "\l" | grep mas_memory
+psql "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/postgres" -c "\l" | grep mas_memory
 ```
 
 ### Option 2: Using the setup script
@@ -106,7 +106,7 @@ To remove the database (⚠️ **DESTRUCTIVE OPERATION**):
 
 ```bash
 # Drop the database (will delete ALL data)
-psql "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DEV_IP}:${POSTGRES_PORT}/postgres" -c "DROP DATABASE mas_memory;"
+psql "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/postgres" -c "DROP DATABASE mas_memory;"
 ```
 
 ## Backup & Restore
@@ -150,7 +150,7 @@ Update your `.env` file to use the dedicated database:
 ```bash
 # PostgreSQL Configuration (mas-memory-layer project)
 POSTGRES_DB=mas_memory
-POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DEV_IP}:${POSTGRES_PORT}/mas_memory
+POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/mas_memory
 ```
 
 ## Security Notes
@@ -172,7 +172,7 @@ POSTGRES_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DEV_IP}:${POST
 ```bash
 # Error: permission denied for database
 # Solution: Ensure POSTGRES_USER has CREATE DATABASE privilege
-psql "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DEV_IP}:${POSTGRES_PORT}/postgres" \
+psql "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/postgres" \
   -c "ALTER USER ${POSTGRES_USER} CREATEDB;"
 ```
 
@@ -180,7 +180,7 @@ psql "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${DEV_IP}:${POSTGRES_PO
 ```bash
 # Error: connection refused
 # Solution: Verify PostgreSQL is running and firewall allows connections
-systemctl status postgresql  # On the server
+systemctl status postgresql  # On skz-data-lv
 ```
 
 ---
