@@ -1,7 +1,7 @@
 # Infrastructure Access Guide
 
 **Project:** MAS Memory Layer  
-**Last Updated:** November 12, 2025  
+**Last Updated:** March 15, 2026  
 **Status:** Production-Ready ✅
 
 ---
@@ -120,10 +120,9 @@ Web UI: http://192.168.107.187:3000
 
 ### skz-dev-lv Storage
 - **OS Drive:** Single 512GB NVMe
-- **PostgreSQL Data:** `/var/lib/postgresql/data`
 - **Redis Data:** `/var/lib/redis` (or in-memory)
 
-### skz-stg-lv Storage ✅ **ADR-002 Compliant**
+### skz-data-lv Storage ✅ **ADR-002 Compliant**
 
 **Dual NVMe Configuration:**
 - **nvme1n1 (512GB):** Operating System
@@ -157,7 +156,7 @@ Before running tests, verify all services are accessible:
 
 ```bash
 # PostgreSQL
-psql -h 192.168.107.172 -U postgres -d mas_memory -c "SELECT 1;"
+psql -h 192.168.107.187 -U postgres -d mas_memory -c "SELECT 1;"
 
 # Redis
 redis-cli -h 192.168.107.172 ping
@@ -179,7 +178,7 @@ curl http://192.168.107.187:9090/api/v1/status/config
 curl http://192.168.107.187:3000/api/health
 ```
 
-### Connectivity Test Results (November 12, 2025)
+### Connectivity Test Results (March 15, 2026)
 
 ✅ **All services verified accessible** per infrastructure rollout report:
 - PostgreSQL: ✅ Accessible on port 5432
@@ -190,7 +189,7 @@ curl http://192.168.107.187:3000/api/health
 - Prometheus: ✅ Running on port 9090
 - Grafana: ✅ Running on port 3000
 
-**Docker Compose Status (skz-stg-lv):**
+**Docker Compose Status (skz-data-lv):**
 All services healthy and using correct storage locations as per ADR-002.
 
 ---
@@ -308,11 +307,11 @@ psql --version  # Should show: psql (PostgreSQL) 16.x
 ✓ Virtual environment activated
 
 [4/5] Connection configuration:
-  skz-dev-lv (192.168.107.172):
-    - PostgreSQL: 192.168.107.172:5432 (DB: mas_memory)
-    - Redis: 192.168.107.172:6379
+   skz-dev-lv (192.168.107.172):
+      - Redis: 192.168.107.172:6379
 
-  skz-stg-lv (192.168.107.187):
+   skz-data-lv (192.168.107.187):
+      - PostgreSQL: 192.168.107.187:5432 (DB: mas_memory)
     - Qdrant: 192.168.107.187:6333
     - Neo4j: 192.168.107.187:7687
     - Typesense: 192.168.107.187:8108
@@ -377,7 +376,7 @@ systemctl status redis-server
 redis-cli -h 192.168.107.172 ping
 ```
 
-**3. Docker services not running (skz-stg-lv)**
+**3. Docker services not running (skz-data-lv)**
 ```bash
 # Check service status
 docker compose ps
@@ -397,7 +396,7 @@ df -h /mnt/data
 # Verify permissions
 ls -la /mnt/data/
 
-# Fix if needed (on skz-stg-lv)
+# Fix if needed (on skz-data-lv)
 sudo chown -R 1000:1000 /mnt/data/qdrant
 sudo chown -R 7474:7474 /mnt/data/neo4j
 sudo chown -R 2000:2000 /mnt/data/typesense
@@ -424,15 +423,15 @@ cat integration_test_results.log
 **Critical Data Locations:**
 
 **skz-dev-lv:**
-- PostgreSQL: Regular dumps via `pg_dump`
 - Redis: RDB snapshots (if persistence enabled)
 
-**skz-stg-lv:**
+**skz-data-lv:**
+- PostgreSQL: Regular dumps via `pg_dump`
 - `/mnt/data/qdrant` - Vector embeddings (25GB)
 - `/mnt/data/neo4j` - Graph data (517MB)
 - `/mnt/data/typesense` - Search indexes (1.6MB)
 
-**Backup Command (from skz-stg-lv):**
+**Backup Command (from skz-data-lv):**
 ```bash
 # Create timestamped backup
 sudo tar -czf /backup/ai-databases-$(date +%Y%m%d).tar.gz /mnt/data/
@@ -443,7 +442,7 @@ find /backup/ -name "ai-databases-*.tar.gz" -mtime +7 -delete
 
 ### Monitoring Storage Usage
 
-**Data drive monitoring (skz-stg-lv):**
+**Data drive monitoring (skz-data-lv):**
 ```bash
 # Check space
 df -h /mnt/data
@@ -454,7 +453,7 @@ du -sh /mnt/data/*
 # Alert threshold: 80% full (367GB used of 458GB)
 ```
 
-**PostgreSQL monitoring (skz-dev-lv):**
+**PostgreSQL monitoring (skz-data-lv):**
 ```bash
 # Database size
 psql -U postgres -d mas_memory -c "SELECT pg_size_pretty(pg_database_size('mas_memory'));"
@@ -480,17 +479,18 @@ psql -U postgres -d mas_memory -c "SELECT tablename, pg_size_pretty(pg_total_rel
 ### Environment Variables (from .env)
 
 ```bash
-# skz-dev-lv Services
-POSTGRES_HOST=192.168.107.172
+# skz-data-lv Services
+POSTGRES_HOST=192.168.107.187
 POSTGRES_PORT=5432
 POSTGRES_DB=mas_memory
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=<secure_password>
 
+# skz-dev-lv Services
 REDIS_HOST=192.168.107.172
 REDIS_PORT=6379
 
-# skz-stg-lv Services
+# skz-data-lv Services (continued)
 QDRANT_HOST=192.168.107.187
 QDRANT_PORT=6333
 QDRANT_URL=http://192.168.107.187:6333
@@ -517,4 +517,4 @@ GF_SECURITY_ADMIN_PASSWORD=<secure_password>
 
 **Document Owner:** Infrastructure Team  
 **Review Schedule:** Monthly  
-**Last Verified:** November 12, 2025
+**Last Verified:** March 15, 2026

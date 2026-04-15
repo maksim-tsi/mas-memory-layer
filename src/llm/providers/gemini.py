@@ -247,6 +247,8 @@ class GeminiProvider(BaseProvider):
         types = importlib.import_module("google.genai.types")
 
         model = model or "text-embedding-004"
+        if model == "text-embedding-004":
+            model = "gemini-embedding-001"
 
         def sync_call():
             response = self.client.models.embed_content(

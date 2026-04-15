@@ -1,6 +1,6 @@
 # Connectivity Cheat Sheet (Local Home Lab)
 
-Date: October 19, 2025
+Date: March 15, 2026
 
 This document summarizes the key connectivity details for the main components in the home lab deployment. Use this as a quick reference for configuring applications and verifying connectivity.
 
@@ -13,13 +13,13 @@ This document summarizes the key connectivity details for the main components in
 
 ## Services on Orchestrator Node (skz-dev-lv)
 
-- PostgreSQL: 192.168.107.172:5432 (psql) - **Database:** `mas_memory`
 - Redis: 192.168.107.172:6379 (redis-cli)
 - n8n: http://192.168.107.172:5678 (Web UI)
 - Arize Phoenix: http://192.168.107.172:6006 (Web UI)
 
 ## Services on Data Node (skz-data-lv)
 
+- PostgreSQL: 192.168.107.187:5432 (psql) - **Database:** `mas_memory`
 - Qdrant: http://192.168.107.187:6333 (REST API, dashboard at /dashboard)
 - Neo4j (Bolt): bolt://192.168.107.187:7687 (UI at http://192.168.107.187:7474)
 - Typesense: http://192.168.107.187:8108 (REST API)
