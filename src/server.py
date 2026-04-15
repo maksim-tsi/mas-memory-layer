@@ -472,6 +472,13 @@ def create_app(config: agent_wrapper.WrapperConfig) -> FastAPI:
 
     app.include_router(v2_router.router)
 
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+        FastAPIInstrumentor.instrument_app(app)
+    except ImportError:
+        logger.debug("opentelemetry-instrumentation-fastapi is not installed.")
+
     return app
 
 
