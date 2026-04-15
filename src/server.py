@@ -18,6 +18,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.agents.models import RunTurnRequest
+from src.api import v2_router
 from src.evaluation import agent_wrapper
 
 logger = logging.getLogger(__name__)
@@ -468,6 +469,8 @@ def create_app(config: agent_wrapper.WrapperConfig) -> FastAPI:
             "l2": await state.l2_tier.health_check(),
             "agent": await state.agent.health_check(),
         }
+
+    app.include_router(v2_router.router)
 
     return app
 
