@@ -1,9 +1,32 @@
+import asyncio
 import os
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 import pytest
-from fastapi.testclient import TestClient
+import pytest_asyncio
+import httpx
+from dotenv import load_dotenv
+
+# MUST load environment before importing src.server or else missing REDIS_URL will fail initialization
+load_dotenv(override=True)
+
+# Some of our derived vars need to be manually interpolated in test environments if python-dotenv fails to do it recursively
+cloud_node_ip = os.environ.get("CLOUD_NODE_IP", "192.168.107.222")
+dev_node_ip = os.environ.get("DEV_NODE_IP", "192.168.107.172")
+data_node_ip = os.environ.get("DATA_NODE_IP", "192.168.107.187")
+
+redis_port = os.environ.get("REDIS_PORT", "6379")
+postgres_port = os.environ.get("POSTGRES_PORT", "5432")
+postgres_user = os.environ.get("POSTGRES_USER", "pgadmin")
+postgres_password = os.environ.get("POSTGRES_PASSWORD", "")
+postgres_db = os.environ.get("POSTGRES_DB", "mas_memory")
+
+# Fix missing REDIS_URL/POSTGRES_URL if python-dotenv basic interpolation failed
+if "REDIS_URL" not in os.environ or "${" in os.environ["REDIS_URL"]:
+    os.environ["REDIS_URL"] = f"redis://{dev_node_ip}:{redis_port}"
+
+if "POSTGRES_URL" not in os.environ or "${" in os.environ["POSTGRES_URL"]:
+    os.environ["POSTGRES_URL"] = f"postgresql://{postgres_user}:{postgres_password}@{data_node_ip}:{postgres_port}/{postgres_db}"
 
 # Ensure default profiles so KeyError 'tra' is not triggered
 if "MAS_AGENT_TYPE" in os.environ:
@@ -12,37 +35,83 @@ if "AGENT_TYPE" in os.environ:
     del os.environ["AGENT_TYPE"]
 
 from src.server import app
+from src.storage.qdrant_adapter import QdrantAdapter
+from src.storage.neo4j_adapter import Neo4jAdapter
+from src.storage.typesense_adapter import TypesenseAdapter
+from src.memory.tiers.episodic_memory_tier import EpisodicMemoryTier
+from src.memory.tiers.semantic_memory_tier import SemanticMemoryTier
 
 SCENARIOS_DIR = Path(__file__).parent.parent / "data" / "scm_scenarios"
 
 
-@pytest.fixture(scope="module")
-def client():
-    with TestClient(app) as c:
-        # Explicitly overriding `app.state.wrapper` to inject active L3 and L4 tiers
-        # Since the TestClient uses goodai default, we activate them with AsyncMocks
-        # so the router logic proceeds to the 502 gateway catches instead of 501.
+@pytest_asyncio.fixture(scope="function")
+async def client():
+    qdrant_url = os.environ.get("QDRANT_URL", f"http://{data_node_ip}:6333")
+    neo4j_uri = os.environ.get("NEO4J_URI", f"bolt://{data_node_ip}:7687")
+    neo4j_user = os.environ.get("NEO4J_USER", "neo4j")
+    neo4j_password = os.environ.get("NEO4J_PASSWORD", "")
+    typesense_url = os.environ.get("TYPESENSE_URL", f"http://{data_node_ip}:8108")
+    typesense_key = os.environ.get("TYPESENSE_API_KEY", "")
+
+    # Expand variables if needed
+    qdrant_url = qdrant_url.replace("${DATA_NODE_IP}", data_node_ip).replace("${QDRANT_PORT}", os.environ.get("QDRANT_PORT", "6333"))
+    neo4j_uri = neo4j_uri.replace("${DATA_NODE_IP}", data_node_ip).replace("${NEO4J_BOLT_PORT}", os.environ.get("NEO4J_BOLT_PORT", "7687"))
+    typesense_url = typesense_url.replace("${DATA_NODE_IP}", data_node_ip).replace("${TYPESENSE_PORT}", os.environ.get("TYPESENSE_PORT", "8108"))
+
+    qdrant_adapter = QdrantAdapter({
+        "url": qdrant_url, 
+        "vector_size": 768, 
+        "collection_name": "episodes"
+    })
+    neo4j_adapter = Neo4jAdapter({
+        "uri": neo4j_uri, 
+        "user": neo4j_user, 
+        "password": neo4j_password
+    })
+    typesense_adapter = TypesenseAdapter({
+        "url": typesense_url, 
+        "api_key": typesense_key
+    })
+
+    l3 = EpisodicMemoryTier(qdrant_adapter, neo4j_adapter)
+    l4 = SemanticMemoryTier(typesense_adapter)
+
+    await qdrant_adapter.connect()
+    await neo4j_adapter.connect()
+    await typesense_adapter.connect()
+    await l3.initialize()
+    await l4.initialize()
+
+    # Emulate the fastAPI lifespan so L1 and L2 initialize correctly
+    async with app.router.lifespan_context(app):
+        # Override the L3 and L4 tiers with our live adapters
         state = app.state.wrapper
-        if getattr(state.memory_system, "l3_tier", None) is None:
-            state.memory_system.l3_tier = AsyncMock()
-            state.memory_system.l3_tier.store.return_value = "ep-mock-123"
-        if getattr(state.memory_system, "l4_tier", None) is None:
-            state.memory_system.l4_tier = AsyncMock()
-            state.memory_system.l4_tier.store.return_value = "kd-mock-123"
-        yield c
+        state.memory_system.l3_tier = l3
+        state.memory_system.l4_tier = l4
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
+
+    await l3.cleanup()
+    await l4.cleanup()
+    await qdrant_adapter.disconnect()
+    await neo4j_adapter.disconnect()
+    await typesense_adapter.disconnect()
 
 
 @pytest.fixture
 def session_id():
-    return "scm_e2e_session_999"
+    return "scm_live_e2e_test_001"
 
 
 @pytest.fixture
 def agent_id():
-    return "tra_orchestrator"
+    return "test_orchestrator"
 
 
-def test_l2_semantic_fact_flow(client, session_id, agent_id):
+@pytest.mark.asyncio
+async def test_l2_semantic_fact_flow(client, session_id, agent_id):
     """E2E Test for L2 Semantic Fact storing and retrieval."""
     payload_store = {
         "session_id": session_id,
@@ -51,7 +120,7 @@ def test_l2_semantic_fact_flow(client, session_id, agent_id):
         "action": "store",
         "content": "A localized EOQ audit revealed major inconsistencies in calculation.",
     }
-    resp = client.post("/v2/memory/l2/facts", json=payload_store)
+    resp = await client.post("/v2/memory/l2/facts", json=payload_store)
     assert resp.status_code == 200, f"Expected 200, got {resp.text}"
     assert resp.json()["status"] == "success"
 
@@ -61,15 +130,16 @@ def test_l2_semantic_fact_flow(client, session_id, agent_id):
         "agent_id": agent_id,
         "action": "retrieve",
     }
-    resp_retrieve = client.post("/v2/memory/l2/facts", json=payload_retrieve)
+    resp_retrieve = await client.post("/v2/memory/l2/facts", json=payload_retrieve)
     assert resp_retrieve.status_code == 200
     r_json = resp_retrieve.json()
     assert "facts" in r_json
     assert r_json["status"] == "success"
 
 
-def test_l3_semantic_assimilate(client, session_id, agent_id):
-    """E2E Test for L3 Knowledge Assimilation (intercepting LLM Pipeline)."""
+@pytest.mark.asyncio
+async def test_l3_semantic_assimilate(client, session_id, agent_id):
+    """E2E Test for L3 Knowledge Assimilation (Live LLM Pipeline)."""
     file_path = SCENARIOS_DIR / "01_port_strike.md"
     assert file_path.exists(), "SCM scenario file missing!"
 
@@ -80,19 +150,17 @@ def test_l3_semantic_assimilate(client, session_id, agent_id):
         "domain_tags": ["EMEA", "logistics", "strike"],
     }
 
-    resp = client.post("/v2/memory/l3/assimilate", json=payload)
-
-    if resp.status_code == 502:
-        pytest.skip(
-            "Skipped: Internal YAAM LLM returned 502 Bad Gateway (keys not present/timeout)"
-        )
-
+    resp = await client.post("/v2/memory/l3/assimilate", json=payload)
     assert resp.status_code == 201, f"Expected 201, got {resp.text}"
     assert "episode_id" in resp.json()
 
 
-def test_l3_semantic_query(client, session_id, agent_id):
+@pytest.mark.asyncio
+async def test_l3_semantic_query(client, session_id, agent_id):
     """E2E Test for L3 Semantic Querying."""
+    # Delay to allow eventual consistency in Qdrant (vector index settling)
+    await asyncio.sleep(2)
+
     payload = {
         "session_id": session_id,
         "agent_id": agent_id,
@@ -101,12 +169,7 @@ def test_l3_semantic_query(client, session_id, agent_id):
         "filters": {"importance": "high"},
     }
 
-    resp = client.post("/v2/memory/l3/query", json=payload)
-
-    if resp.status_code == 502:
-        pytest.skip(
-            "Skipped: Internal YAAM LLM returned 502 Bad Gateway (keys not present/timeout)"
-        )
+    resp = await client.post("/v2/memory/l3/query", json=payload)
 
     assert resp.status_code == 200, f"Expected 200, got {resp.text}"
     r_json = resp.json()
@@ -115,7 +178,8 @@ def test_l3_semantic_query(client, session_id, agent_id):
     assert r_json["provenance"]["session_id"] == session_id
 
 
-def test_l4_semantic_finalize(client, session_id, agent_id):
+@pytest.mark.asyncio
+async def test_l4_semantic_finalize(client, session_id, agent_id):
     """E2E Test for L4 Risk Pooling Finalization document."""
     file_path = SCENARIOS_DIR / "05_risk_pooling.md"
     assert file_path.exists(), "SCM scenario file missing!"
@@ -128,6 +192,6 @@ def test_l4_semantic_finalize(client, session_id, agent_id):
         "consensus_metadata": {"votes": 3, "disagreements": "None, full MAS alignment achieved."},
     }
 
-    resp = client.post("/v2/memory/l4/finalize", json=payload)
+    resp = await client.post("/v2/memory/l4/finalize", json=payload)
     assert resp.status_code == 201, f"Expected 201, got {resp.text}"
     assert "knowledge_id" in resp.json()

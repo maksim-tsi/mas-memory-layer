@@ -186,7 +186,7 @@ async def semantic_assimilate(
         episode_input = EpisodeStoreInput(
             episode=episode,
             embedding=embedding,
-            entities=[{"name": "ExtractedEntity", "label": "Concept"}],
+            entities=[{"entity_id": f"ent-{uuid.uuid4().hex[:8]}", "name": "ExtractedEntity", "type": "Concept", "label": "Concept"}],
             relationships=[],
         )
 
