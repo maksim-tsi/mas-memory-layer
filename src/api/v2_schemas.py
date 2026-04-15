@@ -20,9 +20,6 @@ class L2SemanticFactRequest(BaseModel):
     agent_id: str = Field(..., description="Agent invoking the action")
     action: Literal["store", "retrieve"] = Field(..., description="Action to perform")
     content: str | None = Field(default=None, description="Fact content (required for store)")
-    metadata: dict[str, Any] = Field(
-        default_factory=dict, description="Must contain trace_id for Phoenix"
-    )
 
 
 class L3SemanticAssimilateRequest(BaseModel):
@@ -30,9 +27,6 @@ class L3SemanticAssimilateRequest(BaseModel):
     agent_id: str = Field(..., description="Agent triggering the knowledge assimilation")
     text_to_assimilate: str = Field(..., description="Natural language observation")
     domain_tags: list[str] = Field(default_factory=list, description="Associated domain tags")
-    metadata: dict[str, Any] = Field(
-        default_factory=dict, description="Must contain trace_id for Phoenix"
-    )
 
 
 class L3SemanticQueryRequest(BaseModel):
@@ -43,9 +37,6 @@ class L3SemanticQueryRequest(BaseModel):
     filters: dict[str, Any] = Field(
         default_factory=dict, description="Optional filters like task_id"
     )
-    metadata: dict[str, Any] = Field(
-        default_factory=dict, description="Must contain trace_id for Phoenix"
-    )
 
 
 class L4SemanticFinalizeRequest(BaseModel):
@@ -54,6 +45,3 @@ class L4SemanticFinalizeRequest(BaseModel):
     title: str = Field(..., description="Title of the consensus finding")
     final_artifact: str = Field(..., description="The final verified content/output")
     consensus_metadata: dict[str, Any] = Field(..., description="Votes, disagreements, logic map")
-    metadata: dict[str, Any] = Field(
-        default_factory=dict, description="Must contain trace_id for Phoenix"
-    )
