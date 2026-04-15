@@ -1,3 +1,4 @@
+# ruff: noqa
 import asyncio
 import os
 from pathlib import Path
@@ -10,23 +11,24 @@ from dotenv import load_dotenv
 # MUST load environment before importing src.server or else missing REDIS_URL will fail initialization
 load_dotenv(override=True)
 
-# Some of our derived vars need to be manually interpolated in test environments if python-dotenv fails to do it recursively
-cloud_node_ip = os.environ.get("CLOUD_NODE_IP", "192.168.107.222")
-dev_node_ip = os.environ.get("DEV_NODE_IP", "192.168.107.172")
-data_node_ip = os.environ.get("DATA_NODE_IP", "192.168.107.187")
+cloud_node_ip = os.environ["CLOUD_NODE_IP"]
+dev_node_ip = os.environ["DEV_NODE_IP"]
+data_node_ip = os.environ["DATA_NODE_IP"]
 
-redis_port = os.environ.get("REDIS_PORT", "6379")
-postgres_port = os.environ.get("POSTGRES_PORT", "5432")
-postgres_user = os.environ.get("POSTGRES_USER", "pgadmin")
-postgres_password = os.environ.get("POSTGRES_PASSWORD", "")
-postgres_db = os.environ.get("POSTGRES_DB", "mas_memory")
+redis_port = os.environ["REDIS_PORT"]
+postgres_port = os.environ["POSTGRES_PORT"]
+postgres_user = os.environ["POSTGRES_USER"]
+postgres_password = os.environ["POSTGRES_PASSWORD"]
+postgres_db = os.environ["POSTGRES_DB"]
 
 # Fix missing REDIS_URL/POSTGRES_URL if python-dotenv basic interpolation failed
 if "REDIS_URL" not in os.environ or "${" in os.environ["REDIS_URL"]:
     os.environ["REDIS_URL"] = f"redis://{dev_node_ip}:{redis_port}"
 
 if "POSTGRES_URL" not in os.environ or "${" in os.environ["POSTGRES_URL"]:
-    os.environ["POSTGRES_URL"] = f"postgresql://{postgres_user}:{postgres_password}@{data_node_ip}:{postgres_port}/{postgres_db}"
+    os.environ["POSTGRES_URL"] = (
+        f"postgresql://{postgres_user}:{postgres_password}@{data_node_ip}:{postgres_port}/{postgres_db}"
+    )
 
 # Ensure default profiles so KeyError 'tra' is not triggered
 if "MAS_AGENT_TYPE" in os.environ:
@@ -41,37 +43,35 @@ from src.storage.typesense_adapter import TypesenseAdapter
 from src.memory.tiers.episodic_memory_tier import EpisodicMemoryTier
 from src.memory.tiers.semantic_memory_tier import SemanticMemoryTier
 
+
 SCENARIOS_DIR = Path(__file__).parent.parent / "data" / "scm_scenarios"
 
 
 @pytest_asyncio.fixture(scope="function")
 async def client():
-    qdrant_url = os.environ.get("QDRANT_URL", f"http://{data_node_ip}:6333")
-    neo4j_uri = os.environ.get("NEO4J_URI", f"bolt://{data_node_ip}:7687")
-    neo4j_user = os.environ.get("NEO4J_USER", "neo4j")
-    neo4j_password = os.environ.get("NEO4J_PASSWORD", "")
-    typesense_url = os.environ.get("TYPESENSE_URL", f"http://{data_node_ip}:8108")
-    typesense_key = os.environ.get("TYPESENSE_API_KEY", "")
+    qdrant_url = os.environ["QDRANT_URL"]
+    neo4j_uri = os.environ["NEO4J_URI"]
+    neo4j_user = os.environ["NEO4J_USER"]
+    neo4j_password = os.environ["NEO4J_PASSWORD"]
+    typesense_url = os.environ["TYPESENSE_URL"]
+    typesense_key = os.environ["TYPESENSE_API_KEY"]
 
     # Expand variables if needed
-    qdrant_url = qdrant_url.replace("${DATA_NODE_IP}", data_node_ip).replace("${QDRANT_PORT}", os.environ.get("QDRANT_PORT", "6333"))
-    neo4j_uri = neo4j_uri.replace("${DATA_NODE_IP}", data_node_ip).replace("${NEO4J_BOLT_PORT}", os.environ.get("NEO4J_BOLT_PORT", "7687"))
-    typesense_url = typesense_url.replace("${DATA_NODE_IP}", data_node_ip).replace("${TYPESENSE_PORT}", os.environ.get("TYPESENSE_PORT", "8108"))
+    qdrant_url = qdrant_url.replace("${DATA_NODE_IP}", data_node_ip).replace(
+        "${QDRANT_PORT}", os.environ["QDRANT_PORT"]
+    )
+    neo4j_uri = neo4j_uri.replace("${DATA_NODE_IP}", data_node_ip).replace(
+        "${NEO4J_BOLT_PORT}", os.environ["NEO4J_BOLT_PORT"]
+    )
+    typesense_url = typesense_url.replace("${DATA_NODE_IP}", data_node_ip).replace(
+        "${TYPESENSE_PORT}", os.environ["TYPESENSE_PORT"]
+    )
 
-    qdrant_adapter = QdrantAdapter({
-        "url": qdrant_url, 
-        "vector_size": 768, 
-        "collection_name": "episodes"
-    })
-    neo4j_adapter = Neo4jAdapter({
-        "uri": neo4j_uri, 
-        "user": neo4j_user, 
-        "password": neo4j_password
-    })
-    typesense_adapter = TypesenseAdapter({
-        "url": typesense_url, 
-        "api_key": typesense_key
-    })
+    qdrant_adapter = QdrantAdapter(
+        {"url": qdrant_url, "vector_size": 768, "collection_name": "episodes"}
+    )
+    neo4j_adapter = Neo4jAdapter({"uri": neo4j_uri, "user": neo4j_user, "password": neo4j_password})
+    typesense_adapter = TypesenseAdapter({"url": typesense_url, "api_key": typesense_key})
 
     l3 = EpisodicMemoryTier(qdrant_adapter, neo4j_adapter)
     l4 = SemanticMemoryTier(typesense_adapter)
