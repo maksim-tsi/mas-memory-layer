@@ -29,10 +29,18 @@ from src.memory.engines.fact_extractor import FactExtractor
 from src.memory.engines.promotion_engine import PromotionEngine
 from src.memory.engines.topic_segmenter import TopicSegmenter
 from src.memory.models import TurnData
-from src.memory.tiers import ActiveContextTier, WorkingMemoryTier
+from src.memory.tiers import (
+    ActiveContextTier,
+    EpisodicMemoryTier,
+    SemanticMemoryTier,
+    WorkingMemoryTier,
+)
 from src.memory.unified_memory_system import UnifiedMemorySystem
+from src.storage.neo4j_adapter import Neo4jAdapter
 from src.storage.postgres_adapter import PostgresAdapter
+from src.storage.qdrant_adapter import QdrantAdapter
 from src.storage.redis_adapter import RedisAdapter
+from src.storage.typesense_adapter import TypesenseAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +167,8 @@ class AgentWrapperState:
     agent_variant: str
     session_prefix: str
     rate_limiter: RateLimiter
+    l3_tier: EpisodicMemoryTier | None = None
+    l4_tier: SemanticMemoryTier | None = None
     sessions: set[str] = field(default_factory=set)
 
     def apply_prefix(self, session_id: str) -> str:
@@ -240,8 +250,38 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
     await l1_tier.initialize()
     await l2_tier.initialize()
 
-    await l1_tier.initialize()
-    await l2_tier.initialize()
+    qdrant_adapter = QdrantAdapter(
+        {
+            "url": _read_env_or_raise("QDRANT_URL"),
+            "collection_name": "episodes",
+            "vector_size": 768,
+        }
+    )
+    neo4j_adapter = Neo4jAdapter(
+        {
+            "uri": _read_env_or_raise("NEO4J_URI"),
+            "user": os.environ.get("NEO4J_USER", "neo4j"),
+            "password": os.environ.get("NEO4J_PASSWORD", "mas-password"),
+            "database": os.environ.get("NEO4J_DATABASE", "neo4j"),
+            "lock_redis_url": config.redis_url,
+        }
+    )
+    typesense_adapter = TypesenseAdapter(
+        {
+            "url": _read_env_or_raise("TYPESENSE_URL"),
+            "api_key": os.environ.get("TYPESENSE_API_KEY", "mas-typesense-key"),
+            "collection_name": "knowledge_base",
+        }
+    )
+
+    episodic_tier = EpisodicMemoryTier(
+        qdrant_adapter=qdrant_adapter,
+        neo4j_adapter=neo4j_adapter,
+    )
+    semantic_tier = SemanticMemoryTier(typesense_adapter=typesense_adapter)
+
+    await episodic_tier.initialize()
+    await semantic_tier.initialize()
 
     llm_client = LLMClient.from_env()
 
@@ -265,8 +305,15 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
         llm_client=llm_client,
         l1_tier=l1_tier,
         l2_tier=l2_tier,
+        l3_tier=episodic_tier,
+        l4_tier=semantic_tier,
         promotion_engine=promotion_engine,
     )
+
+    if memory_system.l3_tier is None or memory_system.l4_tier is None:
+        raise RuntimeError(
+            "L3/L4 tiers failed to initialize; refusing to start with partial wiring."
+        )
 
     agent_cls = AGENT_TYPES[config.agent_type]
     agent = agent_cls(
@@ -281,6 +328,8 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
         memory_system=memory_system,
         l1_tier=l1_tier,
         l2_tier=l2_tier,
+        l3_tier=episodic_tier,
+        l4_tier=semantic_tier,
         redis_client=redis_client,
         agent_type=config.agent_type,
         agent_variant=config.agent_variant,
@@ -294,6 +343,10 @@ async def shutdown_state(state: AgentWrapperState) -> None:
 
     await state.l1_tier.cleanup()
     await state.l2_tier.cleanup()
+    if state.l3_tier:
+        await state.l3_tier.cleanup()
+    if state.l4_tier:
+        await state.l4_tier.cleanup()
     await state.agent.close()
     try:
         state.redis_client.close()
@@ -423,6 +476,8 @@ def create_app(config: WrapperConfig) -> FastAPI:
             "redis": redis_ok,
             "l1": await state.l1_tier.health_check(),
             "l2": await state.l2_tier.health_check(),
+            "l3": (await state.l3_tier.health_check() if state.l3_tier else {"status": "missing"}),
+            "l4": (await state.l4_tier.health_check() if state.l4_tier else {"status": "missing"}),
             "agent": await state.agent.health_check(),
         }
 
