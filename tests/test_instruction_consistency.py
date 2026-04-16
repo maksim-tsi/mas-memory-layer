@@ -5,6 +5,7 @@ This test prevents instruction drift across:
 - AGENTS.MD
 - .github/copilot-instructions.md
 - .github/instructions/*.md
+- GEMINI.MD
 
 The intent is to ensure agents do not pick up unsafe or deprecated patterns
 from copy-pastable code snippets inside these files.
@@ -74,6 +75,7 @@ def test_instruction_files_do_not_contain_banned_snippets() -> None:
 
     instruction_files = [
         repo_root / "AGENTS.MD",
+        repo_root / "GEMINI.MD",
         repo_root / ".github" / "copilot-instructions.md",
         *sorted((repo_root / ".github" / "instructions").glob("*.md")),
     ]
@@ -109,4 +111,3 @@ def test_instruction_files_do_not_contain_banned_snippets() -> None:
                 )
 
     assert not violations, "Instruction drift detected:\n" + "\n".join(sorted(violations))
-

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 from src.llm.providers.base import BaseProvider, LLMResponse, ProviderHealth
@@ -19,11 +20,31 @@ class GroqProvider(BaseProvider):
 
     async def generate(self, prompt: str, model: str | None = None, **kwargs) -> LLMResponse:
         model = model or "openai/gpt-oss-120b"
+        system_instruction = kwargs.get("system_instruction")
+        response_schema = kwargs.get("response_schema")
+
+        messages: list[dict[str, str]] = []
+        if system_instruction:
+            messages.append({"role": "system", "content": str(system_instruction)})
+
+        if response_schema:
+            try:
+                schema_text = json.dumps(response_schema, ensure_ascii=True)
+            except Exception:  # pragma: no cover - defensive fallback
+                schema_text = str(response_schema)
+            schema_prompt = (
+                "Return ONLY valid JSON (no markdown) that matches this JSON schema:\n"
+                f"{schema_text}\n"
+            )
+            if messages and messages[0]["role"] == "system":
+                messages[0]["content"] = f"{messages[0]['content']}\n\n{schema_prompt}"
+            else:
+                messages.append({"role": "system", "content": schema_prompt})
 
         def sync_call():
             response = self.client.chat.completions.create(
                 model=model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[*messages, {"role": "user", "content": prompt}],
                 temperature=kwargs.get("temperature", 0.0),
                 max_tokens=kwargs.get("max_output_tokens", 256),
             )

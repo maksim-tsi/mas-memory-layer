@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Comparative Report - {{ run_name | e }}</title>
+    <style>
+      :root {
+        --fg: #111827;
+        --muted: #6b7280;
+        --bg: #ffffff;
+        --card: #f9fafb;
+        --border: #e5e7eb;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+          "Courier New", monospace;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        color: var(--fg);
+        background: var(--bg);
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.4;
+      }
+      header {
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 16px;
+      }
+      header img {
+        height: 32px;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0;
+      }
+      main {
+        padding: 20px 24px 64px;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+      }
+      th,
+      td {
+        border: 1px solid var(--border);
+        padding: 8px 10px;
+        font-size: 14px;
+      }
+      th {
+        background: var(--card);
+        text-align: left;
+      }
+      .mono {
+        font-family: var(--mono);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <img alt="GoodAI" src="data:image/png;base64,{{ logo_b64 }}" />
+      <div>
+        <h1>Comparative Report</h1>
+        <div class="muted">{{ run_name | e }}</div>
+      </div>
+    </header>
+    <main>
+      <p class="muted">
+        This template is intentionally minimal: it renders a table of metrics per agent without
+        requiring any external network access.
+      </p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Agent</th>
+            {% for label in spider_labels %}
+            <th>{{ label | e }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for agent in data_by_agent %}
+          <tr>
+            <td class="mono">{{ agent.name | e }}</td>
+            {% for score in agent.scores %}
+            <td class="mono">{{ score }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <h2 style="margin-top: 24px; font-size: 16px;">Metric details</h2>
+      {% for metric in data_by_metric %}
+      <h3 style="margin: 14px 0 6px; font-size: 14px;">
+        {{ metric.name | e }} <span class="muted">{{ metric.name_alt | e }}</span>
+      </h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Agent</th>
+            <th>Score</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in metric.scores_by_agent %}
+          <tr>
+            <td class="mono">{{ row.name | e }}</td>
+            <td class="mono">{{ row.score }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endfor %}
+    </main>
+  </body>
+</html>
+

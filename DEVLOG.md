@@ -16,6 +16,236 @@ Each entry should include:
 
 ## Log Entries
 
+### 2026-03-08 - Merge dev into dev-mas: Benchmark Infrastructure & Gitignore Improvements 🔀
+
+**Status:** ✅ Complete
+
+**Summary:**
+Merged latest dev branch changes into dev-mas, bringing in ~20 commits of benchmark infrastructure improvements, documentation updates, and provider configuration refinements. Successfully resolved .gitignore conflict by combining both strategies: keeping granular artifact patterns from dev-mas while incorporating broader organizational rules from dev.
+
+**Merge Details:**
+- **Merge Commit:** c3e2d17
+- **Source Branch:** dev (b5e87a7)
+- **Target Branch:** dev-mas
+- **Conflict Resolution:** Single conflict in .gitignore - resolved by combining patterns to exclude generated benchmark artifacts while preserving config files
+- **Verification:** All checks passed - 579 tests passed, 107 skipped; ruff linter clean
+
+**Key Changes Merged from dev:**
+- Benchmark reporting infrastructure (dated YAAM vs LLM reports)
+- Provider updates (Gemini to gemini-3-flash-preview, groq/mistral configurations)
+- Documentation improvements (smoke run setup, Variant A wiring steps)
+- Skills loader utilities and SKILLBUILDER skill
+- GoodAI benchmark gap closures
+
+**Pre-merge Cleanup:**
+- Added comprehensive .gitignore rules for benchmark artifacts (commit c5aed26)
+- Patterns now exclude 72+ generated test definitions and persistence sessions
+- Preserves static test configs and example data in benchmarks/goodai-ltm-benchmark/data/
+
+**Files Affected:**
+- `.gitignore` (conflict resolved - combined patterns)
+- Documentation: AGENTS.MD, README.md, DEVLOG.md, GEMINI.MD, benchmark docs
+- Benchmark interfaces: gemini_interface.py, groq_interface.py, mistral_interface.py
+- Agent evaluation: agent_wrapper.py (minor import reorganization)
+- Configuration: pyproject.toml (added meilisearch dependency)
+
+### 2026-02-21 - ADR-011 Variant A Wiring: Skill-Selection-First + API Wall Trace Metadata 📊
+
+**Status:** ✅ Complete
+
+**Summary:**
+Completed the next ADR-011 Variant A step in the policy layer by making v1 routing
+`skill-selection`-first and exposing per-turn selection metadata at the API Wall response level.
+This improves benchmark observability and reproducibility without modifying mechanism/storage code.
+
+**Key Findings:**
+
+- Variant-scoped policy behavior can be activated cleanly from wrapper config by passing
+  `agent_variant` into `MemoryAgent`.
+- Returning response-level metadata from `/v1/chat/completions` enables direct grouping of
+  benchmark outcomes by selected skill without log scraping.
+
+**✅ What's Complete:**
+
+- `MemoryAgent` v1 routing now defaults to explicit executive-function flow (`skill-selection`)
+  unless an override (`skill_slug` / `selected_skill`) is provided in request metadata.
+- Skill body injection and `allowed-tools` preparation metadata remain active for v1 variants.
+- API Wall `ChatCompletionResponse` now includes `metadata`, including `skill_slug`,
+  `allowed_tools`, `gated_tool_names`, and per-turn timing fields.
+- Documentation progress updated in ADR-011 execution plan.
+
+**Key Artifacts (Added/Updated):**
+
+- `src/agents/memory_agent.py`
+- `src/evaluation/agent_wrapper.py`
+- `src/server.py`
+- `docs/plan/adr011-experiment-plan-agent-variants-skill-wiring.md`
+- `README.md`
+
+**Verification:**
+```bash
+./.venv/bin/ruff check .
+./.venv/bin/pytest tests/ -v
+```
+
+**❌ What's Missing (Next Steps):**
+
+- Implement Variant B hard runtime enforcement of `allowed-tools` (tool execution gate).
+
+### 2026-02-21 - Variant A Report Template: Skill-Level Aggregation Tables 📊
+
+**Status:** ✅ Complete
+
+**Summary:**
+Extended the GoodAI agent-variant report template with Variant A-specific analytics tables so
+benchmark outcomes can be analyzed by `skill_slug` using API Wall response metadata.
+
+**✅ What's Complete:**
+
+- Added per-skill aggregate table (`Turns`, share, score contribution).
+- Added per-skill latency/cost table (`llm_ms`, `storage_ms`, prompt/completion tokens).
+- Added per-skill error distribution table for failure taxonomy deltas.
+- Added explicit artifact slot for parsed API Wall metadata used in skill aggregation.
+
+**Key Artifacts (Added/Updated):**
+
+- `docs/reports/template-goodai-agent-variant-report.md`
+- `docs/reports/README.md`
+
+### 2026-02-21 - Variant A Smoke Prep: Dataset Run Modes + Topic Segmenter Resilience
+
+**Status:** ✅ Complete
+
+**Summary:**
+Captured how GoodAI datasets/configs map to generated task definitions for single-check, 5-question,
+and mixed runs; added a minimal 5-dataset smoke config for Variant A; and reduced false-alarm noise
+from topic segmentation when LLM structured output returns empty/non-JSON.
+
+**✅ What's Complete:**
+
+- Documented the historical run modes and definition generation behavior for the GoodAI runner.
+- Added a small, current-datasets-only smoke configuration: 5 datasets x 1 example.
+- Topic segmentation now degrades gracefully (fallback segment) without emitting an error-level log
+  on empty/non-JSON LLM responses.
+
+**Key Artifacts (Added/Updated):**
+
+- `src/memory/engines/topic_segmenter.py`
+- `benchmarks/goodai-ltm-benchmark/configurations/mas_variant_a_smoke_5.yml`
+- `docs/integrations/goodai-benchmark-setup.md`
+- `docs/runbooks/runbook-variant-a-smoke-macbook-to-skz.md`
+
+**Verification:**
+```bash
+./.venv/bin/ruff check .
+./.venv/bin/pytest tests/ -v
+```
+
+### 2026-02-21 - Variant A Fix: Stop Leaking Skill-Selection Planner Output
+
+**Status:** ✅ Complete
+
+**Summary:**
+Fixed Variant A behavior where the agent returned internal routing/planning text (e.g. `next_action:
+get_context_block(...)`) to the user, which breaks GoodAI benchmark tasks. Variant A now selects a
+policy-style skill prompt based on user intent and explicitly forbids user-visible routing/tool-plan
+output.
+
+**✅ What's Complete:**
+
+- `MemoryAgent` v1-min-skillwiring no longer defaults to `skill-selection`; it selects from a small
+  set of policy skills (roleplay, prospective memory, trigger rules, instruction formatting,
+  clandestine synthesis).
+- Added runtime skills that are behavioral (no tool-call recipes) so OpenAI-compatible chat
+  responses remain user-facing.
+- Verified local unit suite is still green.
+
+**Key Artifacts (Added/Updated):**
+
+- `src/agents/memory_agent.py`
+- `skills/roleplay-instruction-following/SKILL.md`
+- `skills/prospective-memory-followthrough/SKILL.md`
+- `skills/instruction-recall-and-formatting/SKILL.md`
+- `skills/triggered-response-conditions/SKILL.md`
+- `skills/clandestine-message-synthesis/SKILL.md`
+- `skills/README.md`
+
+**Verification:**
+```bash
+./.venv/bin/ruff check .
+./.venv/bin/pytest tests/ -v
+```
+
+### 2026-02-21 - Variant A Smoke Runs: Results + Failure Analysis
+
+**Status:** ⚠️ Blocked
+
+**Summary:**
+Executed multiple 5-dataset smoke runs against GoodAI LTM Benchmark for Variant A
+(`v1-min-skillwiring`) over the MacBook -> `skz-dev-lv` Redis tunnel setup. Behavioral correctness
+improved significantly (planner leakage fixed; Spy Meeting reached 1.0/1.0), but smoke is still
+blocked by:
+
+- `Prospective Memory` not reciting quote at the expected Nth response.
+- Benchmark process exiting non-zero due to missing HTML report template (`TemplateNotFound:
+  detailed_report.html`), despite results being written.
+
+**Report:**
+- `docs/reports/2026-02-21-variant-a-smoke-runs.md`
+
+### 2026-02-21 - Skills v1 Scaffolding + Offline-by-Default Tests + Skill Loader 📊
+
+**Status:** ✅ Complete
+
+**Summary:**
+Implemented an offline-by-default development harness for tests, added a Skills v1 store aligned
+with ADR-010 (Mechanism/Policy split and progressive disclosure), and introduced a minimal skills
+loader to support manual skill selection and toolset gating without introducing a router.
+
+**Key Findings:**
+
+- Integration/provider tests fail in sandboxed environments primarily due to network/socket
+  restrictions; therefore, network-dependent suites must be explicitly opt-in.
+- A minimal, dependency-free skills loader can provide progressive disclosure and tool gating while
+  keeping the policy surface versioned and legible.
+
+**✅ What's Complete:**
+
+- **Offline-by-default pytest policy:** Added a repo-level pytest policy to skip `integration`,
+  `slow`, and `llm_real` tests unless explicitly enabled via flags.
+- **Network test follow-up plan:** Documented how to run integration and real-provider tests on
+  network-enabled hosts and how to triage environment vs mechanism failures.
+- **Skills v1 store:** Added `skills/` with a template, a runtime skill inventory, and a separate
+  `skills/dev/` namespace for development-time authoring guidance.
+- **Executive Function skills:** Added skills for skill selection, retrieval-reasoning gap
+  mitigation, and knowledge lifecycle distillation.
+- **Mechanism boundary enforcement:** Added a structural test enforcing dependency direction for
+  `src/storage/` (no imports from policy layers).
+- **Minimal skills loader:** Implemented `src/skills/` helpers to list skills, load manifests/bodies,
+  and filter tools by `allowed-tools`.
+
+**Key Artifacts (Added/Updated):**
+
+- **Offline-by-default pytest policy:** `conftest.py`
+- **Network plan:** `docs/plan/plan-network-and-integration-tests.md`
+- **Skills store:** `skills/README.md`, `skills/_template/SKILL.md`, runtime skills under `skills/*`,
+  dev-time skills under `skills/dev/*`
+- **Boundary test:** `tests/test_mechanism_dependency_direction.py`
+- **Skills loader:** `src/skills/loader.py`, `src/skills/__init__.py`, `tests/test_skill_loader.py`
+
+**Verification:**
+```bash
+./.venv/bin/ruff check .
+./.venv/bin/pytest tests/ -q
+```
+
+**❌ What's Missing (Next Steps):**
+
+- **Manual injector wiring:** Integrate the loader into a runtime agent path (e.g., `MemoryAgent`)
+  to load a selected skill per turn and gate tool exposure to `allowed-tools` (no router).
+- **Maturity matrix:** Add a mechanism maturity report per adapter aligned to
+  `docs/specs/spec-mechanism-maturity-and-freeze.md` and tie gaps to evidence.
+
 ### 2026-02-18 - Agent-First Harness + Skills v1 Documentation & Guardrails ✅
 
 **Status:** ✅ Complete
@@ -27,6 +257,79 @@ instruction drift and reducing “layer jumping” by coding assistants during d
 preparing Skills as policy artifacts for runtime multi-agent systems.
 
 **✅ What's Complete:**
+
+### 2026-03-10 - Phoenix Option A/Option B Completion: Live Tool-Loop Evidence 📊
+
+**Status:** ✅ Complete
+
+**Summary:**
+Completed the March 10 Phoenix observability workstream across both Option A and Option B. The
+repository now has end-to-end evidence that the public API Wall can run controlled write-enabled
+memory experiments and that normal `v1-*` Gemini requests can execute tier tools while emitting
+live `yaam.tool.*` and nested retriever spans in Phoenix. The final live Option B evidence was
+collected only after fixing two Gemini-specific runtime issues in the manual tool loop: unsafe
+`.text` access for function-call-only responses and loss of Gemini 3 thought-signature state during
+follow-up turns.
+
+**Key Findings:**
+
+- Option A resolved the write-policy ambiguity by preserving benchmark-safe defaults while allowing
+   explicit `skip_l1_write = false` experiments through `POST /v1/chat/completions`.
+- Option B is now supported by live Phoenix evidence rather than only unit tests: trace
+   `1b92c7e7816e4226393d6146d6191259` confirmed
+   `yaam.api_wall.chat_completions -> yaam.agent.run_turn -> yaam.workflow.retrieve -> yaam.retriever.l2 -> yaam.tool.l2_search_facts -> yaam.retriever.l2`.
+- Gemini 3 manual function-calling requires preserving the full SDK response object across
+   follow-up turns; carrying forward only `response.candidates[0].content` is insufficient for live
+   thought-signature validation.
+
+**✅ What's Complete:**
+
+- Extended the normalized LLM provider contract with structured tool-call support and raw-response
+   carry-forward.
+- Implemented a bounded Gemini-first tool loop for `v1-*` `MemoryAgent` variants while preserving
+   baseline behavior.
+- Added focused regression tests for Gemini function-call-only responses and thought-signature-safe
+   follow-up turns.
+- Completed live Phoenix validation for both Option A and Option B and published dated evidence
+   reports.
+- Updated the Phoenix runbook and the active plan documents to reference the successful Option B
+   example trace.
+
+**Key Artifacts (Added/Updated):**
+
+- `src/llm/providers/base.py`
+- `src/llm/providers/gemini.py`
+- `src/agents/memory_agent.py`
+- `tests/utils/test_providers_gemini.py`
+- `tests/agents/test_memory_agent.py`
+- `docs/reports/2026-03-10-phoenix-option-a-write-enabled-api-wall-report.md`
+- `docs/reports/2026-03-10-phoenix-option-b-live-tool-loop-report.md`
+- `docs/runbooks/phoenix-experiment-reproducibility.md`
+- `docs/plan/2026-03-10-memoryagent-tool-calling-loop-plan.md`
+- `docs/plan/2026-03-10-yaam-glassbox-observability-gap-closure-plan.md`
+
+**Verification:**
+```bash
+./.venv/bin/ruff check .
+./.venv/bin/pytest tests/ -v
+```
+
+**Current Project Completion:**
+- **Phoenix normal-request tool observability**: 100% ✅ (`620 passed, 108 skipped`; live Option B
+   trace confirmed)
+
+**Evidence from Codebase:**
+```bash
+Phoenix project: mlm-mas-dev-phoenix-option-b-live-20260310-211012
+Successful trace: 1b92c7e7816e4226393d6146d6191259
+Confirmed live span chain:
+   yaam.api_wall.chat_completions
+   -> yaam.agent.run_turn
+   -> yaam.workflow.retrieve
+   -> yaam.retriever.l2
+   -> yaam.tool.l2_search_facts
+   -> yaam.retriever.l2
+```
 
 - **Instruction hierarchy alignment:** Reduced `AGENTS.MD` to a map + invariants and aligned
   `.github/copilot-instructions.md` and `.github/instructions/*` to avoid contradictory defaults.

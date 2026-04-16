@@ -31,6 +31,19 @@ If you observe a conflict, stop and ask the user to resolve it, then log the res
 6. **Mocking policy (tests):**
    - Use `pytest-mock` (`mocker` fixture). Do not import `unittest.mock` directly.
 
+## Clarifications for Codex (Sandbox + Network)
+
+These notes are **Codex-runtime-specific** (the Codex app/CLI may be sandboxed differently than
+VS Code or other agent runtimes).
+
+- **Network access:** Codex may require explicit user approval for networked commands.
+- **Allowed network usage (user-approved):**
+  - Local network access is allowed for DBMS connector integration tests.
+  - Public internet access is allowed for LLM provider tests/runtime calls.
+  - If you expect to exceed **10 requests/minute** to an LLM provider or **1000 requests/day**,
+    stop and ask first.
+- **Git operations:** some `git` commands may require explicit approval because they write to `.git/`.
+
 ## Repository Map (Progressive Disclosure)
 
 - Canonical harness rules: `AGENTS.MD`

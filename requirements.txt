@@ -36,9 +36,6 @@ sentence-transformers==3.0.1 # Used for creating high-quality sentence/text embe
 # Graph Store Client
 neo4j==5.22.0            # The official Python driver for the Neo4j graph database.
 
-# Search Store Client
-meilisearch==0.28.0      # The official Python client for the Meilisearch engine.
-
 # --- LLM Providers (ADR-006: Free-Tier Multi-Provider Strategy) ---
 
 # Google Gemini (Primary Provider)

@@ -94,6 +94,21 @@ def _init_phoenix_instrumentation() -> None:
         except Exception as e:
             logger.warning("Failed to instrument Google GenAI: %s", e)
 
+        # Explicitly instrument OpenAI SDK (which powers OpenRouter calls)
+        try:
+            from openinference.instrumentation.openai import OpenAIInstrumentor
+
+            instrumentor = OpenAIInstrumentor()
+            if not getattr(instrumentor, "_is_instrumented_by_opentelemetry", False):
+                instrumentor.instrument(tracer_provider=tracer_provider)
+                logger.info("OpenAI instrumentation enabled")
+        except ImportError:
+            logger.debug(
+                "openinference-instrumentation-openai not installed; OpenAI calls will not be traced"
+            )
+        except Exception as e:
+            logger.warning("Failed to instrument OpenAI: %s", e)
+
     except ImportError:
         logger.debug(
             "arize-phoenix not installed; run 'pip install arize-phoenix' to enable tracing"

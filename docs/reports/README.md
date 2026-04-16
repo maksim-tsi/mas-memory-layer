@@ -37,6 +37,19 @@ This directory contains technical reports, status updates, and debugging documen
 | [goodai_ltm_benchmark_reports_version-0.9_upto10feb2026.md](goodai_ltm_benchmark_reports_version-0.9_upto10feb2026.md) | Consolidated benchmark reports (version-0.9) |
 | [integration-tests-2025-11-12.md](integration-tests-2025-11-12.md) | Integration test results |
 | [goodai_ltm_benchmark_troubleshooting_upto10feb2026.md](goodai_ltm_benchmark_troubleshooting_upto10feb2026.md) | Consolidated benchmark troubleshooting notes |
+| [template-goodai-agent-variant-report.md](template-goodai-agent-variant-report.md) | Standard template for variant-based benchmark runs (ADR-011), including Variant A (`v1-min-skillwiring`) skill-level aggregation tables (`skill_slug`, latency/tokens, error distribution) |
+| [template-goodai-agent-variant-report-groq.md](template-goodai-agent-variant-report-groq.md) | Groq-focused template for benchmark runs routed to `openai/gpt-oss-120b`, including explicit attribution requirements for FactExtractor/TopicSegmenter routing |
+| [checklist-goodai-smoke5-groq-provider.md](checklist-goodai-smoke5-groq-provider.md) | Concrete run checklist for Smoke5 runs using Groq routing, including provider-check gates and required artifact collection |
+| [checklist-goodai-smoke5-gemini-mistral-parity.md](checklist-goodai-smoke5-gemini-mistral-parity.md) | Minimal parity checklist to replicate Smoke5 runs under Gemini and Mistral with the same tracking requirements as Groq |
+| [2026-02-22-goodai-smoke5-groq-routing-20260222_141622.md](2026-02-22-goodai-smoke5-groq-routing-20260222_141622.md) | Smoke5 run routed to Groq (`openai/gpt-oss-120b`), with artifact-level provider/model attribution and per-turn timing decomposition |
+| [2026-02-21-variant-a-smoke-runs.md](2026-02-21-variant-a-smoke-runs.md) | Variant A smoke run attempts (5 datasets x 1 example), observed failures, mitigations, and next iterations |
+
+### Phoenix & Observability Validation
+| Report | Description |
+|--------|-------------|
+| [2026-03-10-phoenix-retriever-live-validation-report.md](2026-03-10-phoenix-retriever-live-validation-report.md) | First live Phoenix validation of the API-Wall retriever span chain |
+| [2026-03-10-phoenix-option-a-write-enabled-api-wall-report.md](2026-03-10-phoenix-option-a-write-enabled-api-wall-report.md) | Controlled write-enabled API-Wall validation preserving benchmark-safe defaults |
+| [2026-03-10-phoenix-option-b-live-tool-loop-report.md](2026-03-10-phoenix-option-b-live-tool-loop-report.md) | Successful live Option B validation of normal-request tool execution and nested retriever spans |
 
 ## Naming Conventions
 

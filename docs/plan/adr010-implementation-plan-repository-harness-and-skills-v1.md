@@ -60,6 +60,15 @@ This plan focuses on the remaining work to realize Skills v1 and enforce boundar
 
 ### Workstream A — Harness Hardening (Drift-Resistant Instructions)
 
+**A0. Establish a default “local-only” test mode (development harness)**
+
+- Default execution of `./.venv/bin/pytest tests/ -v` MUST succeed in environments without
+  connectivity to external services (including provider APIs and LAN-hosted DBs).
+- Integration tests and real-provider tests MUST be explicitly enabled via command-line flags,
+  to avoid accidental network access from agent sandboxes and to reduce false-negative CI signals.
+- The follow-up debugging plan for networked environments is tracked in
+  `docs/plan/plan-network-and-integration-tests.md`.
+
 **A1. Expand instruction-drift checks (optional, incremental)**
 
 - Extend `tests/test_instruction_consistency.py` if new drift patterns emerge (e.g., “activate venv”).

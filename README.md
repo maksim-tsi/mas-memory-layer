@@ -75,7 +75,7 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 - Successfully extracted 7 facts: relationships, entities, constraints, mentions
 - Impact scoring: 0.50-0.80 (high-impact facts correctly identified)
 - Zero JSON truncation errors (harmony format issue eliminated)
-- Model routing: gemini-3-flash-preview automatically routed to google provider
+- Model routing: gemini-2.5-flash-lite and gemini-3-flash-preview automatically routed to google provider
 
 **Key Benefits**:
 - ✅ Eliminates JSON truncation from harmony-format models (openai/gpt-oss-120b)
@@ -120,6 +120,19 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 - Refresh Gemini API key and re-run provider connectivity scripts; record outcomes in [docs/llm_provider_guide.md](docs/llm_provider_guide.md).
 
 ## Developer Updates
+
+### 2026-02-21 — ADR-011 Variant A Wiring (Skill-Selection-First) + API Wall Trace Metadata
+
+Completed the next Variant A milestone for benchmark-ready policy wiring:
+- `MemoryAgent` now uses an explicit `skill-selection`-first flow for `v1-*` variants, with
+  optional metadata override (`skill_slug` / `selected_skill`) for controlled experiments.
+- API Wall `/v1/chat/completions` now returns response `metadata`, including selected skill
+  fields (`skill_slug`, `allowed_tools`, `gated_tool_names`) and per-turn timing fields, so
+  GoodAI runs can be grouped directly by skill without additional log parsing.
+- Wrapper passes `agent_variant` into agent configuration to keep behavior variant-scoped.
+
+See `DEVLOG.md` (2026-02-21 entries) and
+`docs/plan/adr011-experiment-plan-agent-variants-skill-wiring.md` for execution tracking.
 
 ### 2026-01-27 — Phase 5 Wrapper + GoodAI Interfaces Implemented
 

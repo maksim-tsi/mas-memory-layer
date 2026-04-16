@@ -34,6 +34,89 @@ else:
 
 from src.agents.runtime import MASToolRuntime
 from src.memory.graph_templates import get_template, validate_and_execute_template
+from src.observability import set_span_attributes, set_span_error, start_span
+
+
+def _get_memory_component(memory_system: Any, *attribute_names: str) -> Any | None:
+    """Resolve a memory-system component across current and legacy attribute names."""
+    for attribute_name in attribute_names:
+        component = getattr(memory_system, attribute_name, None)
+        if component is not None:
+            return component
+    return None
+
+
+def _fact_to_retrieval_document(fact: Any) -> dict[str, Any]:
+    """Serialize an L2 fact into retriever evidence format."""
+    return {
+        "document.id": f"L2:{getattr(fact, 'fact_id', 'unknown')}",
+        "document.content": getattr(fact, "content", ""),
+        "document.score": getattr(fact, "ciar_score", None),
+        "document.metadata": {
+            "tier": "L2",
+            "session_id": getattr(fact, "session_id", None),
+            "fact_type": getattr(fact, "fact_type", None),
+            "access_count": getattr(fact, "access_count", None),
+        },
+    }
+
+
+def _episode_to_retrieval_document(episode: Any) -> dict[str, Any]:
+    """Serialize an L3 episode into retriever evidence format."""
+    return {
+        "document.id": f"L3:{getattr(episode, 'episode_id', 'unknown')}",
+        "document.content": getattr(episode, "summary", ""),
+        "document.score": float(
+            getattr(episode, "metadata", {}).get(
+                "similarity_score", getattr(episode, "importance_score", 0.0)
+            )
+        ),
+        "document.metadata": {
+            "tier": "L3",
+            "session_id": getattr(episode, "session_id", None),
+            "fact_count": getattr(episode, "fact_count", None),
+            "topics": getattr(episode, "topics", []),
+        },
+    }
+
+
+def _knowledge_to_retrieval_document(document: Any) -> dict[str, Any]:
+    """Serialize an L4 knowledge document into retriever evidence format."""
+    return {
+        "document.id": f"L4:{getattr(document, 'knowledge_id', 'unknown')}",
+        "document.content": getattr(document, "content", ""),
+        "document.score": float(
+            getattr(document, "metadata", {}).get(
+                "search_score", getattr(document, "confidence_score", 0.0)
+            )
+        ),
+        "document.metadata": {
+            "tier": "L4",
+            "session_id": getattr(document, "session_id", None),
+            "title": getattr(document, "title", None),
+            "knowledge_type": getattr(document, "knowledge_type", None),
+            "tags": getattr(document, "tags", []),
+        },
+    }
+
+
+def _tool_attributes(session_id: str, tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Build shared TOOL span attributes."""
+    return {
+        "session.id": session_id,
+        "input.value": payload,
+        "yaam.tool.name": tool_name,
+    }
+
+
+def _record_tool_output(span: Any, output_value: str, results_count: int | None = None) -> str:
+    """Attach tool output metadata before returning the JSON payload."""
+    attributes: dict[str, Any] = {"output.value": output_value}
+    if results_count is not None:
+        attributes["yaam.results_count"] = results_count
+    set_span_attributes(span, attributes)
+    return output_value
+
 
 # ============================================================================
 # Input Schemas (Pydantic Models)
@@ -113,61 +196,97 @@ async def l2_search_facts(
     try:
         mas_runtime = MASToolRuntime(runtime)
         session_id = mas_runtime.get_session_id()
-        memory_system = mas_runtime.get_memory_system()
+        with start_span(
+            tracer_name="yaam.agent.tools",
+            span_name="yaam.tool.l2_search_facts",
+            kind="TOOL",
+            attributes=_tool_attributes(
+                session_id,
+                "l2_search_facts",
+                {"query": query, "min_ciar": min_ciar, "limit": limit},
+            ),
+        ) as tool_span:
+            memory_system = mas_runtime.get_memory_system()
 
-        if not memory_system:
-            return "Error: Memory system not available in runtime context"
+            if not memory_system:
+                return _record_tool_output(
+                    tool_span, "Error: Memory system not available in runtime context"
+                )
 
-        await mas_runtime.stream_status(f"Searching L2 Working Memory for: {query}")
+            await mas_runtime.stream_status(f"Searching L2 Working Memory for: {query}")
 
-        # Get L2 tier
-        l2_tier = memory_system.working_memory
-        if not l2_tier:
-            return "Error: L2 Working Memory tier not initialized"
+            l2_tier = _get_memory_component(memory_system, "l2_tier", "working_memory")
+            if not l2_tier:
+                return _record_tool_output(
+                    tool_span, "Error: L2 Working Memory tier not initialized"
+                )
 
-        # Execute tsvector search
-        facts = await l2_tier.search_facts(
-            query=query, session_id=session_id, min_ciar=min_ciar, limit=limit
-        )
-
-        # Format results
-        if not facts:
-            return json.dumps(
-                {
-                    "query": query,
-                    "session_id": session_id,
-                    "results_count": 0,
-                    "message": "No facts found matching query with minimum CIAR threshold",
-                    "facts": [],
+            with start_span(
+                tracer_name="yaam.agent.tools",
+                span_name="yaam.retriever.l2",
+                kind="RETRIEVER",
+                attributes={
+                    "session.id": session_id,
+                    "input.value": query,
+                    "yaam.tool.name": "l2_search_facts",
+                    "yaam.retrieval.limit": limit,
                 },
-                indent=2,
+            ) as retriever_span:
+                facts = await l2_tier.search_facts(
+                    query=query, session_id=session_id, min_ciar=min_ciar, limit=limit
+                )
+                set_span_attributes(
+                    retriever_span,
+                    {
+                        "retrieval.documents": [
+                            _fact_to_retrieval_document(fact) for fact in facts
+                        ],
+                        "yaam.retrieval.result_count": len(facts),
+                        "yaam.ciar.threshold": min_ciar or l2_tier.ciar_threshold,
+                    },
+                )
+
+            if not facts:
+                output = json.dumps(
+                    {
+                        "query": query,
+                        "session_id": session_id,
+                        "results_count": 0,
+                        "message": "No facts found matching query with minimum CIAR threshold",
+                        "facts": [],
+                    },
+                    indent=2,
+                )
+                return _record_tool_output(tool_span, output, results_count=0)
+
+            results = {
+                "query": query,
+                "session_id": session_id,
+                "min_ciar_threshold": min_ciar or l2_tier.ciar_threshold,
+                "results_count": len(facts),
+                "facts": [
+                    {
+                        "fact_id": f.fact_id,
+                        "content": f.content,
+                        "fact_type": f.fact_type.value
+                        if hasattr(f.fact_type, "value")
+                        else f.fact_type,
+                        "ciar_score": round(f.ciar_score, 4),
+                        "certainty": round(f.certainty, 4),
+                        "impact": round(f.impact, 4),
+                        "created_at": f.created_at.isoformat() if f.created_at else None,
+                        "access_count": f.access_count,
+                    }
+                    for f in facts
+                ],
+            }
+
+            return _record_tool_output(
+                tool_span, json.dumps(results, indent=2), results_count=len(facts)
             )
 
-        results = {
-            "query": query,
-            "session_id": session_id,
-            "min_ciar_threshold": min_ciar or l2_tier.ciar_threshold,
-            "results_count": len(facts),
-            "facts": [
-                {
-                    "fact_id": f.fact_id,
-                    "content": f.content,
-                    "fact_type": f.fact_type.value
-                    if hasattr(f.fact_type, "value")
-                    else f.fact_type,
-                    "ciar_score": round(f.ciar_score, 4),
-                    "certainty": round(f.certainty, 4),
-                    "impact": round(f.impact, 4),
-                    "created_at": f.created_at.isoformat() if f.created_at else None,
-                    "access_count": f.access_count,
-                }
-                for f in facts
-            ],
-        }
-
-        return json.dumps(results, indent=2)
-
     except Exception as e:
+        set_span_error(locals().get("tool_span"), e)
         return f"Error searching L2 facts: {e!s}"
 
 
@@ -197,45 +316,65 @@ async def l3_query_graph(
     try:
         mas_runtime = MASToolRuntime(runtime)
         session_id = mas_runtime.get_session_id()
-        memory_system = mas_runtime.get_memory_system()
+        with start_span(
+            tracer_name="yaam.agent.tools",
+            span_name="yaam.tool.l3_query_graph",
+            kind="TOOL",
+            attributes=_tool_attributes(
+                session_id,
+                "l3_query_graph",
+                {"template_name": template_name, "parameters": parameters},
+            ),
+        ) as tool_span:
+            memory_system = mas_runtime.get_memory_system()
 
-        if not memory_system:
-            return "Error: Memory system not available in runtime context"
+            if not memory_system:
+                return _record_tool_output(
+                    tool_span, "Error: Memory system not available in runtime context"
+                )
 
-        await mas_runtime.stream_status(f"Executing Neo4j template: {template_name}")
+            await mas_runtime.stream_status(f"Executing Neo4j template: {template_name}")
 
-        # Validate template and parameters
-        is_valid, error_msg, cypher_query = validate_and_execute_template(
-            name=template_name, params=parameters
-        )
+            is_valid, error_msg, cypher_query = validate_and_execute_template(
+                name=template_name, params=parameters
+            )
 
-        if not is_valid:
-            return f"Error: {error_msg}"
+            if not is_valid:
+                return _record_tool_output(tool_span, f"Error: {error_msg}")
 
-        # Get L3 tier
-        l3_tier = memory_system.episodic_memory
-        if not l3_tier:
-            return "Error: L3 Episodic Memory tier not initialized"
+            l3_tier = _get_memory_component(memory_system, "l3_tier", "episodic_memory")
+            if not l3_tier:
+                return _record_tool_output(
+                    tool_span, "Error: L3 Episodic Memory tier not initialized"
+                )
 
-        # Get template for parameter merging
-        template = get_template(template_name)
-        merged_params = template.merge_params(parameters)
+            template = get_template(template_name)
+            merged_params = template.merge_params(parameters)
+            results = await l3_tier.query_graph(cypher_query=cypher_query, parameters=merged_params)
 
-        # Execute query
-        results = await l3_tier.query_graph(cypher_query=cypher_query, parameters=merged_params)
+            response = {
+                "template": template_name,
+                "parameters": merged_params,
+                "session_id": session_id,
+                "results_count": len(results),
+                "results": results,
+            }
 
-        # Format response
-        response = {
-            "template": template_name,
-            "parameters": merged_params,
-            "session_id": session_id,
-            "results_count": len(results),
-            "results": results,
-        }
-
-        return json.dumps(response, indent=2, default=str)
+            set_span_attributes(
+                tool_span,
+                {
+                    "yaam.graph.template": template_name,
+                    "yaam.results_count": len(results),
+                },
+            )
+            return _record_tool_output(
+                tool_span,
+                json.dumps(response, indent=2, default=str),
+                results_count=len(results),
+            )
 
     except Exception as e:
+        set_span_error(locals().get("tool_span"), e)
         return f"Error querying L3 graph: {e!s}"
 
 
@@ -265,32 +404,112 @@ async def l3_search_episodes(
     try:
         mas_runtime = MASToolRuntime(runtime)
         session_id = mas_runtime.get_session_id()
-        memory_system = mas_runtime.get_memory_system()
+        with start_span(
+            tracer_name="yaam.agent.tools",
+            span_name="yaam.tool.l3_search_episodes",
+            kind="TOOL",
+            attributes=_tool_attributes(
+                session_id,
+                "l3_search_episodes",
+                {"query": query, "limit": limit, "filters": filters},
+            ),
+        ) as tool_span:
+            memory_system = mas_runtime.get_memory_system()
 
-        if not memory_system:
-            return "Error: Memory system not available in runtime context"
+            if not memory_system:
+                return _record_tool_output(
+                    tool_span, "Error: Memory system not available in runtime context"
+                )
 
-        await mas_runtime.stream_status(f"Searching L3 episodes for: {query}")
+            await mas_runtime.stream_status(f"Searching L3 episodes for: {query}")
 
-        # Get L3 tier
-        l3_tier = memory_system.episodic_memory
-        if not l3_tier:
-            return "Error: L3 Episodic Memory tier not initialized"
+            l3_tier = _get_memory_component(memory_system, "l3_tier", "episodic_memory")
+            if not l3_tier:
+                return _record_tool_output(
+                    tool_span, "Error: L3 Episodic Memory tier not initialized"
+                )
 
-        # Note: This requires embedding generation which is not yet implemented
-        # For now, return a placeholder error
-        return json.dumps(
-            {
-                "error": "Episode embedding search not yet implemented",
-                "message": "This tool requires LLM embedding generation which will be added in Phase 3 Week 4",
+            llm_client = _get_memory_component(memory_system, "llm_client")
+            if not llm_client:
+                return _record_tool_output(
+                    tool_span, "Error: LLM client not available for L3 episode search"
+                )
+
+            search_filters = dict(filters or {})
+            search_filters["session_id"] = session_id
+
+            with start_span(
+                tracer_name="yaam.agent.tools",
+                span_name="yaam.retriever.l3",
+                kind="RETRIEVER",
+                attributes={
+                    "session.id": session_id,
+                    "input.value": query,
+                    "yaam.tool.name": "l3_search_episodes",
+                    "yaam.retrieval.limit": limit,
+                },
+            ) as retriever_span:
+                query_embedding = await llm_client.get_embedding(query)
+                episodes = await l3_tier.search_similar(
+                    query_embedding=query_embedding,
+                    limit=limit,
+                    filters=search_filters,
+                )
+                set_span_attributes(
+                    retriever_span,
+                    {
+                        "retrieval.documents": [
+                            _episode_to_retrieval_document(episode) for episode in episodes
+                        ],
+                        "yaam.retrieval.result_count": len(episodes),
+                    },
+                )
+
+            if not episodes:
+                output = json.dumps(
+                    {
+                        "query": query,
+                        "session_id": session_id,
+                        "filters": search_filters,
+                        "results_count": 0,
+                        "message": "No similar episodes found",
+                        "episodes": [],
+                    },
+                    indent=2,
+                )
+                return _record_tool_output(tool_span, output, results_count=0)
+
+            results = {
                 "query": query,
                 "session_id": session_id,
-                "workaround": "Use l3_query_graph with get_related_episodes template for now",
-            },
-            indent=2,
-        )
+                "filters": search_filters,
+                "results_count": len(episodes),
+                "episodes": [
+                    {
+                        "episode_id": episode.episode_id,
+                        "summary": episode.summary,
+                        "narrative": episode.narrative,
+                        "fact_count": episode.fact_count,
+                        "importance_score": round(episode.importance_score, 4),
+                        "similarity_score": round(
+                            float(episode.metadata.get("similarity_score", 0.0)), 4
+                        ),
+                        "topics": episode.topics,
+                        "time_window_start": episode.time_window_start.isoformat(),
+                        "time_window_end": episode.time_window_end.isoformat(),
+                    }
+                    for episode in episodes
+                ],
+            }
+
+            return _record_tool_output(
+                tool_span,
+                json.dumps(results, indent=2),
+                results_count=len(episodes),
+            )
 
     except Exception as e:
+        set_span_error(locals().get("tool_span"), e)
         return f"Error searching L3 episodes: {e!s}"
 
 
@@ -318,59 +537,100 @@ async def l4_search_knowledge(
     """
     try:
         mas_runtime = MASToolRuntime(runtime)
-        memory_system = mas_runtime.get_memory_system()
+        session_id = mas_runtime.get_session_id()
+        with start_span(
+            tracer_name="yaam.agent.tools",
+            span_name="yaam.tool.l4_search_knowledge",
+            kind="TOOL",
+            attributes=_tool_attributes(
+                session_id,
+                "l4_search_knowledge",
+                {"query": query, "filters": filters, "limit": limit},
+            ),
+        ) as tool_span:
+            memory_system = mas_runtime.get_memory_system()
 
-        if not memory_system:
-            return "Error: Memory system not available in runtime context"
+            if not memory_system:
+                return _record_tool_output(
+                    tool_span, "Error: Memory system not available in runtime context"
+                )
 
-        await mas_runtime.stream_status(f"Searching L4 knowledge base for: {query}")
+            await mas_runtime.stream_status(f"Searching L4 knowledge base for: {query}")
 
-        # Get L4 tier
-        l4_tier = memory_system.semantic_memory
-        if not l4_tier:
-            return "Error: L4 Semantic Memory tier not initialized"
+            l4_tier = _get_memory_component(memory_system, "l4_tier", "semantic_memory")
+            if not l4_tier:
+                return _record_tool_output(
+                    tool_span, "Error: L4 Semantic Memory tier not initialized"
+                )
 
-        # Execute search
-        documents = await l4_tier.search(query_text=query, filters=filters, limit=limit)
-
-        # Format results
-        if not documents:
-            return json.dumps(
-                {
-                    "query": query,
-                    "filters": filters,
-                    "results_count": 0,
-                    "message": "No knowledge documents found matching query",
-                    "documents": [],
+            with start_span(
+                tracer_name="yaam.agent.tools",
+                span_name="yaam.retriever.l4",
+                kind="RETRIEVER",
+                attributes={
+                    "session.id": session_id,
+                    "input.value": query,
+                    "yaam.tool.name": "l4_search_knowledge",
+                    "yaam.retrieval.limit": limit,
                 },
-                indent=2,
+            ) as retriever_span:
+                documents = await l4_tier.search(query_text=query, filters=filters, limit=limit)
+                set_span_attributes(
+                    retriever_span,
+                    {
+                        "retrieval.documents": [
+                            _knowledge_to_retrieval_document(doc) for doc in documents
+                        ],
+                        "yaam.retrieval.result_count": len(documents),
+                    },
+                )
+
+            if not documents:
+                output = json.dumps(
+                    {
+                        "query": query,
+                        "filters": filters,
+                        "results_count": 0,
+                        "message": "No knowledge documents found matching query",
+                        "documents": [],
+                    },
+                    indent=2,
+                )
+                return _record_tool_output(tool_span, output, results_count=0)
+
+            results = {
+                "query": query,
+                "filters": filters,
+                "results_count": len(documents),
+                "documents": [
+                    {
+                        "knowledge_id": doc.knowledge_id,
+                        "title": doc.title,
+                        "content": doc.content[:500] + "..."
+                        if len(doc.content) > 500
+                        else doc.content,
+                        "knowledge_type": doc.knowledge_type.value
+                        if hasattr(doc.knowledge_type, "value")
+                        else doc.knowledge_type,
+                        "confidence_score": round(doc.confidence_score, 4),
+                        "search_score": round(float(doc.metadata.get("search_score", 0.0)), 4),
+                        "episode_count": doc.episode_count,
+                        "category": doc.category,
+                        "tags": doc.tags,
+                        "distilled_at": doc.distilled_at.isoformat() if doc.distilled_at else None,
+                    }
+                    for doc in documents
+                ],
+            }
+
+            return _record_tool_output(
+                tool_span,
+                json.dumps(results, indent=2),
+                results_count=len(documents),
             )
 
-        results = {
-            "query": query,
-            "filters": filters,
-            "results_count": len(documents),
-            "documents": [
-                {
-                    "knowledge_id": doc.knowledge_id,
-                    "title": doc.title,
-                    "content": doc.content[:500] + "..." if len(doc.content) > 500 else doc.content,
-                    "knowledge_type": doc.knowledge_type.value
-                    if hasattr(doc.knowledge_type, "value")
-                    else doc.knowledge_type,
-                    "confidence_score": round(doc.confidence_score, 4),
-                    "episode_count": doc.episode_count,
-                    "category": doc.category,
-                    "tags": doc.tags,
-                    "created_at": doc.created_at.isoformat() if doc.created_at else None,
-                }
-                for doc in documents
-            ],
-        }
-
-        return json.dumps(results, indent=2)
-
     except Exception as e:
+        set_span_error(locals().get("tool_span"), e)
         return f"Error searching L4 knowledge: {e!s}"
 
 

@@ -4,20 +4,21 @@ import json
 import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import redis
 from pydantic import BaseModel, Field, ValidationError
 
+from src.llm.client import LLMClient
+from src.memory.artifacts.repository import ArtifactRepository
+from src.memory.artifacts.service import ArtifactService
 from src.memory.engines.consolidation_engine import ConsolidationEngine
 from src.memory.engines.distillation_engine import DistillationEngine
 from src.memory.engines.promotion_engine import PromotionEngine
 from src.memory.knowledge_store_manager import KnowledgeStoreManager
 from src.memory.models import (
     ContextBlock,
-    Episode,
     Fact,
-    KnowledgeDocument,
     SearchWeights,
 )
 from src.memory.tiers import (
@@ -26,6 +27,7 @@ from src.memory.tiers import (
     SemanticMemoryTier,
     WorkingMemoryTier,
 )
+from src.observability import set_span_attributes, set_span_error, start_span
 
 # --- Data Schemas for Operating Memory (Data Contracts) ---
 
@@ -81,7 +83,7 @@ class HybridMemorySystem(ABC):
     @abstractmethod
     def query_knowledge(
         self,
-        store_type: Literal["vector", "graph", "search"],
+        store_type: Literal["vector", "graph"],
         query_text: str,
         top_k: int = 5,
         filters: dict[str, Any] | None = None,
@@ -96,14 +98,12 @@ class HybridMemorySystem(ABC):
         pass
 
     @abstractmethod
-    async def run_consolidation_cycle(self, session_id: str) -> list[Episode]:
+    async def run_consolidation_cycle(self, session_id: str) -> dict[str, Any]:
         """Execute L2→L3 consolidation cycle."""
         pass
 
     @abstractmethod
-    async def run_distillation_cycle(
-        self, session_id: str | None = None
-    ) -> list[KnowledgeDocument]:
+    async def run_distillation_cycle(self, session_id: str | None = None) -> dict[str, Any]:
         """Execute L3→L4 distillation cycle."""
         pass
 
@@ -139,6 +139,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
         self,
         redis_client: redis.StrictRedis,
         knowledge_manager: KnowledgeStoreManager,
+        llm_client: LLMClient | None = None,
         l1_tier: ActiveContextTier | None = None,
         l2_tier: WorkingMemoryTier | None = None,
         l3_tier: EpisodicMemoryTier | None = None,
@@ -153,6 +154,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
         Args:
             redis_client: Redis client for Operating Memory
             knowledge_manager: Facade for persistent knowledge stores
+            llm_client: Optional LLM client used for embedding-backed retrieval
             l1_tier: Active Context tier (L1) - optional for backward compatibility
             l2_tier: Working Memory tier (L2) - optional for backward compatibility
             l3_tier: Episodic Memory tier (L3) - optional for backward compatibility
@@ -172,6 +174,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
 
         # --- Persistent Knowledge Layer Client ---
         self.knowledge_manager = knowledge_manager
+        self.llm_client = llm_client
 
         # --- Memory Tiers ---
         self.l1_tier = l1_tier
@@ -183,6 +186,119 @@ class UnifiedMemorySystem(HybridMemorySystem):
         self.promotion_engine = promotion_engine
         self.consolidation_engine = consolidation_engine
         self.distillation_engine = distillation_engine
+        self.artifact_service: ArtifactService | None = None
+        self.artifacts: ArtifactService | None = None
+        if self.l3_tier and getattr(self.l3_tier, "neo4j", None):
+            self.artifact_service = ArtifactService(
+                ArtifactRepository(
+                    neo4j_adapter=self.l3_tier.neo4j,
+                    l1_tier=self.l1_tier,
+                    l2_tier=self.l2_tier,
+                    l4_tier=self.l4_tier,
+                )
+            )
+            self.artifacts = self.artifact_service
+
+    @staticmethod
+    def _normalize_score(score: float, min_score: float, max_score: float) -> float:
+        """Normalize a score to the unit interval using min-max normalization."""
+        score_range = max_score - min_score
+        if score_range <= 0:
+            return 0.5
+        return (score - min_score) / score_range
+
+    @staticmethod
+    def _fact_to_retrieval_document(fact: Any) -> dict[str, Any]:
+        """Serialize an L2 fact into retriever evidence format."""
+        fact_id = getattr(fact, "fact_id", None) or "unknown"
+        return {
+            "document.id": f"L2:{fact_id}",
+            "document.content": getattr(fact, "content", ""),
+            "document.score": getattr(fact, "ciar_score", None),
+            "document.metadata": {
+                "tier": "L2",
+                "session_id": getattr(fact, "session_id", None),
+                "fact_type": getattr(fact, "fact_type", None),
+                "ciar_score": getattr(fact, "ciar_score", None),
+                "certainty": getattr(fact, "certainty", None),
+                "impact": getattr(fact, "impact", None),
+                "created_at": getattr(
+                    getattr(fact, "created_at", None), "isoformat", lambda: None
+                )(),
+                "extracted_at": getattr(
+                    getattr(fact, "extracted_at", None), "isoformat", lambda: None
+                )(),
+            },
+        }
+
+    @staticmethod
+    def _episode_to_retrieval_document(episode: Any) -> dict[str, Any]:
+        """Serialize an L3 episode into retriever evidence format."""
+        similarity_score = float(
+            getattr(episode, "metadata", {}).get(
+                "similarity_score", getattr(episode, "importance_score", 0.0)
+            )
+        )
+        episode_id = getattr(episode, "episode_id", None) or "unknown"
+        return {
+            "document.id": f"L3:{episode_id}",
+            "document.content": getattr(episode, "summary", ""),
+            "document.score": similarity_score,
+            "document.metadata": {
+                "tier": "L3",
+                "session_id": getattr(episode, "session_id", None),
+                "fact_count": getattr(episode, "fact_count", None),
+                "importance_score": getattr(episode, "importance_score", None),
+                "topics": getattr(episode, "topics", []),
+                "consolidated_at": getattr(
+                    getattr(episode, "consolidated_at", None), "isoformat", lambda: None
+                )(),
+            },
+        }
+
+    @staticmethod
+    def _knowledge_to_retrieval_document(document: Any) -> dict[str, Any]:
+        """Serialize an L4 knowledge document into retriever evidence format."""
+        search_score = float(
+            getattr(document, "metadata", {}).get(
+                "search_score", getattr(document, "confidence_score", 0.0)
+            )
+        )
+        knowledge_id = getattr(document, "knowledge_id", None) or "unknown"
+        return {
+            "document.id": f"L4:{knowledge_id}",
+            "document.content": getattr(document, "content", ""),
+            "document.score": search_score,
+            "document.metadata": {
+                "tier": "L4",
+                "session_id": getattr(document, "session_id", None),
+                "title": getattr(document, "title", None),
+                "knowledge_type": getattr(document, "knowledge_type", None),
+                "confidence_score": getattr(document, "confidence_score", None),
+                "tags": getattr(document, "tags", []),
+                "distilled_at": getattr(
+                    getattr(document, "distilled_at", None), "isoformat", lambda: None
+                )(),
+            },
+        }
+
+    async def _query_l3_episodes(self, session_id: str, query: str, limit: int) -> list[Any]:
+        """Run query-conditioned L3 retrieval when episodic memory is configured."""
+        if not self.l3_tier or not self.llm_client:
+            return []
+
+        query_embedding = await self.llm_client.get_embedding(query)
+        return await self.l3_tier.search_similar(
+            query_embedding=query_embedding,
+            limit=limit,
+            filters={"session_id": session_id},
+        )
+
+    async def _query_l4_documents(self, query: str, limit: int) -> list[Any]:
+        """Run query-conditioned L4 retrieval when semantic memory is configured."""
+        if not self.l4_tier:
+            return []
+        return await self.l4_tier.search(query_text=query, limit=limit)
 
     # --- Private Key Helpers for Redis ---
     def _get_personal_key(self, agent_id: str) -> str:
@@ -241,7 +357,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
     # --- Persistent Knowledge Implementation (Delegates to KnowledgeStoreManager) ---
     def query_knowledge(
         self,
-        store_type: Literal["vector", "graph", "search"],
+        store_type: Literal["vector", "graph"],
         query_text: str,
         top_k: int = 5,
         filters: dict[str, Any] | None = None,
@@ -275,7 +391,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
         facts = await self.promotion_engine.promote_session(session_id)
         return facts
 
-    async def run_consolidation_cycle(self, session_id: str) -> list[Episode]:
+    async def run_consolidation_cycle(self, session_id: str) -> dict[str, Any]:
         """
         Execute L2→L3 consolidation cycle.
 
@@ -283,10 +399,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
             session_id: Session to consolidate facts from
 
         Returns:
-            List of Episodes created in L3
-
-        Raises:
-            RuntimeError: If consolidation engine or required tiers not configured
+            Dict with consolidation statistics
         """
         if not self.consolidation_engine:
             raise RuntimeError("ConsolidationEngine not configured")
@@ -294,12 +407,9 @@ class UnifiedMemorySystem(HybridMemorySystem):
             raise RuntimeError("L2 and L3 tiers required for consolidation")
 
         # Run consolidation engine
-        episodes = await self.consolidation_engine.consolidate_session(session_id)
-        return episodes
+        return await self.consolidation_engine.process_session(session_id)
 
-    async def run_distillation_cycle(
-        self, session_id: str | None = None
-    ) -> list[KnowledgeDocument]:
+    async def run_distillation_cycle(self, session_id: str | None = None) -> dict[str, Any]:
         """
         Execute L3→L4 distillation cycle.
 
@@ -307,10 +417,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
             session_id: Optional session filter (None = global distillation)
 
         Returns:
-            List of KnowledgeDocuments created in L4
-
-        Raises:
-            RuntimeError: If distillation engine or required tiers not configured
+            Dict with distillation statistics
         """
         if not self.distillation_engine:
             raise RuntimeError("DistillationEngine not configured")
@@ -318,11 +425,59 @@ class UnifiedMemorySystem(HybridMemorySystem):
             raise RuntimeError("L3 and L4 tiers required for distillation")
 
         # Run distillation engine
+        # Run distillation engine
         if session_id:
-            knowledge_docs = await self.distillation_engine.distill_session(session_id)
+            return await self.distillation_engine.distill(session_id=session_id)
         else:
-            knowledge_docs = await self.distillation_engine.distill_global()
-        return knowledge_docs
+            return await self.distillation_engine.distill()
+
+    async def handle_external_episode(
+        self, session_id: str, agent_id: str, final_state: dict[str, Any], metadata: dict[str, Any]
+    ) -> None:
+        """
+        Process a completed reasoning episode from an external cognitive architecture.
+
+        Stores the final state directly into L2 Working Memory and triggers an immediate
+        consolidation cycle to move it into L3 Episodic Memory, bypassing L1 caching.
+        """
+        if not self.l2_tier:
+            raise RuntimeError("L2 tier required to handle external episodes")
+
+        import json
+        import uuid
+
+        from src.memory.models import Fact, FactType
+
+        fact_id = f"ext_ep_{uuid.uuid4().hex}"
+        content = json.dumps(final_state)
+
+        # We store the episode summary as a high-CIAR Fact in L2
+        fact = Fact(
+            fact_id=fact_id,
+            session_id=session_id,
+            content=content[:5000],  # Enforce max length
+            fact_type=FactType.EVENT,
+            ciar_score=1.0,  # Ensure it is prioritized for consolidation
+            certainty=1.0,
+            impact=1.0,
+            source_type="external_handoff",
+            metadata={
+                "agent_id": agent_id,
+                "status": metadata.get("status", "unknown"),
+                "duration_seconds": metadata.get("duration_seconds", 0.0),
+                "solver_attempts": metadata.get("solver_attempts", 0),
+            },
+        )
+
+        # 1. Store directly to L2
+        await self.l2_tier.store(fact)
+
+        # 2. Trigger L2->L3 Consolidation Cycle
+        try:
+            await self.run_consolidation_cycle(session_id)
+        except Exception as e:
+            # We log but do not bubble up, as this is an async background task usually
+            print(f"Failed to run consolidation cycle for external episode: {e}")
 
     # --- Cross-Tier Query Implementation ---
 
@@ -359,117 +514,192 @@ class UnifiedMemorySystem(HybridMemorySystem):
 
         # L2: Working Memory (Facts)
         if self.l2_tier and weights.l2_weight > 0:
-            try:
-                if hasattr(self.l2_tier, "search_facts"):
-                    l2_facts = await self.l2_tier.search_facts(
-                        query=query, session_id=session_id, limit=limit
-                    )
-                elif hasattr(self.l2_tier, "query_by_session"):
-                    l2_facts = await self.l2_tier.query_by_session(
-                        session_id=session_id, limit=limit
-                    )
-                else:
-                    l2_facts = []
-                # Normalize CIAR scores to 0-1 range
-                if l2_facts:
-                    l2_scores = [f.ciar_score for f in l2_facts]
-                    min_score, max_score = min(l2_scores), max(l2_scores)
-                    score_range = max_score - min_score if max_score > min_score else 1.0
+            with start_span(
+                tracer_name="yaam.memory",
+                span_name="yaam.retriever.l2",
+                kind="RETRIEVER",
+                attributes={
+                    "session.id": session_id,
+                    "input.value": query,
+                    "yaam.memory.tier": "L2",
+                    "yaam.retrieval.limit": limit,
+                },
+            ) as span:
+                try:
+                    if hasattr(self.l2_tier, "search_facts"):
+                        l2_facts = await self.l2_tier.search_facts(
+                            query=query, session_id=session_id, limit=limit
+                        )
+                    elif hasattr(self.l2_tier, "query_by_session"):
+                        l2_facts = await self.l2_tier.query_by_session(
+                            session_id=session_id, limit=limit
+                        )
+                    else:
+                        l2_facts = []
 
-                    for fact in l2_facts:
-                        normalized_score = (
-                            (fact.ciar_score - min_score) / score_range if score_range > 0 else 0.5
-                        )
-                        weighted_score = normalized_score * weights.l2_weight
-                        all_results.append(
-                            {
-                                "content": fact.content,
-                                "tier": "L2",
-                                "score": weighted_score,
-                                "metadata": {
-                                    "fact_id": fact.fact_id,
-                                    "fact_type": fact.fact_type,
-                                    "ciar_score": fact.ciar_score,
-                                    "extracted_at": fact.extracted_at.isoformat(),
-                                },
-                            }
-                        )
-            except Exception as e:
-                print(f"L2 query failed: {e}")
+                    set_span_attributes(
+                        span,
+                        {
+                            "retrieval.documents": [
+                                self._fact_to_retrieval_document(fact) for fact in l2_facts
+                            ],
+                            "yaam.retrieval.result_count": len(l2_facts),
+                        },
+                    )
+
+                    if l2_facts:
+                        l2_scores = [f.ciar_score for f in l2_facts]
+                        min_score, max_score = min(l2_scores), max(l2_scores)
+                        score_range = max_score - min_score if max_score > min_score else 1.0
+
+                        for fact in l2_facts:
+                            normalized_score = (
+                                (fact.ciar_score - min_score) / score_range
+                                if score_range > 0
+                                else 0.5
+                            )
+                            weighted_score = normalized_score * weights.l2_weight
+                            all_results.append(
+                                {
+                                    "content": fact.content,
+                                    "tier": "L2",
+                                    "score": weighted_score,
+                                    "metadata": {
+                                        "fact_id": fact.fact_id,
+                                        "fact_type": fact.fact_type,
+                                        "ciar_score": fact.ciar_score,
+                                        "extracted_at": fact.extracted_at.isoformat(),
+                                    },
+                                }
+                            )
+                except Exception as e:
+                    set_span_error(span, e)
+                    print(f"L2 query failed: {e}")
 
         # L3: Episodic Memory (Episodes)
         if self.l3_tier and weights.l3_weight > 0:
-            try:
-                l3_episodes = await self.l3_tier.retrieve(
-                    session_id=session_id, query=query, limit=limit
-                )
-                # Normalize importance scores
-                if l3_episodes:
-                    l3_scores = [e.importance_score for e in l3_episodes]
-                    min_score, max_score = min(l3_scores), max(l3_scores)
-                    score_range = max_score - min_score if max_score > min_score else 1.0
+            with start_span(
+                tracer_name="yaam.memory",
+                span_name="yaam.retriever.l3",
+                kind="RETRIEVER",
+                attributes={
+                    "session.id": session_id,
+                    "input.value": query,
+                    "yaam.memory.tier": "L3",
+                    "yaam.retrieval.limit": limit,
+                },
+            ) as span:
+                try:
+                    l3_episodes = await self._query_l3_episodes(
+                        session_id=session_id,
+                        query=query,
+                        limit=limit,
+                    )
+                    set_span_attributes(
+                        span,
+                        {
+                            "retrieval.documents": [
+                                self._episode_to_retrieval_document(episode)
+                                for episode in l3_episodes
+                            ],
+                            "yaam.retrieval.result_count": len(l3_episodes),
+                        },
+                    )
+                    if l3_episodes:
+                        l3_scores = [
+                            float(e.metadata.get("similarity_score", e.importance_score))
+                            for e in l3_episodes
+                        ]
+                        min_score, max_score = min(l3_scores), max(l3_scores)
 
-                    for episode in l3_episodes:
-                        normalized_score = (
-                            (episode.importance_score - min_score) / score_range
-                            if score_range > 0
-                            else 0.5
-                        )
-                        weighted_score = normalized_score * weights.l3_weight
-                        all_results.append(
-                            {
-                                "content": episode.summary,
-                                "tier": "L3",
-                                "score": weighted_score,
-                                "metadata": {
-                                    "episode_id": episode.episode_id,
-                                    "fact_count": episode.fact_count,
-                                    "importance_score": episode.importance_score,
-                                    "topics": episode.topics,
-                                    "consolidated_at": episode.consolidated_at.isoformat(),
-                                },
-                            }
-                        )
-            except Exception as e:
-                print(f"L3 query failed: {e}")
+                        for episode in l3_episodes:
+                            similarity_score = float(
+                                episode.metadata.get("similarity_score", episode.importance_score)
+                            )
+                            normalized_score = self._normalize_score(
+                                similarity_score, min_score, max_score
+                            )
+                            weighted_score = normalized_score * weights.l3_weight
+                            all_results.append(
+                                {
+                                    "content": episode.summary,
+                                    "tier": "L3",
+                                    "score": weighted_score,
+                                    "metadata": {
+                                        "episode_id": episode.episode_id,
+                                        "fact_count": episode.fact_count,
+                                        "importance_score": episode.importance_score,
+                                        "similarity_score": similarity_score,
+                                        "topics": episode.topics,
+                                        "consolidated_at": episode.consolidated_at.isoformat(),
+                                    },
+                                }
+                            )
+                except Exception as e:
+                    set_span_error(span, e)
+                    print(f"L3 query failed: {e}")
 
         # L4: Semantic Memory (Knowledge Documents)
         if self.l4_tier and weights.l4_weight > 0:
-            try:
-                l4_docs = await self.l4_tier.retrieve(query=query, limit=limit)
-                # Normalize confidence scores
-                if l4_docs:
-                    l4_scores = [d.confidence_score for d in l4_docs]
-                    min_score, max_score = min(l4_scores), max(l4_scores)
-                    score_range = max_score - min_score if max_score > min_score else 1.0
+            with start_span(
+                tracer_name="yaam.memory",
+                span_name="yaam.retriever.l4",
+                kind="RETRIEVER",
+                attributes={
+                    "session.id": session_id,
+                    "input.value": query,
+                    "yaam.memory.tier": "L4",
+                    "yaam.retrieval.limit": limit,
+                },
+            ) as span:
+                try:
+                    l4_docs = await self._query_l4_documents(query=query, limit=limit)
+                    set_span_attributes(
+                        span,
+                        {
+                            "retrieval.documents": [
+                                self._knowledge_to_retrieval_document(doc) for doc in l4_docs
+                            ],
+                            "yaam.retrieval.result_count": len(l4_docs),
+                        },
+                    )
+                    if l4_docs:
+                        l4_scores = [
+                            float(d.metadata.get("search_score", d.confidence_score))
+                            for d in l4_docs
+                        ]
+                        min_score, max_score = min(l4_scores), max(l4_scores)
 
-                    for doc in l4_docs:
-                        normalized_score = (
-                            (doc.confidence_score - min_score) / score_range
-                            if score_range > 0
-                            else 0.5
-                        )
-                        weighted_score = normalized_score * weights.l4_weight
-                        all_results.append(
-                            {
-                                "content": doc.content,
-                                "tier": "L4",
-                                "score": weighted_score,
-                                "metadata": {
-                                    "knowledge_id": doc.knowledge_id,
-                                    "title": doc.title,
-                                    "knowledge_type": doc.knowledge_type,
-                                    "confidence_score": doc.confidence_score,
-                                    "tags": doc.tags,
-                                    "distilled_at": doc.distilled_at.isoformat(),
-                                },
-                            }
-                        )
-            except Exception as e:
-                print(f"L4 query failed: {e}")
+                        for doc in l4_docs:
+                            search_score = float(
+                                doc.metadata.get("search_score", doc.confidence_score)
+                            )
+                            normalized_score = self._normalize_score(
+                                search_score, min_score, max_score
+                            )
+                            weighted_score = normalized_score * weights.l4_weight
+                            all_results.append(
+                                {
+                                    "content": doc.content,
+                                    "tier": "L4",
+                                    "score": weighted_score,
+                                    "metadata": {
+                                        "knowledge_id": doc.knowledge_id,
+                                        "title": doc.title,
+                                        "knowledge_type": doc.knowledge_type,
+                                        "confidence_score": doc.confidence_score,
+                                        "search_score": search_score,
+                                        "tags": doc.tags,
+                                        "distilled_at": doc.distilled_at.isoformat(),
+                                    },
+                                }
+                            )
+                except Exception as e:
+                    set_span_error(span, e)
+                    print(f"L4 query failed: {e}")
 
         # Sort by weighted score and limit results
-        all_results.sort(key=lambda x: x["score"], reverse=True)
+        all_results.sort(key=lambda x: float(cast(float, x["score"])), reverse=True)
         return all_results[:limit]
 
     async def get_context_block(
@@ -502,8 +732,16 @@ class UnifiedMemorySystem(HybridMemorySystem):
                 if turns is None:
                     turns = []
                 if max_turns is not None:
-                    turns = turns[:max_turns]
-                context.recent_turns = turns
+                    from typing import cast
+
+                    # Explicit cast/assignment to satisfy mypy
+                    turns_list: list[dict[str, Any]] = [
+                        cast(dict[str, Any], t.model_dump() if hasattr(t, "model_dump") else t)
+                        for t in turns[:max_turns]
+                    ]
+                    context.recent_turns = turns_list
+                else:
+                    context.recent_turns = [] if turns is None else turns
                 context.turn_count = len(turns)
             except Exception as e:
                 print(f"L1 retrieval failed: {e}")
@@ -538,23 +776,28 @@ if __name__ == "__main__":
         def query_similar(self, **kwargs):
             return [{"id": 1, "content": "Mock vector search result."}]
 
+        def add_documents(self, **kwargs):
+            return [1]
+
+        def delete_documents(self, **kwargs):
+            pass
+
+        def recreate_collection(self, **kwargs):
+            pass
+
     class MockNeo4jStore:
         def query(self, **kwargs):
             return [{"node": "Mock graph query result."}]
-
-    class MockMeilisearchStore:
-        def search(self, **kwargs):
-            return [{"title": "Mock text search result."}]
 
     print("--- Phase 3: Unified Memory System Demo ---")
 
     # 1. Instantiate all backend clients (using mocks for this demo)
     mock_qdrant = MockQdrantStore()
     mock_neo4j = MockNeo4jStore()
-    mock_meili = MockMeilisearchStore()
 
     knowledge_manager = KnowledgeStoreManager(
-        vector_store=mock_qdrant, graph_store=mock_neo4j, search_store=mock_meili
+        vector_store=mock_qdrant,  # type: ignore
+        graph_store=mock_neo4j,  # type: ignore
     )
 
     # Use an in-memory "fakeredis" for the demo to avoid a real connection
@@ -594,13 +837,6 @@ if __name__ == "__main__":
     )
     print(f"Graph query result: {graph_results}")
     assert graph_results[0]["node"] == "Mock graph query result."
-
-    # An agent needs to search operational manuals
-    search_results = memory.query_knowledge(
-        store_type="search", query_text="emergency crane protocol"
-    )
-    print(f"Text search result: {search_results}")
-    assert search_results[0]["title"] == "Mock text search result."
 
     print(
         "\n✅ Demo complete. The UnifiedMemorySystem successfully routes requests to both Operating and Persistent layers."

@@ -2,7 +2,7 @@
 CIAR Scoring System for Memory Promotion
 
 Implements the Certainty-Impact-Age-Recency (CIAR) scoring algorithm
-as specified in ADR-003. Calculates scores to determine which facts
+as specified in ADR-004. Calculates scores to determine which facts
 should be promoted from L1 (Active Context) to L2 (Working Memory).
 
 Formula: CIAR = (Certainty x Impact) x Age_Decay x Recency_Boost
@@ -17,13 +17,20 @@ Author: MAS Memory Layer Team
 Date: November 2025
 """
 
-import math
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
 import yaml
 
+from src.memory.ciar_formula import (
+    DEFAULT_AGE_DECAY_LAMBDA,
+    DEFAULT_CIAR_THRESHOLD,
+    DEFAULT_RECENCY_ALPHA,
+    calculate_age_decay,
+    calculate_ciar_score,
+    calculate_recency_boost,
+    resolve_created_at,
+)
 from src.memory.models import Fact
 
 
@@ -67,16 +74,21 @@ class CIARScorer:
             config = cast(dict[str, Any], yaml.safe_load(f))
 
         self.config = cast(dict[str, Any], config["ciar"])
-        self.threshold = float(self.config["threshold"])
+        self.threshold = float(self.config.get("threshold", DEFAULT_CIAR_THRESHOLD))
 
         # Age decay parameters
-        self.age_decay_lambda = float(self.config["age_decay"]["lambda"])
-        self.max_age_days = float(self.config["age_decay"]["max_age_days"])
-        self.min_age_score = float(self.config["age_decay"]["min_score"])
+        age_decay_config = cast(dict[str, Any], self.config.get("age_decay", {}))
+        self.age_decay_lambda = float(age_decay_config.get("lambda", DEFAULT_AGE_DECAY_LAMBDA))
+        max_age_days = age_decay_config.get("max_age_days")
+        self.max_age_days = float(max_age_days) if max_age_days is not None else None
+        min_age_score = age_decay_config.get("min_score", 0.0)
+        self.min_age_score = float(min_age_score) if min_age_score is not None else 0.0
 
         # Recency boost parameters
-        self.recency_boost_factor = float(self.config["recency"]["boost_factor"])
-        self.max_recency_boost = float(self.config["recency"]["max_boost"])
+        recency_config = cast(dict[str, Any], self.config.get("recency", {}))
+        self.recency_boost_factor = float(recency_config.get("boost_factor", DEFAULT_RECENCY_ALPHA))
+        max_recency_boost = recency_config.get("max_boost")
+        self.max_recency_boost = float(max_recency_boost) if max_recency_boost is not None else None
 
         # Certainty parameters
         self.default_certainty = float(self.config["certainty"]["default"])
@@ -120,12 +132,7 @@ class CIARScorer:
         age_decay = self._calculate_age_decay(fact_dict)
         recency_boost = self._calculate_recency(fact_dict)
 
-        # Apply formula: (C x I) x AD x RB
-        base_score = certainty * impact
-        temporal_score = age_decay * recency_boost
-        final_score = base_score * temporal_score
-
-        return final_score
+        return calculate_ciar_score(certainty, impact, age_decay, recency_boost)
 
     def _calculate_certainty(self, fact: dict[str, Any]) -> float:
         """
@@ -219,62 +226,36 @@ class CIARScorer:
         Returns:
             float: Age decay factor (min_score to 1.0)
         """
-        created_at = fact.get("created_at")
+        created_at = resolve_created_at(fact)
 
         if created_at is None:
             # No timestamp, assume it's new
             return 1.0
 
-        # Ensure we have a datetime object
-        if isinstance(created_at, str):
-            created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-
-        # Calculate age in days
-        now = datetime.now(UTC)
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=UTC)
-
-        age_delta = now - created_at
-        age_days = age_delta.total_seconds() / 86400  # seconds to days
-
-        # Handle future timestamps (negative age)
-        age_days = max(0.0, age_days)
-
-        # Cap at max_age_days
-        age_days = min(age_days, self.max_age_days)
-
-        # Apply exponential decay
-        decay = math.exp(-self.age_decay_lambda * age_days)
-
-        # Ensure minimum score
-        return float(max(self.min_age_score, decay))
+        return calculate_age_decay(
+            created_at,
+            decay_lambda=self.age_decay_lambda,
+            max_age_days=self.max_age_days,
+            min_score=self.min_age_score,
+        )
 
     def _calculate_recency(self, fact: dict[str, Any]) -> float:
         """
         Calculate recency boost (rewards frequently accessed facts).
 
-        Formula: 1 + (boost_factor * log(1 + access_count))
-
-        Logarithmic boost prevents runaway scores for heavily accessed facts.
+        Formula: 1 + (alpha * access_count)
 
         Args:
             fact: Fact dictionary with 'access_count'
 
         Returns:
-            float: Recency boost (1.0 to 1.0+max_boost)
+            float: Recency boost (1.0 or higher)
         """
-        access_count = fact.get("access_count", 0)
-
-        if access_count <= 0:
-            return 1.0
-
-        # Logarithmic boost to prevent runaway
-        boost = self.recency_boost_factor * math.log(1 + access_count)
-
-        # Cap at max_boost
-        boost = min(boost, self.max_recency_boost)
-
-        return float(1.0 + boost)
+        return calculate_recency_boost(
+            fact.get("access_count", 0),
+            alpha=self.recency_boost_factor,
+            max_boost=self.max_recency_boost,
+        )
 
     def exceeds_threshold(self, fact: dict[str, Any] | Fact) -> bool:
         """
@@ -324,7 +305,7 @@ class CIARScorer:
 
         base_score = certainty * impact
         temporal_score = age_decay * recency_boost
-        final_score = base_score * temporal_score
+        final_score = calculate_ciar_score(certainty, impact, age_decay, recency_boost)
 
         return {
             "certainty": certainty,
