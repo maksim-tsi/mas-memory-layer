@@ -20,14 +20,14 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 **Integration Test Status:**
 - ✅ All 4 lifecycle integration tests passing (L1→L2→L3→L4)
 - ✅ All storage adapters verified (Redis, PostgreSQL, Qdrant, Neo4j, Typesense)
-- ✅ Real LLM provider connectivity (Gemini API with structured output)
+- ✅ Real LLM provider connectivity (OpenRouter V2 route validated; fallback providers available)
 - ✅ 3-node research cluster integration (skz-dev-lv)
 
 **Acceptance Criteria (Readiness Gates):**
 - Coverage ≥80% per component and overall
 - <2s p95 latency for lifecycle batches (promotion/consolidation/distillation) at current stage
 - Real-storage end-to-end validation across Redis, PostgreSQL, Qdrant, Neo4j, Typesense
-- Gemini API connectivity re-test after key refresh
+- OpenRouter connectivity and V2 collection-dimension alignment re-test after env changes
 
 **What's Complete**: 
 - ✅ Storage infrastructure (5 database adapters, metrics, benchmarks)
@@ -117,7 +117,7 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 - Run full L1→L4 pipeline against real backends (Redis, PostgreSQL, Qdrant, Neo4j, Typesense) with metrics enabled.
 - Measure lifecycle batches against <200ms p95 target; capture metrics export for evidence.
 - Confirm coverage ≥80% overall and per component (storage + memory + engines); regenerate htmlcov.
-- Refresh Gemini API key and re-run provider connectivity scripts; record outcomes in [docs/llm_provider_guide.md](docs/llm_provider_guide.md).
+- Re-verify OpenRouter runtime (`OPENROUTER_MODEL`, `OPENROUTER_EMBEDDING_MODEL`) and V2 vector sizing (`EMBEDDING_DIMENSIONS`, `MAS_V2_MODE`); record outcomes in [docs/llm_provider_guide.md](docs/llm_provider_guide.md).
 
 ## Developer Updates
 
@@ -408,10 +408,10 @@ See [`docs/metrics_usage.md`](docs/metrics_usage.md) for complete metrics docume
 - Coverage confirmation to ≥80% per component and overall (htmlcov shows remaining adapter gaps)
 - <2s p95 lifecycle batch latency measured against real storage backends (current stage target)
 - Full L1→L4 end-to-end pipeline on Redis/PostgreSQL/Qdrant/Neo4j/Typesense
-- Gemini API key refresh and connectivity re-test (see [LLM Provider Results](docs/llm_provider_guide.md))
+- OpenRouter connectivity and V2 collection/vector validation re-test after env changes (see [LLM Provider Results](docs/llm_provider_guide.md))
 
 **LLM Infrastructure:**
-- Multi-provider `LLMClient` with Gemini, Groq, and Mistral providers; connectivity scripts in `scripts/test_*`. Gemini currently blocked by API key validity; Groq/Mistral passing.
+- Multi-provider `LLMClient` with OpenRouter, Gemini, Groq, and Mistral providers; V2 API defaults to OpenRouter (`x-ai/grok-4.1-fast`) with embeddings via `qwen/qwen3-embedding-8b` and `EMBEDDING_DIMENSIONS=1024`.
 
 **See**: 
 - [ADR-006: Free-Tier LLM Provider Strategy](docs/ADR/006-free-tier-llm-strategy.md)
@@ -466,7 +466,7 @@ This project requires Redis, PostgreSQL, Qdrant, Neo4j, and Typesense.
 ./scripts/setup_database.sh
 
 # Start all required database services (if using Docker)
-docker-compose up -d
+docker compose up -d
 ```
 
 ### 2. Create Python Virtual Environment (Poetry)
