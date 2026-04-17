@@ -328,21 +328,18 @@ class LLMClient:
     async def get_embedding(
         self, text: str, model: str | None = None, provider: str | None = None
     ) -> list[float]:
-        """Get embedding for text from specified or default provider."""
-        # Simple routing for now - default to gemini if available, otherwise first available
-        target_provider = None
+        """Get embedding for text using explicit or OpenRouter-first fail-fast routing."""
+        if provider:
+            target_provider = self._providers.get(provider)
+            if not target_provider:
+                raise RuntimeError(f"Requested embedding provider '{provider}' is not configured")
+            return await target_provider.get_embedding(text, model=model)
 
-        if provider and provider in self._providers:
-            target_provider = self._providers[provider]
-        elif "openrouter" in self._providers:
-            target_provider = self._providers["openrouter"]
-        elif "gemini" in self._providers:
-            target_provider = self._providers["gemini"]
-        elif self._providers:
-            target_provider = next(iter(self._providers.values()))
-
+        target_provider = self._providers.get("openrouter")
         if not target_provider:
-            raise RuntimeError("No LLM provider available for embeddings")
+            raise RuntimeError(
+                "OpenRouter provider is required for embeddings but is not configured"
+            )
 
         return await target_provider.get_embedding(text, model=model)
 
