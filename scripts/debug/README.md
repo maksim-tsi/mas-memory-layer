@@ -7,7 +7,7 @@ One-off debug and verification scripts for development troubleshooting. These sc
 | Script | Purpose |
 |--------|---------|
 | `check_l2_roundtrip.py` | Verify L2 (WorkingMemory) roundtrip - stores 3 facts and queries them back |
-| `check_tier_collection.py` | Verify EpisodicMemoryTier collection configuration matches QdrantAdapter |
+| `check_tier_collection.py` | Verify EpisodicMemoryTier collection naming and vector size match QdrantAdapter (including V2 mode and embedding dimensions) |
 | `debug_qdrant_dump.py` | Diagnostic tool to dump/inspect Qdrant collection contents |
 | `manual_l3_store.py` | Manual test to store/query an Episode in L3 (Qdrant + Neo4j) |
 
@@ -18,6 +18,16 @@ These scripts are typically run manually during development:
 ```bash
 # From repository root
 ./.venv/bin/python scripts/debug/<script_name>.py
+
+# For environment-sensitive checks (recommended for V2 validation)
+set -a && . ./.env && set +a && ./.venv/bin/python scripts/debug/check_tier_collection.py
+```
+
+Expected V2 output pattern when OpenRouter embeddings are configured:
+
+```text
+Adapter collection: episodes_v2 vector_size: 1024
+Tier collection: episodes_v2 vector_size: 1024
 ```
 
 ## Note

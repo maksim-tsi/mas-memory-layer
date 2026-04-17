@@ -7,14 +7,16 @@ This package contains the implementation of various LLM providers for the MAS Me
 - `client.py`: The main `LLMClient` that orchestrates provider selection and fallback.
 - `providers/`: Directory containing individual provider implementations.
   - `base.py`: The abstract base class `BaseProvider` defining the interface.
+  - `openrouter.py`: OpenRouter provider (via OpenAI SDK compatibility layer).
   - `gemini.py`: Google Gemini provider.
   - `groq.py`: Groq provider (Llama/Mixtral models).
   - `mistral.py`: Mistral AI provider.
 
 ## Current Runtime Capabilities
 
-As of March 10, 2026, the LLM layer supports both text-only generations and provider-normalized
-tool-call responses.
+As of April 17, 2026, the LLM layer supports both text-only generations and provider-normalized
+tool-call responses, with OpenRouter configured as the default V2 API execution path when
+`OPENROUTER_API_KEY` is present.
 
 The current normalized response contract includes:
 
@@ -26,16 +28,27 @@ The current normalized response contract includes:
 
 This contract is currently used by the `MemoryAgent` tool loop for `v1-*` variants.
 
+For V2 memory APIs, the runtime also uses provider-level embeddings via
+`LLMClient.get_embedding()`, with OpenRouter configured by
+`OPENROUTER_EMBEDDING_MODEL`.
+
 ## Providers and Default Models
 
 Each provider has a specific default model configured based on current best practices and requirements.
 
+### OpenRouter (`openrouter.py`)
+- **Default Generation Model**: `x-ai/grok-4.1-fast`
+- **Default Embedding Model**: `qwen/qwen3-embedding-8b`
+- **Use Case**: Default V2 API generation and embedding path.
+- **Provider Class**: `OpenRouterProvider`
+- **Env Vars**: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_EMBEDDING_MODEL`
+
 ### Google Gemini (`gemini.py`)
 - **Default Model**: `gemini-3-flash-preview`
-- **Use Case**: General purpose, high throughput, low latency.
+- **Use Case**: Secondary provider and fallback path when enabled.
 - **Provider Class**: `GeminiProvider`
 - **Env Var**: `GOOGLE_API_KEY`
-- **Current Status**: Supports manual function-calling/tool-loop execution for normal `v1-*`
+- **Current Status**: Supports manual function-calling/tool-loop execution for `v1-*`
   API-Wall requests.
 
 ### Gemini Tool-Calling Notes
@@ -74,6 +87,9 @@ Focused unit tests for provider normalization and Gemini tool-calling behavior l
 - `tests/integration/test_mistral_provider.py`: Tests `MistralProvider` with real API calls.
 - `tests/utils/test_providers_gemini.py`: Unit tests for Gemini response parsing, tool-call
   normalization, and thought-signature-safe follow-up behavior.
+
+For V2 runtime validation of collection naming and embedding vector sizing, use:
+- `scripts/debug/check_tier_collection.py`
 
 To run tests for a specific provider:
 

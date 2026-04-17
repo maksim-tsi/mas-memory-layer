@@ -16,6 +16,44 @@ Each entry should include:
 
 ## Log Entries
 
+### 2026-04-17 - OpenRouter V2 Runtime Activation and Validation 📊
+
+**Status:** ✅ Complete
+
+**Summary:**
+Activated and validated the OpenRouter-backed V2 runtime path for API operations, including model routing, embedding dimensionality alignment, and collection versioning safeguards. The deployment flow confirmed successful container rebuild/start, V2 endpoint healthcheck readiness, and runtime introspection showing `_v2` collection selection with 1024-dimensional vectors.
+
+**Key Findings:**
+
+**✅ What's Complete:**
+- Confirmed required V2/OpenRouter environment variables are present in server `.env`:
+   - `OPENROUTER_API_KEY`
+   - `OPENROUTER_MODEL=x-ai/grok-4.1-fast`
+   - `OPENROUTER_EMBEDDING_MODEL=qwen/qwen3-embedding-8b`
+   - `EMBEDDING_DIMENSIONS=1024`
+   - `MAS_V2_MODE=true`
+- Rebuilt and restarted API service via Docker Compose v2 plugin (`docker compose up -d --build mas-agent`), with container status returning `Up`.
+- Executed `make healthcheck` and validated V2 endpoint wiring semantics:
+   - L2 `/v2/memory/l2/facts` returned HTTP 422 (accepted partial pass)
+   - L3 `/v2/memory/l3/query` returned HTTP 200
+   - Overall healthcheck status: PASS
+- Verified runtime vector/index alignment using debug introspection with exported `.env`:
+   - `Adapter collection: episodes_v2 vector_size: 1024`
+   - `Tier collection: episodes_v2 vector_size: 1024`
+
+**❌ What's Missing:**
+- `.env.example` does not yet include `MAS_V2_MODE` despite runtime dependence for `_v2` collection isolation.
+
+**Current Project Completion:**
+- **Phase 5C runtime hardening**: 95% ✅ (OpenRouter V2 route active; docs and template hygiene remaining)
+
+**Evidence from Codebase:**
+```bash
+docker compose up -d --build mas-agent
+make healthcheck
+set -a && . ./.env && set +a && /home/max/code/mas-memory-layer/.venv/bin/python scripts/debug/check_tier_collection.py
+```
+
 ### 2026-03-08 - Merge dev into dev-mas: Benchmark Infrastructure & Gitignore Improvements 🔀
 
 **Status:** ✅ Complete
