@@ -6,6 +6,7 @@ Provides full-text search, faceted filtering, and provenance tracking.
 """
 
 import logging
+import os
 import time
 import warnings
 from datetime import UTC, datetime
@@ -44,6 +45,11 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
         self.collection_name = (
             config.get("collection_name", self.COLLECTION_NAME) if config else self.COLLECTION_NAME
         )
+
+        # Collection versioning strategy: use _v2 for independent indices
+        is_v2_mode = os.environ.get("MAS_V2_MODE", "true").lower() == "true"
+        if is_v2_mode and not self.collection_name.endswith("_v2"):
+            self.collection_name = f"{self.collection_name}_v2"
 
     def _tier_name(self) -> str:
         """Return tier identifier for telemetry."""

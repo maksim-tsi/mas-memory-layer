@@ -38,7 +38,11 @@ neo4j==5.22.0            # The official Python driver for the Neo4j graph databa
 
 # --- LLM Providers (ADR-006: Free-Tier Multi-Provider Strategy) ---
 
-# Google Gemini (Primary Provider)
+# OpenRouter (Primary Provider)
+openai>=1.14.0           # Official OpenAI Python SDK, configured for OpenRouter
+                        # Documentation: https://github.com/openai/openai-python
+
+# Google Gemini (Deprecated V1 Provider)
 google-genai==1.2.0      # Official Google Generative AI SDK for Gemini models
                         # Supports: gemini-2.5-flash, gemini-2.0-flash, gemini-2.5-flash-lite
                         # Rate limits: 10-15 RPM, 250k-1M TPM

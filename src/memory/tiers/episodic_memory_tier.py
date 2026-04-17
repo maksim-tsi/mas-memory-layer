@@ -53,10 +53,24 @@ class EpisodicMemoryTier(BaseTier[Episode]):
         self.collection_name = (
             config.get("collection_name", self.COLLECTION_NAME) if config else self.COLLECTION_NAME
         )
+
+        # Collection versioning strategy: use _v2 for independent indices
+        import os
+
+        is_v2_mode = os.environ.get("MAS_V2_MODE", "true").lower() == "true"
+        if is_v2_mode and not self.collection_name.endswith("_v2"):
+            self.collection_name = f"{self.collection_name}_v2"
+
         # Align vector size to Qdrant collection configuration when available
         adapter_vector_size = getattr(qdrant_adapter, "vector_size", self.VECTOR_SIZE)
         self.config_vector_size = config.get("vector_size") if config else None
-        self.vector_size = self.config_vector_size or adapter_vector_size
+
+        env_vector_size = os.getenv("EMBEDDING_DIMENSIONS")
+        if env_vector_size and env_vector_size.isdigit():
+            self.vector_size = int(env_vector_size)
+        else:
+            self.vector_size = self.config_vector_size or adapter_vector_size
+
         # Ensure adapter uses the episodic collection name and vector size for all operations
         self.qdrant.collection_name = self.collection_name
         self.qdrant.vector_size = self.vector_size
