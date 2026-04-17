@@ -36,6 +36,11 @@ if "MAS_AGENT_TYPE" in os.environ:
 if "AGENT_TYPE" in os.environ:
     del os.environ["AGENT_TYPE"]
 
+# Force v2 behavior for this E2E suite.
+os.environ["MAS_V2_MODE"] = "true"
+# Enforce empirically verified native dimension for qwen/qwen3-embedding-8b.
+os.environ["EMBEDDING_DIMENSIONS"] = os.environ.get("E2E_EMBEDDING_DIMENSIONS", "4096")
+
 from src.server import app
 from src.storage.qdrant_adapter import QdrantAdapter
 from src.storage.neo4j_adapter import Neo4jAdapter
@@ -68,12 +73,23 @@ async def client():
     )
 
     qdrant_adapter = QdrantAdapter(
-        {"url": qdrant_url, "vector_size": 768, "collection_name": "episodes"}
+        {
+            "url": qdrant_url,
+            "vector_size": int(os.environ.get("EMBEDDING_DIMENSIONS", 1024)),
+            "collection_name": "test_v2",
+        }
     )
     neo4j_adapter = Neo4jAdapter({"uri": neo4j_uri, "user": neo4j_user, "password": neo4j_password})
     typesense_adapter = TypesenseAdapter({"url": typesense_url, "api_key": typesense_key})
 
-    l3 = EpisodicMemoryTier(qdrant_adapter, neo4j_adapter)
+    l3 = EpisodicMemoryTier(
+        qdrant_adapter,
+        neo4j_adapter,
+        config={
+            "collection_name": "test_v2",
+            "vector_size": int(os.environ.get("EMBEDDING_DIMENSIONS", 1024)),
+        },
+    )
     l4 = SemanticMemoryTier(typesense_adapter)
 
     await qdrant_adapter.connect()
@@ -151,6 +167,7 @@ async def test_l3_semantic_assimilate(client, session_id, agent_id):
     }
 
     resp = await client.post("/v2/memory/l3/assimilate", json=payload)
+
     assert resp.status_code == 201, f"Expected 201, got {resp.text}"
     assert "episode_id" in resp.json()
 

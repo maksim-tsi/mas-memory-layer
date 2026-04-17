@@ -8,8 +8,9 @@
 
 ## Model Configuration
 Since we are evaluating the semantic capabilities against live external tools, the test suite assumes:
-- **LLM for Cypher/Entity Extraction:** Configured by `MAS_MODEL` mapping to the system LLMClient (fallback is `gemini-3-flash-preview`). Depending on `AGENT_TYPE` and `.env` presence, it will naturally cascade to Groq or Mistral if available.
-- **Embedding Model:** Will invoke `llm_client.get_embedding()`, utilizing Google's `text-embedding-004` (or other default assigned via OpenRouter proxy hooks if `GOOGLE_API_KEY` is not present).
+- **LLM for Cypher/Entity Extraction:** Routed through OpenRouter using `x-ai/grok-4.1-fast` for semantic reasoning and Cypher translation.
+- **Embedding Model:** Uses `llm_client.get_embedding()` via OpenRouter with `qwen/qwen3-embedding-8b`, configured for empirically verified 4096-dimensional vectors.
+- **Credential Requirement:** External model calls require `OPENROUTER_API_KEY` in the environment.
 
 ## The Flow
 The End-to-End Suite executes a synchronous step-through logic across the layers:

@@ -49,7 +49,7 @@ class BaseProvider:
         raise NotImplementedError()
 
     async def get_embedding(
-        self, text: str, model: str | None = None, output_dimensionality: int = 768
+        self, text: str, model: str | None = None, output_dimensionality: int | None = None
     ) -> list[float]:
         """Generate embedding for the supplied text.
 

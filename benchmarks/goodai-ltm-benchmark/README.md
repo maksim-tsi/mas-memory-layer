@@ -16,7 +16,7 @@ We are open-sourcing:
 This repository is maintained as an **improved, MAS-integrated version** of the GoodAI LTM Benchmark. The original benchmark methodology and evaluation datasets remain unchanged to preserve academic rigor, while operational tooling has been enhanced for modern MAS workflows.
 
 **Key improvements:**
-- **Gemini provider**: The default evaluation model is Google Gemini (e.g., `gemini-2.5-flash-lite`) rather than OpenAI GPT-4.
+- **MAS wrapper provider alignment**: For `mas-remote` runs, the upstream MAS V2 API defaults to OpenRouter (`x-ai/grok-4.1-fast`) with OpenRouter embeddings (`qwen/qwen3-embedding-8b`, 1024 dimensions) and approved fallback behavior.
 - **Enhanced visibility**: Headless-friendly progress reporting and structured telemetry are being added to improve run transparency.
 - **Static typing hardening**: The benchmark package has been aligned with the repository's strict mypy configuration through typed interfaces and Optional guards.
 
@@ -33,7 +33,7 @@ These tests require Python 3.11 or higher.
 
 ### Local Execution
 
-First, set your `GOOGLE_API_KEY` environment variable and install dependencies:
+For direct Gemini-agent local runs, set `GOOGLE_API_KEY` and install dependencies:
 ```bash
 cd benchmarks/goodai-ltm-benchmark
 poetry install
@@ -60,10 +60,10 @@ For benchmarking MAS memory agents via the wrapper service:
 cd /path/to/mas-memory-layer
 
 # Build containers
-docker-compose build benchmark-runner mas-agent
+docker compose build benchmark-runner mas-agent
 
 # Start services
-docker-compose up -d
+docker compose up -d
 
 # Execute benchmark
 docker exec -w /app mas-memory-layer-benchmark-runner-1 \
@@ -82,6 +82,13 @@ python -m runner.run_benchmark -c configurations/mas_variant_a_smoke_5.yml -a ma
 - `mas-agent`: FastAPI wrapper exposing MAS memory system (L1-L4)
 - `benchmark-runner`: Isolated benchmark environment with all datasets
 - Communication: HTTP via `AGENT_URL` env var (default: `http://mas-agent:8080/v1/chat/completions`)
+
+For V2/OpenRouter-backed `mas-remote` runs, ensure the MAS service environment includes:
+- `OPENROUTER_API_KEY`
+- `OPENROUTER_MODEL=x-ai/grok-4.1-fast`
+- `OPENROUTER_EMBEDDING_MODEL=qwen/qwen3-embedding-8b`
+- `EMBEDDING_DIMENSIONS=1024`
+- `MAS_V2_MODE=true`
 
 ### Output
 
@@ -138,9 +145,11 @@ human             # A CLI interface for a human to use the tests.
 
 **Note on MemGPT Baseline:** The `memgpt` agent identifier has been suspended as of 2026-02-10 due to removal of the `pymemgpt` dependency (enforced Python `<3.13` constraint). See [docs/pymemgpt-analysis.md](docs/pymemgpt-analysis.md) for migration path to Letta if MemGPT comparisons are required.
 
-## Native Gemini Provider
+## Provider Notes
 
-This benchmark uses the native Google Gemini client (`google-genai`) rather than the litellm abstraction. The default evaluation model is `gemini-2.5-flash-lite`, and the runtime enforces a conservative context budget of 96k tokens per call (configurable via `MAS_GEMINI_MAX_CONTEXT_TOKENS`). Usage metadata is collected from Gemini responses for cost and throughput tracking, and token usage is emitted at debug log level for traceability.
+For standalone `-a gemini` runs, this benchmark uses the native Google Gemini client (`google-genai`) rather than the litellm abstraction.
+
+For `-a mas-remote` runs, provider/model execution is determined by the upstream MAS service configuration. The current V2 default is OpenRouter (`x-ai/grok-4.1-fast`) with embeddings from `qwen/qwen3-embedding-8b` at 1024 dimensions.
 
 
 ## Configurations

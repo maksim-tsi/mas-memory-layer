@@ -42,3 +42,15 @@ tier = WorkingMemoryTier(
     telemetry_stream=producer,
 )
 ```
+
+## V2 Collection Versioning and Embedding Dimensions
+
+The L3/L4 tiers support environment-driven collection isolation for embedding migrations.
+
+- `MAS_V2_MODE=true` enables automatic `_v2` suffixing for tier collections.
+    - L3 default: `episodes` -> `episodes_v2`
+    - L4 default: `knowledge_base` -> `knowledge_base_v2`
+- `EMBEDDING_DIMENSIONS` controls the effective vector size used by L3/Qdrant operations.
+
+This configuration prevents dimensionality collisions when changing embedding providers
+(for example, migrating from 768-dimension embeddings to 4096-dimension embeddings).

@@ -150,13 +150,15 @@ class LLMClient:
 
     # Model-to-provider routing map
     MODEL_ROUTING: ClassVar[dict[str, list[str]]] = {
-        "gemini-3-flash-preview": ["google", "gemini"],  # Try both possible names
-        "gemini-3-pro-preview": ["google-pro", "google", "gemini"],
+        "x-ai/grok-4.1-fast": ["openrouter"],
+        "qwen/qwen3-embedding-8b": ["openrouter"],
+        "gemini-3-flash-preview": ["google", "gemini", "openrouter"],  # Try both possible names
+        "gemini-3-pro-preview": ["google-pro", "google", "gemini", "openrouter"],
         "gemini-2.5-flash": ["google", "gemini"],
         "gemini-embedding-001": ["google", "gemini"],
         "text-embedding-004": ["google", "gemini"],
-        "openai/gpt-oss-120b": ["groq"],
-        "mistral-large": ["mistral"],
+        "openai/gpt-oss-120b": ["groq", "openrouter"],
+        "mistral-large": ["mistral", "openrouter"],
     }
 
     def __init__(self, provider_configs: Iterable[ProviderConfig] | None = None) -> None:
@@ -174,22 +176,28 @@ class LLMClient:
         from src.llm.providers.gemini import GeminiProvider
         from src.llm.providers.groq import GroqProvider
         from src.llm.providers.mistral import MistralProvider
+        from src.llm.providers.openrouter import OpenRouterProvider
 
         ensure_phoenix_instrumentation()
 
         client = cls(
             provider_configs=[
-                ProviderConfig(name="gemini", timeout=30.0, priority=0),
+                ProviderConfig(name="openrouter", timeout=45.0, priority=0),
                 ProviderConfig(name="groq", timeout=30.0, priority=1),
                 ProviderConfig(name="mistral", timeout=30.0, priority=2),
+                ProviderConfig(name="gemini", timeout=30.0, priority=3),
             ]
         )
+
+        openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+        if openrouter_key:
+            client.register_provider(OpenRouterProvider(api_key=openrouter_key))
+        else:
+            logger.warning("OPENROUTER_API_KEY not set; OpenRouter provider disabled.")
 
         google_key = os.environ.get("GOOGLE_API_KEY")
         if google_key:
             client.register_provider(GeminiProvider(api_key=google_key))
-        else:
-            logger.warning("GOOGLE_API_KEY not set; Gemini provider disabled.")
 
         groq_key = os.environ.get("GROQ_API_KEY")
         if groq_key:
@@ -320,19 +328,18 @@ class LLMClient:
     async def get_embedding(
         self, text: str, model: str | None = None, provider: str | None = None
     ) -> list[float]:
-        """Get embedding for text from specified or default provider."""
-        # Simple routing for now - default to gemini if available, otherwise first available
-        target_provider = None
+        """Get embedding for text using explicit or OpenRouter-first fail-fast routing."""
+        if provider:
+            target_provider = self._providers.get(provider)
+            if not target_provider:
+                raise RuntimeError(f"Requested embedding provider '{provider}' is not configured")
+            return await target_provider.get_embedding(text, model=model)
 
-        if provider and provider in self._providers:
-            target_provider = self._providers[provider]
-        elif "gemini" in self._providers:
-            target_provider = self._providers["gemini"]
-        elif self._providers:
-            target_provider = next(iter(self._providers.values()))
-
+        target_provider = self._providers.get("openrouter")
         if not target_provider:
-            raise RuntimeError("No LLM provider available for embeddings")
+            raise RuntimeError(
+                "OpenRouter provider is required for embeddings but is not configured"
+            )
 
         return await target_provider.get_embedding(text, model=model)
 

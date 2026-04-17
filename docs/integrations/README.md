@@ -25,10 +25,13 @@ in [docs/runbooks/phoenix-experiment-reproducibility.md](../runbooks/phoenix-exp
 
 **Multi-Provider Strategy: SELECTED**
 
-5 providers with automatic fallback and task-specific optimization:
-- **Google Gemini** (3 models) - Primary provider, massive context (1M tokens)
-- **Groq** (2 models) - Ultra-fast inference (250-800 tok/sec)
-- **Mistral AI** (2 models) - Complex reasoning and analysis
+Current V2 API runtime uses OpenRouter as the primary path, with additional providers available
+for fallback or specialized workloads.
+
+- **OpenRouter** - Primary V2 provider for generation and embeddings
+- **Google Gemini** - Secondary/fallback provider
+- **Groq** - Low-latency fallback provider
+- **Mistral AI** - Reasoning-focused fallback provider
 
 **Implementation Status:** Ready for Phase 2 integration (Week 4-11)
 
@@ -44,6 +47,9 @@ See related ADRs for LLM provider strategy:
 
 Register and get free API keys from all providers:
 ```bash
+# OpenRouter
+# Visit: https://openrouter.ai/keys
+
 # Google Gemini
 # Visit: https://aistudio.google.com/apikey
 
@@ -59,6 +65,11 @@ Register and get free API keys from all providers:
 ```bash
 # Add to .env file (or copy from .env.example)
 cat >> .env << EOF
+OPENROUTER_API_KEY=your-openrouter-api-key-here
+OPENROUTER_MODEL=x-ai/grok-4.1-fast
+OPENROUTER_EMBEDDING_MODEL=qwen/qwen3-embedding-8b
+EMBEDDING_DIMENSIONS=1024
+MAS_V2_MODE=true
 GOOGLE_API_KEY=your-google-api-key-here
 GROQ_API_KEY=your-groq-api-key-here
 MISTRAL_API_KEY=your-mistral-api-key-here
@@ -68,8 +79,7 @@ EOF
 ### 3. Install Dependencies
 
 ```bash
-pip install -r requirements.txt
-# Installs: google-genai, groq, mistralai
+poetry install --with test,dev
 ```
 
 ### 4. Test Connectivity
@@ -94,12 +104,23 @@ See **Week 4-5** in the [Implementation Plan](../plan/implementation_master_plan
 
 | Task | Primary Provider | Fallback 1 | Fallback 2 | Rationale |
 |------|------------------|------------|------------|-----------|
-| **CIAR Scoring** | Groq (Llama 8B) | Gemini 2.5 Flash-Lite | Gemini 2.5 Flash | Ultra-fast classification (800 tok/sec) |
-| **Fact Extraction** | Gemini 2.5 Flash | Mistral Large | Gemini 2.0 Flash | Best quality + 1M context |
-| **Episode Summary** | Gemini 2.5 Flash | Gemini 2.0 Flash | Mistral Large | Narrative generation |
-| **Knowledge Synthesis** | Mistral Large | Gemini 2.5 Flash | Gemini 2.0 Flash | Complex reasoning |
-| **Pattern Mining** | Gemini 2.5 Flash | Mistral Large | Groq (GPT OSS 120B) | Pattern recognition |
-| **Development/Testing** | Groq (Llama 8B) | Gemini 2.5 Flash-Lite | - | Instant feedback (800 tok/sec) |
+| **V2 Chat/Reasoning** | OpenRouter (`x-ai/grok-4.1-fast`) | Gemini | Groq/Mistral | Unified API path with stable routing |
+| **V2 Embeddings** | OpenRouter (`qwen/qwen3-embedding-8b`) | Gemini embeddings | - | Aligns L3 vector dimensions to 1024 |
+| **Development/Testing** | Groq (Llama 8B) | OpenRouter | Gemini | Fast turnaround with fallback coverage |
+
+## V2 Verification Sequence
+
+After configuration changes, validate runtime behavior with:
+
+```bash
+docker compose up -d --build mas-agent
+make healthcheck
+set -a && . ./.env && set +a && ./.venv/bin/python scripts/debug/check_tier_collection.py
+```
+
+Expected introspection output pattern:
+- `Adapter collection: episodes_v2 vector_size: 1024`
+- `Tier collection: episodes_v2 vector_size: 1024`
 
 **See ADR-006** for detailed task-to-provider mappings and fallback logic.
 
@@ -124,5 +145,5 @@ See **Week 4-5** in the [Implementation Plan](../plan/implementation_master_plan
 
 ---
 
-**Last Updated:** November 2, 2025  
+**Last Updated:** April 17, 2026  
 **Maintained By:** Development Team
