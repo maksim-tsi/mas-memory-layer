@@ -53,4 +53,4 @@ The L3/L4 tiers support environment-driven collection isolation for embedding mi
 - `EMBEDDING_DIMENSIONS` controls the effective vector size used by L3/Qdrant operations.
 
 This configuration prevents dimensionality collisions when changing embedding providers
-(for example, migrating from 768-dimension embeddings to 1024-dimension embeddings).
+(for example, migrating from 768-dimension embeddings to 4096-dimension embeddings).

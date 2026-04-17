@@ -121,9 +121,7 @@ class OpenRouterProvider(BaseProvider):
             raw_content=response,
         )
 
-    async def get_embedding(
-        self, text: str, model: str | None = None, output_dimensionality: int | None = None
-    ) -> list[float]:
+    async def get_embedding(self, text: str, model: str | None = None) -> list[float]:
         """Generate embedding using OpenRouter."""
         model = model or os.getenv("OPENROUTER_EMBEDDING_MODEL", "qwen/qwen3-embedding-8b")
 
@@ -131,7 +129,7 @@ class OpenRouterProvider(BaseProvider):
             response = await self.client.embeddings.create(input=[text], model=model)
             return response.data[0].embedding
         except Exception as e:
-            logger.exception("OpenRouter embedding failed")
+            logger.exception("OpenRouter embedding failed for model '%s'", model)
             raise e from None
 
     async def health_check(self) -> ProviderHealth:

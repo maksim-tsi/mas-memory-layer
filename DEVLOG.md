@@ -16,6 +16,47 @@ Each entry should include:
 
 ## Log Entries
 
+### 2026-04-17 - Empirical OpenRouter Embedding Dimension Alignment (4096D) 📊
+
+**Status:** ✅ Complete
+
+**Summary:**
+Executed an empirical fix to remove embedding abstraction leaks and align V2 runtime behavior to the native dimensionality returned by OpenRouter `qwen/qwen3-embedding-8b`. The native vector size was measured at runtime as 4096, V2 Qdrant collections were recreated with that dimensionality, and the V2 E2E suite passed cleanly without skips.
+
+**Key Findings:**
+
+**✅ What's Complete:**
+- Added fail-fast embedding provider routing in `LLMClient.get_embedding()` so implicit fallback to Gemini is no longer used for embeddings.
+- Hardened OpenRouter embedding path to preserve native-size behavior and improved provider/model error context in logs.
+- Removed silent fallback embedding generation in `ConsolidationEngine` that previously masked provider failures and could reintroduce dimension drift.
+- Added empirical discovery utility: `scripts/debug/check_native_dimension.py`.
+- Added v2-only recreation utility: `scripts/debug/recreate_v2_qdrant_collections.py`.
+- Verified native dimension from OpenRouter model:
+   - `provider=openrouter`
+   - `model=qwen/qwen3-embedding-8b`
+   - `dimension=4096`
+- Recreated only V2 collections in Qdrant:
+   - `episodes_v2: 768 -> 4096`
+   - `test_v2: 1024 -> 4096`
+- Updated configuration/docs to reflect empirical dimension:
+   - `.env.example` now sets `EMBEDDING_DIMENSIONS=4096`
+   - `tests/v2-api-e2e/test_plan.md` updated to 4096D wording
+   - `src/memory/tiers/README.md` migration example updated to 4096D
+- Removed assimilate skip-logic from `tests/v2-api-e2e/test_semantic_gateway_e2e.py` and enforced E2E runtime default to 4096 via `E2E_EMBEDDING_DIMENSIONS` fallback.
+
+**❌ What's Missing:**
+- Local developer `.env` files must still be manually updated where needed to keep non-test workflows aligned with 4096D defaults.
+
+**Current Project Completion:**
+- **V2 OpenRouter embedding alignment**: 100% ✅ (empirical dimension validated, v2 collections recreated, E2E green)
+
+**Evidence from Codebase:**
+```bash
+./.venv/bin/python scripts/debug/check_native_dimension.py
+./.venv/bin/python scripts/debug/recreate_v2_qdrant_collections.py
+./.venv/bin/pytest tests/v2-api-e2e/test_semantic_gateway_e2e.py -v
+```
+
 ### 2026-04-17 - OpenRouter V2 Runtime Activation and Validation 📊
 
 **Status:** ✅ Complete
