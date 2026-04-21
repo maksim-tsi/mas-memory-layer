@@ -16,6 +16,9 @@ Validate whether the MAS agent container can be started cleanly on the `dev` bra
 3. Restart only `mas-agent` with `docker compose -f docker-compose.interface.yml up -d --no-deps mas-agent`.
 4. Re-check runtime state and health endpoint on port 8080.
 5. Collect post-restart logs and container exit metadata.
+6. Compare `docker-compose.yml` and `docker-compose.interface.yml` rendered `mas-agent` environments.
+7. Apply minimal compose-only parity fix to interface compose.
+8. Re-run interface startup and health checks.
 
 ## 3. Command Evidence Summary
 
@@ -40,19 +43,60 @@ The container fails during application startup with a Neo4j authentication error
 - message indicates client unauthorized due to authentication failure
 - startup abort follows tier initialization failure
 
-## 5. Outcome
+## 5. Default vs Interface Comparison
 
-The clean restart on `dev` did **not** produce a healthy running service.
+`docker compose config` showed that default compose provided additional `mas-agent` variables that were not present in interface compose during the failing run.
 
-- Final state: `mas-agent` not running
-- Health endpoint: `http://localhost:8080/health` unreachable
-- Exit metadata: code `3`
+Missing from interface compose before fix:
 
-## 6. Change Control Confirmation
+1. `NEO4J_USER`
+2. `NEO4J_PASSWORD`
+3. `NEO4J_DATABASE`
+4. `OPENROUTER_API_KEY`
 
-No implementation code was modified during this diagnostic run. Only documentation artifacts were created/updated.
+This configuration drift explained why default compose started successfully while interface compose failed with Neo4j authentication errors.
 
-## 7. Comparison Checklist for Next Branch
+## 6. Remediation Applied
+
+A compose-only fix was applied in `docker-compose.interface.yml` to align interface `mas-agent` environment wiring with default compose.
+
+Added keys:
+
+1. `NEO4J_USER: ${NEO4J_USER:-neo4j}`
+2. `NEO4J_PASSWORD: ${NEO4J_PASSWORD:-mas-password}`
+3. `NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}`
+4. `OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}`
+
+No source-code files were modified.
+
+## 7. Validation After Fix
+
+Post-fix validation sequence:
+
+1. `docker compose -f docker-compose.interface.yml up -d mas-agent`
+2. `docker compose -f docker-compose.interface.yml ps`
+3. `curl -sS -m 10 http://localhost:8080/health`
+
+Observed result:
+
+1. Container `mas-memory-layer-mas-agent-1` remains `Up`.
+2. Port mappings active (`8080->8080`, `8002->8080`).
+3. Health endpoint returns `HTTP 200`.
+
+## 8. Outcome
+
+The initial interface compose restart failed, but after environment parity remediation, interface compose became healthy and stable on `dev`.
+
+Final verified state:
+
+1. `mas-agent` running under `docker-compose.interface.yml`
+2. `http://localhost:8080/health` reachable (`HTTP 200`)
+
+## 9. Change Control Confirmation
+
+No implementation code was modified during this diagnostic run. Changes were limited to compose configuration and documentation.
+
+## 10. Comparison Checklist for Next Branch
 
 For branch-to-branch comparison, capture the same fields and compare deltas:
 
