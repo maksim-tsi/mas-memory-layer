@@ -16,6 +16,38 @@ Each entry should include:
 
 ## Log Entries
 
+### 2026-04-23 - 4096 Blue-Green Cutover Validation (episodes_qwen_v2)
+
+**Status:** ✅ Complete
+
+**Summary:**
+Executed final validation for the 4096 migration strategy using a new collection lineage. Confirmed that YAAM V2 writes route to `episodes_qwen_v2` while legacy collections remain unchanged.
+
+**What was validated:**
+- Interface compose service health on `:8080` (`/health` returned HTTP 200).
+- L3 smoke requests succeeded:
+   - `POST /v2/memory/l3/assimilate` -> success
+   - `POST /v2/memory/l3/query` -> success
+- Qdrant before/after evidence showed write delta only in new lineage:
+   - `episodes_qwen_v2`: `32 -> 33`
+   - `episodes`: `310 -> 310` (unchanged, 768)
+   - `episodes_v2`: `2 -> 2` (unchanged)
+
+**Implementation detail:**
+- Ensured episodic tier uses explicit `collection_name=episodes_qwen` in wrapper initialization so V2 suffixing resolves to `episodes_qwen_v2` and does not fall back to old default lineage.
+
+**Verification commands:**
+```bash
+./.venv/bin/ruff check .
+./.venv/bin/pytest tests/ -v
+docker compose -f docker-compose.interface.yml up -d --build mas-agent
+curl -i http://localhost:8080/health
+```
+
+**Notes:**
+- Current full-suite status during this change window: `6 failed, 624 passed, 108 skipped`.
+- Remaining failures reflect expectation drift for dimension/collection assumptions and should be handled in targeted test updates.
+
 ### 2026-04-17 - Empirical OpenRouter Embedding Dimension Alignment (4096D) 📊
 
 **Status:** ✅ Complete
