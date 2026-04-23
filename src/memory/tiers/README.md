@@ -52,5 +52,9 @@ The L3/L4 tiers support environment-driven collection isolation for embedding mi
     - L4 default: `knowledge_base` -> `knowledge_base_v2`
 - `EMBEDDING_DIMENSIONS` controls the effective vector size used by L3/Qdrant operations.
 
+For dimension-safe blue-green migrations, use a new L3 base collection name (for example
+`episodes_qwen`) so V2 mode resolves to a distinct target (`episodes_qwen_v2`) rather than
+reusing an existing `episodes_v2` collection with immutable vector schema.
+
 This configuration prevents dimensionality collisions when changing embedding providers
 (for example, migrating from 768-dimension embeddings to 4096-dimension embeddings).

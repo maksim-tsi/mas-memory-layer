@@ -12,6 +12,7 @@ services:
       MAS_AGENT_TYPE: ${MAS_AGENT_TYPE:-full}
       MAS_MODEL: ${MAS_MODEL:-gemini-2.5-flash-lite}
       MAS_PORT: "8080"
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-4096}
       POSTGRES_URL: ${POSTGRES_URL:-postgresql://mas:mas@localhost:5432/mas}
       REDIS_URL: ${REDIS_URL:-redis://localhost:6379/0}
       QDRANT_URL: ${QDRANT_URL:-http://localhost:6333}

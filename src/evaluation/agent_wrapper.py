@@ -253,7 +253,7 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
     qdrant_adapter = QdrantAdapter(
         {
             "url": _read_env_or_raise("QDRANT_URL"),
-            "collection_name": "episodes",
+            "collection_name": "episodes_qwen",
             "vector_size": 768,
         }
     )
@@ -277,6 +277,7 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
     episodic_tier = EpisodicMemoryTier(
         qdrant_adapter=qdrant_adapter,
         neo4j_adapter=neo4j_adapter,
+        config={"collection_name": "episodes_qwen"},
     )
     semantic_tier = SemanticMemoryTier(typesense_adapter=typesense_adapter)
 
