@@ -17,6 +17,7 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+BENCH_ROOT="${GOODAI_BENCHMARK_DIR:-$PROJECT_ROOT/../goodai-ltm-benchmark-yaam}"
 
 cd "$PROJECT_ROOT"
 
@@ -24,13 +25,13 @@ cd "$PROJECT_ROOT"
 PYTHON="$PROJECT_ROOT/.venv/bin/python"
 
 # GoodAI Benchmark venv
-BENCH_VENV="$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark/.venv"
+BENCH_VENV="$BENCH_ROOT/.venv"
 BENCH_PYTHON="$BENCH_VENV/bin/python"
 
 WRAPPER_LOG_DIR="$PROJECT_ROOT/logs"
 BENCH_LOG_DIR="$PROJECT_ROOT/logs"
 RESULTS_ROOT="$PROJECT_ROOT/benchmarks/results/validation_prospective_2"
-BENCH_CONFIG="$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark/configurations/mas_prospective_2.yml"
+BENCH_CONFIG="$BENCH_ROOT/configurations/mas_prospective_2.yml"
 
 ENV_FILE="$PROJECT_ROOT/.env"
 if [ -f "$ENV_FILE" ]; then
@@ -39,7 +40,7 @@ if [ -f "$ENV_FILE" ]; then
     set +a
 fi
 
-PYTHONPATH="$PROJECT_ROOT:$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark${PYTHONPATH:+:$PYTHONPATH}"
+PYTHONPATH="$PROJECT_ROOT:$BENCH_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
 
 WRAPPER_PIDS=""
@@ -91,8 +92,8 @@ function wait_for_health() {
 function run_benchmark() {
     agent_name="$1"
     echo -e "${BLUE}Running benchmark for ${agent_name}...${NC}"
-    PYTHONPATH="$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark" \
-        "$BENCH_PYTHON" "$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark/runner/run_benchmark.py" -a "$agent_name" -c "$BENCH_CONFIG"
+    PYTHONPATH="$BENCH_ROOT" \
+        "$BENCH_PYTHON" "$BENCH_ROOT/runner/run_benchmark.py" -a "$agent_name" -c "$BENCH_CONFIG"
 }
 
 function cleanup_mas_memory() {
@@ -115,12 +116,13 @@ function shutdown_all() {
 function copy_results() {
     mkdir -p "$RESULTS_ROOT"
     # Copy results for all agents
-    cp -r "$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark/data/tests"/prospective_memory/results/* "$RESULTS_ROOT" 2>/dev/null || true
+    cp -r "$BENCH_ROOT/data/tests"/prospective_memory/results/* "$RESULTS_ROOT" 2>/dev/null || true
     echo -e "${GREEN}Results copied to ${RESULTS_ROOT}${NC}"
 }
 
 function main() {
     require_file "$PYTHON"
+    require_file "$BENCH_PYTHON"
     require_file "$BENCH_CONFIG"
     mkdir -p "$WRAPPER_LOG_DIR" "$BENCH_LOG_DIR" "$RESULTS_ROOT"
 

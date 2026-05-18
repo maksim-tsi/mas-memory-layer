@@ -70,7 +70,7 @@ This document defines a staged adoption plan for enterprise software development
 - Configuration baseline: `pyproject.toml`
 - Pre-commit hooks: `.pre-commit-config.yaml`
 - Test scripts: `scripts/run_tests.sh`, `scripts/run_smoke_tests.sh`, `scripts/run_memory_integration_tests.sh`
-- Benchmark visibility docs: `benchmarks/goodai-ltm-benchmark/docs/visibility-analysis.md`, `benchmarks/goodai-ltm-benchmark/docs/improvement-plan.md`
+- Benchmark visibility docs: external `goodai-ltm-benchmark-yaam` repository, `docs/visibility-analysis.md` and `docs/improvement-plan.md`
 
 ## 6. Implementation Log
 
@@ -79,4 +79,4 @@ This document defines a staged adoption plan for enterprise software development
 - Extended `.pre-commit-config.yaml` with ruff and staged mypy checks.
 - Updated `scripts/run_tests.sh` to use absolute venv executables and enforce `--cov-fail-under=80`.
 - Updated `scripts/run_smoke_tests.sh`, `scripts/run_memory_integration_tests.sh`, `scripts/run_wrapper_tests.sh`, and `scripts/run_redis_tests.sh` to enforce coverage and avoid virtual environment activation.
-- Added TDD placeholder tests for benchmark visibility features in `benchmarks/goodai-ltm-benchmark/tests/test_visibility.py`.
+- Added TDD placeholder tests for benchmark visibility features in the external benchmark repository.

@@ -107,7 +107,7 @@ MAS_PORT=8082 MAS_AGENT_TYPE=full MAS_AGENT_VARIANT=v2-adv-toolgated \
 ### B) Run GoodAI against each instance (example)
 
 ```bash
-cd benchmarks/goodai-ltm-benchmark
+cd ../goodai-ltm-benchmark-yaam
 
 AGENT_URL="http://localhost:8081/v1/chat/completions" \
   poetry run python -m runner.run_benchmark \

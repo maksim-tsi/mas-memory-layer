@@ -14,8 +14,23 @@ import yaml
 sys.path.append(str(Path(__file__).parent.parent))
 
 
-# Adjusting path to include the benchmark directory
-BENCHMARK_DIR = Path(__file__).parent.parent / "benchmarks" / "goodai-ltm-benchmark"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _benchmark_dir() -> Path:
+    configured = os.environ.get("GOODAI_BENCHMARK_DIR")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return (PROJECT_ROOT.parent / "goodai-ltm-benchmark-yaam").resolve()
+
+
+# Adjusting path to include the external benchmark directory
+BENCHMARK_DIR = _benchmark_dir()
+if not BENCHMARK_DIR.exists():
+    raise SystemExit(
+        "GoodAI benchmark checkout not found. Set GOODAI_BENCHMARK_DIR "
+        f"or clone it to {BENCHMARK_DIR}"
+    )
 if str(BENCHMARK_DIR) not in sys.path:
     sys.path.append(str(BENCHMARK_DIR))
 

@@ -113,7 +113,7 @@ The `archive_docs_to_typesense.py` script performs selective ingestion of markdo
 
 **Features:**
 - Scans the repository root for `.md` files
-- Excludes benchmark code (`benchmarks/goodai-ltm-benchmark`) and standard noise (`.git`, `node_modules`, `.venv`, etc.)
+- Excludes accidental embedded benchmark checkouts (`benchmarks/goodai-ltm-benchmark`) and standard noise (`.git`, `node_modules`, `.venv`, etc.)
 - Adds `repository_label: "mas-memory-layer-repo"` to all documents
 - Auto-tags documents by type: `adr`, `specification`, `plan`, `report`, `readme`, or `documentation`
 

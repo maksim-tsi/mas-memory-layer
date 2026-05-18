@@ -524,12 +524,12 @@ poetry install --with test,dev
 
 For more detailed troubleshooting guidance, see [`docs/environment-guide.md`](docs/environment-guide.md).
 
-### Two-Environment Architecture
+### YAAM and External Benchmark Environments
 
-This repository contains two separate Poetry projects with isolated dependencies:
+YAAM and the GoodAI benchmark are maintained as separate Poetry projects:
 
-1. **MAS Memory Layer** (root): `poetry install --with test,dev`
-2. **GoodAI Benchmark** (`benchmarks/goodai-ltm-benchmark/`): `poetry install`
+1. **YAAM / MAS Memory Layer** (this repository): `poetry install --with test,dev`
+2. **GoodAI Benchmark for YAAM** (external repository): `git@github.com-skazo4ny:maksim-tsi/goodai-ltm-benchmark-yaam.git`, then `poetry install`
 
 These environments are intentionally isolated due to incompatible langchain versions:
 - MAS uses `langchain-core>=0.3.25,<0.4.0`
@@ -544,9 +544,9 @@ Dependencies are managed via `pyproject.toml`. Poetry handles installation autom
 poetry install --with test,dev
 
 # For benchmark environment (if running GoodAI benchmarks)
-cd benchmarks/goodai-ltm-benchmark
+cd ../goodai-ltm-benchmark-yaam
 poetry install
-cd ../..  # Return to project root
+cd ../yet-another-agents-memory  # Return to project root
 ```
 
 ### 4. Run Tests

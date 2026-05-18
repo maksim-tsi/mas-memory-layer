@@ -3,7 +3,7 @@
 **Status:** Ready for Execution  
 **Date:** March 9, 2026  
 **Audience:** Maintainers, benchmark operators, observability owners  
-**Related:** `docs/ADR/009-decoupling-benchmark-api-wall.md`, `docs/specs/spec-goodai-agent-variant-evaluation-protocol.md`, `docs/plan/2026-02-22-provider-parity-experiment-matrix.md`, `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`, `docs/reports/2026-03-09-phoenix-api-wall-observability-progress-report.md`, `docs/runbooks/phoenix-experiment-reproducibility.md`
+**Related:** `docs/ADR/009-decoupling-benchmark-api-wall.md`, `docs/specs/spec-goodai-agent-variant-evaluation-protocol.md`, `docs/plan/2026-02-22-provider-parity-experiment-matrix.md`, external `goodai-ltm-benchmark-yaam/configurations/mas_single_test.yml`, `docs/reports/2026-03-09-phoenix-api-wall-observability-progress-report.md`, `docs/runbooks/phoenix-experiment-reproducibility.md`
 
 **Operational Note:** This document records the dated March 2026 execution plan. For future Phoenix
 reruns and reproducible operator workflow, use
@@ -13,7 +13,7 @@ reruns and reproducible operator workflow, use
 
 This document defines the live execution procedure for validating Arize Phoenix observability on host `skz-dev-lv` across the YAAM API Wall and the GoodAI benchmark integration. The validation matrix covers three providers, namely Gemini, Groq, and Mistral, and two execution modes, namely direct API Wall calls and benchmark-originated `mas-remote` calls.
 
-The procedure is intentionally ordered so that Phoenix infrastructure is validated before any YAAM or benchmark traffic is exercised. This sequencing is required to prevent misclassification of infrastructure failures as provider or application failures. The benchmark portion remains constrained to one example per provider, using `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`, which targets a single `prospective_memory` example with `dataset_examples: 1` and `memory_span: 32000`.
+The procedure is intentionally ordered so that Phoenix infrastructure is validated before any YAAM or benchmark traffic is exercised. This sequencing is required to prevent misclassification of infrastructure failures as provider or application failures. The benchmark portion remains constrained to one example per provider, using `configurations/mas_single_test.yml` from the external benchmark repository, which targets a single `prospective_memory` example with `dataset_examples: 1` and `memory_span: 32000`.
 
 ## 2. Operational Context
 
@@ -22,7 +22,7 @@ The procedure is intentionally ordered so that Phoenix infrastructure is validat
 The repository uses two distinct Python environments:
 
 1. The root YAAM environment at the repository root, targeting Python `>=3.12,<3.14`.
-2. The GoodAI benchmark environment under `benchmarks/goodai-ltm-benchmark/`, targeting Python `>=3.11,<3.13`.
+2. The external GoodAI benchmark environment, targeting Python `>=3.11,<3.13`.
 
 This distinction is operationally significant because Phoenix, OpenTelemetry, and OpenInference instrumentation reside in the root environment, whereas the benchmark environment acts as an HTTP client when executed in `mas-remote` mode.
 
@@ -71,7 +71,7 @@ These choices align with the routing behavior currently implemented in `src/llm/
 Each provider SHALL be evaluated in two modes:
 
 1. Direct API Wall request without benchmark involvement.
-2. GoodAI benchmark request through `mas-remote` using `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`.
+2. GoodAI benchmark request through `mas-remote` using external `configurations/mas_single_test.yml`.
 
 The resulting six-cell validation matrix is shown below.
 
@@ -91,7 +91,7 @@ All runs in this procedure SHALL preserve the following invariants:
 - the root API Wall runs from the root YAAM environment,
 - the benchmark runs from the benchmark Poetry environment,
 - benchmark-side validation uses `mas-remote` exclusively,
-- the benchmark configuration remains `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`,
+- the benchmark configuration remains external `configurations/mas_single_test.yml`,
 - each provider run uses unique Phoenix project naming, session identifiers, and benchmark `--run-name` values,
 - and traced provider runs execute serially because `MAS_MODEL` is process-scoped at API Wall startup.
 
@@ -186,7 +186,7 @@ These scripts validate credentials and basic provider availability. They SHALL N
 Benchmark validation SHALL be executed serially by provider.
 
 1. Keep the benchmark on `mas-remote` so all traffic traverses the active API Wall.
-2. Use `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml` unchanged.
+2. Use external `configurations/mas_single_test.yml` unchanged.
 3. Point `AGENT_URL` to the live API Wall endpoint, typically `http://localhost:8080/v1/chat/completions` or the host-local equivalent on `skz-dev-lv`.
 4. Run `python -m runner.run_benchmark` from the benchmark Poetry environment with:
    - `-c configurations/mas_single_test.yml`,
@@ -194,7 +194,7 @@ Benchmark validation SHALL be executed serially by provider.
    - `-y`,
    - a provider-specific `--run-name`,
    - and a headless-safe progress mode such as `--progress tqdm`.
-5. Preserve the run directory created under `benchmarks/goodai-ltm-benchmark/data/tests/<run_name>/results/mas-remote/`.
+5. Preserve the run directory created under the external benchmark repository's `data/tests/<run_name>/results/mas-remote/`.
 
 Because provider selection is controlled by `MAS_MODEL` on the API Wall, the API Wall SHALL be restarted or reconfigured between Gemini, Groq, and Mistral benchmark runs.
 
@@ -209,7 +209,7 @@ For each benchmark run, correlate benchmark artifacts, API Wall metadata, and Ph
 - `llm_ms`,
 - and `storage_ms`.
 
-The benchmark client currently relies on response metadata captured in `benchmarks/goodai-ltm-benchmark/model_interfaces/remote_agent.py`. Explicit `traceparent` propagation is not required for a passing result in the present procedure.
+The benchmark client currently relies on response metadata captured in the external benchmark repository's `model_interfaces/remote_agent.py`. Explicit `traceparent` propagation is not required for a passing result in the present procedure.
 
 ## 6. Evidence Requirements
 
@@ -282,10 +282,10 @@ Accordingly, if Gemini reproduces the warning while request-level traces remain 
 - `scripts/test_gemini.py`
 - `scripts/test_groq.py`
 - `scripts/test_mistral.py`
-- `benchmarks/goodai-ltm-benchmark/configurations/mas_single_test.yml`
-- `benchmarks/goodai-ltm-benchmark/runner/run_benchmark.py`
-- `benchmarks/goodai-ltm-benchmark/model_interfaces/remote_agent.py`
-- `benchmarks/goodai-ltm-benchmark/runner/turn_metrics.py`
+- external `goodai-ltm-benchmark-yaam/configurations/mas_single_test.yml`
+- external `goodai-ltm-benchmark-yaam/runner/run_benchmark.py`
+- external `goodai-ltm-benchmark-yaam/model_interfaces/remote_agent.py`
+- external `goodai-ltm-benchmark-yaam/runner/turn_metrics.py`
 - `docker-compose.yml`
 - `Dockerfile`
 - `docs/reports/2026-03-09-phoenix-api-wall-observability-progress-report.md`

@@ -143,7 +143,7 @@ For each provider condition, run:
 3. Collect artifacts:
    - `run_console.log`, `master_log.jsonl`, `turn_metrics.jsonl`, `runstats.json`, per-dataset `0_0.json`
    - YAAM rate limiter JSONL for the run window
-   - HTML report under `benchmarks/goodai-ltm-benchmark/data/reports/`
+   - HTML report under the external benchmark repository's `data/reports/`
 
 ### 6.2 Memory-engine validation set (promotion enabled)
 
@@ -183,4 +183,3 @@ The work is considered complete when:
 1. Artifact-only debugging can recover provider/model attribution and timing decomposition for each turn.
 2. Promotion mode is explicitly controlled and documented for memory-engine validation experiments.
 3. Any behavior-layer change introduced for Groq is replicated under Gemini and Mistral with the same configuration and reported outcomes.
-

@@ -48,7 +48,7 @@ REPO_LABEL = "mas-memory-layer-repo"
 
 # Directories to STRICTLY ignore
 EXCLUDE_DIRS = {
-    "benchmarks/goodai-ltm-benchmark",  # The benchmark code
+    "benchmarks/goodai-ltm-benchmark",  # Accidental external benchmark checkout
     "node_modules",
     ".git",
     "__pycache__",
