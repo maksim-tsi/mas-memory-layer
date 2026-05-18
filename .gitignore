@@ -151,7 +151,6 @@ celerybeat.pid
 
 # Environments
 .env
-.env.example
 .env.local
 .env.*.local
 .env.old
@@ -234,25 +233,28 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Ignore local artifacts, benchmarks, and logs
-# Personal env backups
-.env.old
-
 # Local virtual environments used for tests/benchmarks
 .venv_test/
 benchmarks/.venv-benchmark/
 
-# Benchmark data and results (can be large) - keep out of repo
-benchmarks/goodai-ltm-benchmark/data/
-benchmarks/results/
+# Generated benchmark run state and reports
+benchmarks/goodai-ltm-benchmark/data/persistence/
+benchmarks/goodai-ltm-benchmark/data/tests/
+benchmarks/goodai-ltm-benchmark/data/reports/
+benchmarks/results/**
+!benchmarks/results/
+!benchmarks/results/raw/
+!benchmarks/results/raw/.gitkeep
+!benchmarks/results/processed/
+!benchmarks/results/processed/.gitkeep
 
 # Frontend build artifacts and node modules for benchmark web UI
 benchmarks/goodai-ltm-benchmark/webui/frontend/node_modules/
 benchmarks/goodai-ltm-benchmark/webui/frontend/dist/
 
-# Application logs and generated JSONL outputs
-logs/
-logs/*.jsonl
-
 # Test report outputs
 tests/reports/
+tests/integration/perf_results.json
+
+# Tree
+tree.txt
