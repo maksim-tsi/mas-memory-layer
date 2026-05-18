@@ -1,8 +1,15 @@
 # CIAR and L3/L4 Retrieval Gap Analysis Report
 
-**Date:** March 10, 2026  
-**Status:** Analysis completed (no implementation changes in this report)  
-**Audience:** Maintainers, paper authors, YAAM runtime owners, observability owners  
+**Date:** March 10, 2026
+**Status:** Historical analysis, partially superseded
+**Audience:** Maintainers, paper authors, YAAM runtime owners, observability owners
+
+> **Superseded note (2026-05-18):** The CIAR formula mismatch described in this report was
+> accurate for the March 10 checkout, but the current runtime has since been reconciled with
+> ADR-004's exponential age decay plus linear reinforcement model. Treat the retrieval and
+> observability findings as historical evidence, and use
+> [2026-05-18-ciar-design-and-implementation-audit.md](2026-05-18-ciar-design-and-implementation-audit.md)
+> for the current CIAR assessment.
 
 ## 1. Executive Summary
 
@@ -201,4 +208,3 @@ The architecture narrative expects agents to formulate an explicit retrieval que
 3. Implement `l3_search_episodes` tool to remove the current stub.
 4. Update the paper draft section on Promotion Engine to reflect the actual CIAR meaning and the upstream source of certainty/impact.
 5. After (2–3), update Phoenix span contract language (retriever vs enumeration) to match behavior and re-run “glass-box” trace validation.
-

@@ -30,6 +30,7 @@ This directory contains technical reports, status updates, and debugging documen
 |--------|-------------|
 | [code_review_consolidated_version-0.9_upto10feb2026.md](code_review_consolidated_version-0.9_upto10feb2026.md) | Consolidated code reviews (version-0.9) |
 | [priority_6_consolidated_version-0.9_upto10feb2026.md](priority_6_consolidated_version-0.9_upto10feb2026.md) | Priority 6 consolidated reports (version-0.9) |
+| [2026-05-18-ciar-design-and-implementation-audit.md](2026-05-18-ciar-design-and-implementation-audit.md) | CIAR design and implementation audit with recommendations for memory policy evolution |
 
 ### Benchmark & Validation
 | Report | Description |
