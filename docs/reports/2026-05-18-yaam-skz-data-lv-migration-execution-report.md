@@ -41,6 +41,9 @@ MacBook, not a general DNS name for applications.
 - Restarted `mas-agent` with non-secret runtime endpoint overrides pointing to
   `192.168.107.187` after startup initially failed against old Redis endpoint
   `192.168.107.172:6379`.
+- Added `docker-compose.skz-data.yml` as a committed runtime override for
+  non-secret `skz-data-lv` service endpoints. This avoids relying on ad hoc
+  shell overrides while preserving the `.env` secret boundary.
 
 ## Current Runtime State
 
@@ -61,13 +64,22 @@ curl -fsS http://192.168.107.187:8002/health
 Both checks returned `status: ok`. The health response reported Redis,
 PostgreSQL, L1 active context, L2 working memory, and the agent as healthy.
 
-## Important Caveat
+## Runtime Configuration
 
-The current successful runtime depends on Compose shell overrides for
-non-secret service endpoints. The copied remote `.env` still needs a permanent
-manual edit when the operator is back at a trusted workstation.
+The successful runtime should be managed with both Compose files:
 
-At minimum, the remote `.env` should use concrete data-node endpoints:
+```bash
+docker compose -f docker-compose.interface.yml -f docker-compose.skz-data.yml up -d --force-recreate mas-agent
+```
+
+`docker-compose.skz-data.yml` contains only non-secret endpoint overrides. It
+does not contain database passwords, provider keys, or API keys. Secrets remain
+in the untracked remote `.env`.
+
+The copied remote `.env` may still contain stale `skz-dev-lv` endpoint values.
+That is acceptable for now as long as the `skz-data` override file is used for
+runtime. When the operator is back at a trusted workstation, the remote `.env`
+can still be cleaned up manually to match the data-node endpoints:
 
 ```dotenv
 REDIS_HOST=192.168.107.187
@@ -89,8 +101,8 @@ Before starting the separate GoodAI LTM benchmark decoupling work, stabilize the
 new YAAM runtime boundary:
 
 - Keep the MacBook Pro and `skz-data-lv` powered on.
-- Do not stop or recreate `mas-agent` until the remote `.env` is permanently
-  corrected, because a plain Compose restart may fall back to stale endpoints.
+- If `mas-agent` needs a restart before the remote `.env` is cleaned up, always
+  include `docker-compose.skz-data.yml`.
 - Treat `http://192.168.107.187:8002` as the active YAAM API Wall endpoint.
 - Run one smoke request from each consumer project that will depend on YAAM,
   especially TRA and SCM Cert bench.
@@ -109,8 +121,9 @@ While the operator is on a smartphone only:
 - Avoid destructive commands on `skz-dev-lv`; it is offline anyway.
 - Keep all follow-up actions limited to read-only checks, health checks, and
   consumer endpoint configuration that can be reviewed safely.
-- If YAAM needs a restart before the permanent `.env` fix, use the same
-  non-secret endpoint override pattern rather than relying on the copied `.env`.
+- If YAAM needs a restart before the permanent `.env` fix, use the committed
+  `docker-compose.skz-data.yml` override rather than relying on the copied
+  `.env`.
 - Do not begin repository surgery for GoodAI decoupling from the phone. That
   work should start from a clean MacBook checkout in a separate chat/session.
 
@@ -119,11 +132,12 @@ While the operator is on a smartphone only:
 1. Keep monitoring `http://192.168.107.187:8002/health` until the consumer smoke
    checks are complete.
 2. When back at the MacBook, edit the remote `.env` on `skz-data-lv` to replace
-   stale `192.168.107.172` endpoints with `192.168.107.187`.
-3. Restart without overrides:
+   stale `192.168.107.172` endpoints with `192.168.107.187`. This is cleanup,
+   not an urgent runtime blocker while `docker-compose.skz-data.yml` is used.
+3. Restart with the committed `skz-data` override:
 
    ```bash
-   ssh skz-data-local 'cd /home/maxim/code/yet-another-agents-memory && docker compose -f docker-compose.interface.yml up -d --force-recreate mas-agent'
+   ssh skz-data-local 'cd /home/maxim/code/yet-another-agents-memory && docker compose -f docker-compose.interface.yml -f docker-compose.skz-data.yml up -d --force-recreate mas-agent'
    ```
 
 4. Re-run:
