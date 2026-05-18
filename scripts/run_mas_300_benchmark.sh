@@ -25,7 +25,7 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-BENCHMARK_DIR="$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark"
+BENCHMARK_DIR="${GOODAI_BENCHMARK_DIR:-$PROJECT_ROOT/../goodai-ltm-benchmark-yaam}"
 
 cd "$PROJECT_ROOT"
 
@@ -125,6 +125,7 @@ PYTHON_BENCH="$BENCHMARK_DIR/.venv/bin/python"
 
 if [ ! -f "$PYTHON_BENCH" ]; then
     log "${RED}Error: Benchmark virtual environment python not found at $PYTHON_BENCH${NC}"
+    log "Set GOODAI_BENCHMARK_DIR to the external benchmark checkout, then run poetry install there."
     exit 1
 fi
 

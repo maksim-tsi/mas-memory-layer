@@ -53,8 +53,8 @@ Before starting any Phoenix experiment, confirm the following:
    - `./.venv/bin/python`
    - `./.venv/bin/pytest`
    - `./.venv/bin/ruff`
-2. The benchmark environment exists if benchmark-mode validation is required:
-   - `benchmarks/goodai-ltm-benchmark/.venv/bin/python`
+2. The external benchmark environment exists if benchmark-mode validation is required:
+   - `../goodai-ltm-benchmark-yaam/.venv/bin/python`
 3. `.env` is sourced only into the current shell and is never printed.
 4. `PHOENIX_COLLECTOR_ENDPOINT` points to the live local collector.
 5. The YAAM API Wall can be started from the root environment.

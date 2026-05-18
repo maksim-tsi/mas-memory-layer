@@ -119,7 +119,7 @@ To avoid creating a third repository for shared code immediately:
 
 ### Phase 2: Client Adaptation (Container B)
 
-1. Refactor `benchmarks/goodai-ltm-benchmark/model_interfaces/ltm_agent_wrapper.py`.
+1. Refactor the benchmark repository's `model_interfaces/ltm_agent_wrapper.py`.
 2. Replace `MemoryAgent` class import with a `RemoteAgent` class using `httpx` or `requests`.
 3. Create `Dockerfile` for the benchmark project.
 

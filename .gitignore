@@ -8,6 +8,7 @@
 .env.*.local
 
 # External Benchmarks
+benchmarks/goodai-ltm-benchmark/
 benchmarks/.venv-benchmark/
 
 # Byte-compiled / optimized / DLL files
@@ -238,19 +239,12 @@ __marimo__/
 benchmarks/.venv-benchmark/
 
 # Generated benchmark run state and reports
-benchmarks/goodai-ltm-benchmark/data/persistence/
-benchmarks/goodai-ltm-benchmark/data/tests/
-benchmarks/goodai-ltm-benchmark/data/reports/
 benchmarks/results/**
 !benchmarks/results/
 !benchmarks/results/raw/
 !benchmarks/results/raw/.gitkeep
 !benchmarks/results/processed/
 !benchmarks/results/processed/.gitkeep
-
-# Frontend build artifacts and node modules for benchmark web UI
-benchmarks/goodai-ltm-benchmark/webui/frontend/node_modules/
-benchmarks/goodai-ltm-benchmark/webui/frontend/dist/
 
 # Test report outputs
 tests/reports/

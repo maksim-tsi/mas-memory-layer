@@ -6,11 +6,11 @@
 #
 # Environment: Both projects use Poetry with in-project venvs (virtualenvs.in-project = true).
 #   MAS Memory Layer:     PROJECT_ROOT/.venv (managed by pyproject.toml)
-#   GoodAI Benchmark:     PROJECT_ROOT/benchmarks/goodai-ltm-benchmark/.venv
+#   GoodAI Benchmark:     GOODAI_BENCHMARK_DIR/.venv
 #
 # Setup:
 #   cd PROJECT_ROOT && poetry install --with test,dev
-#   cd benchmarks/goodai-ltm-benchmark && poetry install
+#   cd ../goodai-ltm-benchmark-yaam && poetry install
 
 set -e
 set -u
@@ -24,6 +24,7 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+BENCH_ROOT="${GOODAI_BENCHMARK_DIR:-$PROJECT_ROOT/../goodai-ltm-benchmark-yaam}"
 
 cd "$PROJECT_ROOT"
 
@@ -32,14 +33,14 @@ PYTHON="$PROJECT_ROOT/.venv/bin/python"
 PIP="$PROJECT_ROOT/.venv/bin/pip"
 PYTEST="$PROJECT_ROOT/.venv/bin/pytest"
 
-# GoodAI Benchmark venv (Poetry-managed, in-project under benchmark dir)
-BENCH_VENV="$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark/.venv"
+# GoodAI Benchmark venv (Poetry-managed in the external benchmark checkout)
+BENCH_VENV="$BENCH_ROOT/.venv"
 BENCH_PYTHON="$BENCH_VENV/bin/python"
 
 WRAPPER_LOG_DIR="$PROJECT_ROOT/logs"
 BENCH_LOG_DIR="$PROJECT_ROOT/logs"
 RESULTS_ROOT="$PROJECT_ROOT/benchmarks/results/goodai_ltm"
-BENCH_CONFIG="$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark/configurations/mas_subset_32k.yml"
+BENCH_CONFIG="$BENCH_ROOT/configurations/mas_subset_32k.yml"
 
 ENV_FILE="$PROJECT_ROOT/.env"
 
@@ -49,7 +50,7 @@ if [ -f "$ENV_FILE" ]; then
     set +a
 fi
 
-PYTHONPATH="$PROJECT_ROOT:$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark${PYTHONPATH:+:$PYTHONPATH}"
+PYTHONPATH="$PROJECT_ROOT:$BENCH_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
 
 WRAPPER_PIDS=""
@@ -69,7 +70,8 @@ function check_prerequisites() {
 
     if [ ! -f "$BENCH_PYTHON" ]; then
         echo -e "${RED}Error: GoodAI benchmark venv not found at $BENCH_VENV${NC}"
-        echo "Run: cd benchmarks/goodai-ltm-benchmark && poetry install"
+        echo "Set GOODAI_BENCHMARK_DIR to the external benchmark checkout if needed."
+        echo "Run: cd $BENCH_ROOT && poetry install"
         exit 1
     fi
 }
@@ -150,16 +152,16 @@ function force_cleanup() {
 function run_benchmark() {
     agent_name="$1"
     echo -e "${BLUE}Running benchmark for ${agent_name}...${NC}"
-    PYTHONPATH="$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark" \
-        "$BENCH_PYTHON" "$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark/runner/run_benchmark.py" -a "$agent_name" -c "$BENCH_CONFIG"
+    PYTHONPATH="$BENCH_ROOT" \
+        "$BENCH_PYTHON" "$BENCH_ROOT/runner/run_benchmark.py" -a "$agent_name" -c "$BENCH_CONFIG"
 }
 
 function copy_results() {
     timestamp=$(date +%Y%m%d)
     dest="$RESULTS_ROOT/subset_baseline_${timestamp}"
     mkdir -p "$dest"
-    cp -r "$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark/data/tests"/prospective_memory/results/mas-* "$dest" 2>/dev/null || true
-    cp -r "$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark/data/tests"/restaurant/results/mas-* "$dest" 2>/dev/null || true
+    cp -r "$BENCH_ROOT/data/tests"/prospective_memory/results/mas-* "$dest" 2>/dev/null || true
+    cp -r "$BENCH_ROOT/data/tests"/restaurant/results/mas-* "$dest" 2>/dev/null || true
     mkdir -p "$dest/logs"
     cp "$BENCH_LOG_DIR"/mas_*_memory_timeline.jsonl "$dest/logs" 2>/dev/null || true
     cp "$BENCH_LOG_DIR"/subset_cleanup_* "$dest/logs" 2>/dev/null || true

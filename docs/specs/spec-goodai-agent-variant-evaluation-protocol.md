@@ -107,7 +107,7 @@ artifacts are variant-scoped.
 Example:
 
 ```bash
-cd benchmarks/goodai-ltm-benchmark
+cd ../goodai-ltm-benchmark-yaam
 
 AGENT_URL="http://localhost:8081/v1/chat/completions" \
   poetry run python -m runner.run_benchmark \

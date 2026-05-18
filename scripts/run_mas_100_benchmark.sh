@@ -9,7 +9,7 @@ set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-BENCH_ROOT="$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark"
+BENCH_ROOT="${GOODAI_BENCHMARK_DIR:-$PROJECT_ROOT/../goodai-ltm-benchmark-yaam}"
 BENCH_PYTHON="$BENCH_ROOT/.venv/bin/python"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 RUN_NAME_BASE="MAS Mixed 100 Run"
@@ -26,6 +26,7 @@ fi
 
 if [ ! -x "$BENCH_PYTHON" ]; then
     echo "Error: benchmark virtualenv not found at $BENCH_PYTHON"
+    echo "Set GOODAI_BENCHMARK_DIR to the external benchmark checkout if it is not at $BENCH_ROOT"
     echo "Run: cd $BENCH_ROOT && poetry install"
     exit 1
 fi

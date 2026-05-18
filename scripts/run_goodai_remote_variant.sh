@@ -25,7 +25,7 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-BENCH_ROOT="$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark"
+BENCH_ROOT="${GOODAI_BENCHMARK_DIR:-$PROJECT_ROOT/../goodai-ltm-benchmark-yaam}"
 BENCH_PYTHON="$BENCH_ROOT/.venv/bin/python"
 
 AGENT_URL=""
@@ -51,7 +51,7 @@ function usage() {
     echo "  --agent-url URL         Full OpenAI-compatible endpoint (e.g., http://host:8081/v1/chat/completions)"
     echo "  --agent-type TYPE       Agent type (e.g., full|rag|full_context)"
     echo "  --agent-variant VAR     Variant slug (e.g., baseline|v1-min-skillwiring)"
-    echo "  --config PATH           Benchmark config path (relative to benchmarks/goodai-ltm-benchmark/)"
+    echo "  --config PATH           Benchmark config path (relative to GOODAI_BENCHMARK_DIR)"
     echo ""
     echo "Options:"
     echo "  --max-prompt-size N     Pass -m/--max-prompt-size to runner (default: unset)"
@@ -151,7 +151,7 @@ done
 [ -n "$AGENT_VARIANT" ] || die "--agent-variant is required"
 [ -n "$CONFIG_PATH" ] || die "--config is required"
 
-[ -d "$BENCH_ROOT" ] || die "Benchmark directory not found: $BENCH_ROOT"
+[ -d "$BENCH_ROOT" ] || die "Benchmark directory not found: $BENCH_ROOT (set GOODAI_BENCHMARK_DIR to the external checkout)"
 [ -x "$BENCH_PYTHON" ] || die "Benchmark venv not found at $BENCH_PYTHON (run: cd $BENCH_ROOT && poetry install)"
 
 STAMP="$(date +%Y%m%d_%H%M%S)"

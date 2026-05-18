@@ -4,23 +4,23 @@
 
 This document consolidates the legacy `python-environment-setup.md` and
 `python-3.13-compatibility.md` into a single guide. It reflects the repository's
-Poetry-based workflows and the two-environment layout.
+Poetry-based workflow and the external benchmark layout.
 
 ---
 
-## Two Poetry Environments (Required)
+## Poetry Environments
 
-This repository uses two isolated Poetry environments:
+YAAM and the GoodAI benchmark use isolated Poetry environments:
 
 1. **Root environment (MAS Memory Layer)**
-   - Location: repository root
+   - Location: this repository root
    - Command: `poetry install --with test,dev`
    - Virtualenv: `.venv/`
 
-2. **Benchmark environment (GoodAI LTM Benchmark)**
-   - Location: `benchmarks/goodai-ltm-benchmark/`
+2. **Benchmark environment (GoodAI LTM Benchmark for YAAM)**
+   - Location: external checkout of `git@github.com-skazo4ny:maksim-tsi/goodai-ltm-benchmark-yaam.git`
    - Command: `poetry install`
-   - Virtualenv: `benchmarks/goodai-ltm-benchmark/.venv/`
+   - Virtualenv: `.venv/` inside the benchmark repository
 
 Keep these environments separate to avoid dependency conflicts.
 
@@ -65,14 +65,14 @@ Use `./.venv/bin/python` for deterministic execution in scripts and CI.
 ## Benchmark Environment Setup (GoodAI LTM Benchmark)
 
 ```bash
-cd benchmarks/goodai-ltm-benchmark
+cd ../goodai-ltm-benchmark-yaam
 poetry install
 
 # Verify interpreter path
 ./.venv/bin/python -c "import sys; print(sys.executable)"
 ```
 
-Run benchmark scripts from within the benchmark folder and use its `.venv`.
+Run benchmark scripts from within the benchmark repository and use its `.venv`.
 
 ---
 

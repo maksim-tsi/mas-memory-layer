@@ -15,16 +15,14 @@ The benchmarks use synthetic but realistic workloads that match typical agent me
 
 ## GoodAI LTM Benchmark Integration (Phase 5)
 
-The GoodAI LTM Benchmark is executed from `benchmarks/goodai-ltm-benchmark/` using the MAS wrapper
-services defined in [src/evaluation/agent_wrapper.py](src/evaluation/agent_wrapper.py). The benchmark
-interfaces are registered in `model_interfaces/mas_agents.py` and expose the following agents:
+The GoodAI LTM Benchmark is executed from the external
+`goodai-ltm-benchmark-yaam` repository. YAAM provides the API Wall and the benchmark repository
+provides the runner, datasets, and model interfaces. The benchmark talks to YAAM through:
 
-- `mas-full` → `http://localhost:8080/run_turn` (default Docker Compose service)
-- `mas-rag` → `http://localhost:8081/run_turn` (**requires manual setup** - see below)
-- `mas-full-context` → `http://localhost:8082/run_turn` (**requires manual setup** - see below)
+- local development: `http://localhost:8080/v1/chat/completions`
+- current lab runtime: `http://192.168.107.187:8002/v1/chat/completions`
 
-**Note**: Docker Compose only provisions port 8080 by default. To run A/B comparisons across all three
-agents simultaneously, manually start additional wrapper instances:
+To run A/B comparisons across multiple agent modes locally, start additional wrapper instances:
 ```bash
 # Terminal 1: mas-rag on 8081
 ./.venv/bin/python src/evaluation/agent_wrapper.py --agent-type rag --port 8081
@@ -32,8 +30,7 @@ agents simultaneously, manually start additional wrapper instances:
 ./.venv/bin/python src/evaluation/agent_wrapper.py --agent-type full_context --port 8082
 ```
 
-Session IDs are prefixed for isolation (e.g., `full:{session_id}`, `rag:{session_id}`) to avoid
-cross-agent contamination. For execution instructions, refer to
+Session IDs are propagated through the API Wall for isolation. For execution instructions, refer to
 [docs/integrations/goodai-benchmark-setup.md](docs/integrations/goodai-benchmark-setup.md).
 
 ## Quick Start
