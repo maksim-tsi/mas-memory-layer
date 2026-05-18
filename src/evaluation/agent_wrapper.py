@@ -202,7 +202,15 @@ def _read_env_or_raise(key: str) -> str:
     value = os.environ.get(key)
     if not value:
         raise RuntimeError(f"Required environment variable '{key}' is not set.")
-    return value
+    return os.path.expandvars(value)
+
+
+def _read_env_with_fallback(*keys: str, default: str) -> str:
+    for key in keys:
+        value = os.environ.get(key)
+        if value:
+            return os.path.expandvars(value)
+    return default
 
 
 async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
@@ -260,9 +268,9 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
     neo4j_adapter = Neo4jAdapter(
         {
             "uri": _read_env_or_raise("NEO4J_URI"),
-            "user": os.environ.get("NEO4J_USER", "neo4j"),
-            "password": os.environ.get("NEO4J_PASSWORD", "mas-password"),
-            "database": os.environ.get("NEO4J_DATABASE", "neo4j"),
+            "user": _read_env_with_fallback("NEO4J_USER", "NEO4J_USERNAME", default="neo4j"),
+            "password": _read_env_with_fallback("NEO4J_PASSWORD", default="mas-password"),
+            "database": _read_env_with_fallback("NEO4J_DATABASE", default="neo4j"),
             "lock_redis_url": config.redis_url,
         }
     )
