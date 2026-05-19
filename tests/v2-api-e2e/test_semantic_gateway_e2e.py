@@ -11,19 +11,24 @@ from dotenv import load_dotenv
 # MUST load environment before importing src.server or else missing REDIS_URL will fail initialization
 load_dotenv(override=True)
 
-cloud_node_ip = os.environ["CLOUD_NODE_IP"]
-dev_node_ip = os.environ["DEV_NODE_IP"]
-data_node_ip = os.environ["DATA_NODE_IP"]
+_SCOPED_ENV_KEYS = ("MAS_V2_MODE", "EMBEDDING_DIMENSIONS")
+_ORIGINAL_SCOPED_ENV = {key: os.environ.get(key) for key in _SCOPED_ENV_KEYS}
 
-redis_port = os.environ["REDIS_PORT"]
-postgres_port = os.environ["POSTGRES_PORT"]
-postgres_user = os.environ["POSTGRES_USER"]
-postgres_password = os.environ["POSTGRES_PASSWORD"]
-postgres_db = os.environ["POSTGRES_DB"]
+data_node_ip = os.environ.get("DATA_NODE_IP", "192.168.107.187")
+# skz-dev-lv and skz-cloud-lv may be powered off; current E2E topology uses
+# skz-data-lv for Redis, PostgreSQL, Qdrant, Neo4j, Typesense, and Phoenix.
+dev_node_ip = os.environ.get("DEV_NODE_IP", data_node_ip)
+cloud_node_ip = os.environ.get("CLOUD_NODE_IP", data_node_ip)
+
+redis_port = os.environ.get("REDIS_PORT", "6379")
+postgres_port = os.environ.get("POSTGRES_PORT", "5432")
+postgres_user = os.environ.get("POSTGRES_USER", "postgres")
+postgres_password = os.environ.get("POSTGRES_PASSWORD", "postgres")
+postgres_db = os.environ.get("POSTGRES_DB", "postgres")
 
 # Fix missing REDIS_URL/POSTGRES_URL if python-dotenv basic interpolation failed
 if "REDIS_URL" not in os.environ or "${" in os.environ["REDIS_URL"]:
-    os.environ["REDIS_URL"] = f"redis://{dev_node_ip}:{redis_port}"
+    os.environ["REDIS_URL"] = f"redis://{data_node_ip}:{redis_port}/0"
 
 if "POSTGRES_URL" not in os.environ or "${" in os.environ["POSTGRES_URL"]:
     os.environ["POSTGRES_URL"] = (
@@ -36,10 +41,12 @@ if "MAS_AGENT_TYPE" in os.environ:
 if "AGENT_TYPE" in os.environ:
     del os.environ["AGENT_TYPE"]
 
-# Force v2 behavior for this E2E suite.
+# Force v2 behavior for app import, then restore so collection does not
+# contaminate unrelated unit tests.
 os.environ["MAS_V2_MODE"] = "true"
 # Enforce empirically verified native dimension for qwen/qwen3-embedding-8b.
-os.environ["EMBEDDING_DIMENSIONS"] = os.environ.get("E2E_EMBEDDING_DIMENSIONS", "4096")
+e2e_embedding_dimensions = os.environ.get("E2E_EMBEDDING_DIMENSIONS", "4096")
+os.environ["EMBEDDING_DIMENSIONS"] = e2e_embedding_dimensions
 
 from src.server import app
 from src.storage.qdrant_adapter import QdrantAdapter
@@ -48,17 +55,35 @@ from src.storage.typesense_adapter import TypesenseAdapter
 from src.memory.tiers.episodic_memory_tier import EpisodicMemoryTier
 from src.memory.tiers.semantic_memory_tier import SemanticMemoryTier
 
+for key, value in _ORIGINAL_SCOPED_ENV.items():
+    if value is None:
+        os.environ.pop(key, None)
+    else:
+        os.environ[key] = value
+
 
 SCENARIOS_DIR = Path(__file__).parent.parent / "data" / "scm_scenarios"
 
 
 @pytest_asyncio.fixture(scope="function")
 async def client():
-    qdrant_url = os.environ["QDRANT_URL"]
-    neo4j_uri = os.environ["NEO4J_URI"]
+    missing = [
+        key
+        for key in ("NEO4J_USER", "NEO4J_PASSWORD", "TYPESENSE_API_KEY")
+        if not os.environ.get(key)
+    ]
+    if missing:
+        pytest.skip(f"Live skz-data-lv E2E credentials not configured: {', '.join(missing)}")
+
+    scoped_env = {key: os.environ.get(key) for key in _SCOPED_ENV_KEYS}
+    os.environ["MAS_V2_MODE"] = "true"
+    os.environ["EMBEDDING_DIMENSIONS"] = e2e_embedding_dimensions
+
+    qdrant_url = os.environ.get("QDRANT_URL", f"http://{data_node_ip}:6333")
+    neo4j_uri = os.environ.get("NEO4J_URI", f"bolt://{data_node_ip}:7687")
     neo4j_user = os.environ["NEO4J_USER"]
     neo4j_password = os.environ["NEO4J_PASSWORD"]
-    typesense_url = os.environ["TYPESENSE_URL"]
+    typesense_url = os.environ.get("TYPESENSE_URL", f"http://{data_node_ip}:8108")
     typesense_key = os.environ["TYPESENSE_API_KEY"]
 
     # Expand variables if needed
@@ -72,48 +97,66 @@ async def client():
         "${TYPESENSE_PORT}", os.environ["TYPESENSE_PORT"]
     )
 
-    qdrant_adapter = QdrantAdapter(
-        {
-            "url": qdrant_url,
-            "vector_size": int(os.environ.get("EMBEDDING_DIMENSIONS", 1024)),
-            "collection_name": "test_v2",
-        }
-    )
-    neo4j_adapter = Neo4jAdapter({"uri": neo4j_uri, "user": neo4j_user, "password": neo4j_password})
-    typesense_adapter = TypesenseAdapter({"url": typesense_url, "api_key": typesense_key})
+    qdrant_adapter = None
+    neo4j_adapter = None
+    typesense_adapter = None
+    l3 = None
+    l4 = None
+    try:
+        qdrant_adapter = QdrantAdapter(
+            {
+                "url": qdrant_url,
+                "vector_size": int(os.environ.get("EMBEDDING_DIMENSIONS", 1024)),
+                "collection_name": "test_v2",
+            }
+        )
+        neo4j_adapter = Neo4jAdapter(
+            {"uri": neo4j_uri, "user": neo4j_user, "password": neo4j_password}
+        )
+        typesense_adapter = TypesenseAdapter({"url": typesense_url, "api_key": typesense_key})
 
-    l3 = EpisodicMemoryTier(
-        qdrant_adapter,
-        neo4j_adapter,
-        config={
-            "collection_name": "test_v2",
-            "vector_size": int(os.environ.get("EMBEDDING_DIMENSIONS", 1024)),
-        },
-    )
-    l4 = SemanticMemoryTier(typesense_adapter)
+        l3 = EpisodicMemoryTier(
+            qdrant_adapter,
+            neo4j_adapter,
+            config={
+                "collection_name": "test_v2",
+                "vector_size": int(os.environ.get("EMBEDDING_DIMENSIONS", 1024)),
+            },
+        )
+        l4 = SemanticMemoryTier(typesense_adapter)
 
-    await qdrant_adapter.connect()
-    await neo4j_adapter.connect()
-    await typesense_adapter.connect()
-    await l3.initialize()
-    await l4.initialize()
+        await qdrant_adapter.connect()
+        await neo4j_adapter.connect()
+        await typesense_adapter.connect()
+        await l3.initialize()
+        await l4.initialize()
 
-    # Emulate the fastAPI lifespan so L1 and L2 initialize correctly
-    async with app.router.lifespan_context(app):
-        # Override the L3 and L4 tiers with our live adapters
-        state = app.state.wrapper
-        state.memory_system.l3_tier = l3
-        state.memory_system.l4_tier = l4
+        # Emulate the fastAPI lifespan so L1 and L2 initialize correctly
+        async with app.router.lifespan_context(app):
+            # Override the L3 and L4 tiers with our live adapters
+            state = app.state.wrapper
+            state.memory_system.l3_tier = l3
+            state.memory_system.l4_tier = l4
 
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-            yield c
-
-    await l3.cleanup()
-    await l4.cleanup()
-    await qdrant_adapter.disconnect()
-    await neo4j_adapter.disconnect()
-    await typesense_adapter.disconnect()
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+                yield c
+    finally:
+        if l3:
+            await l3.cleanup()
+        if l4:
+            await l4.cleanup()
+        if qdrant_adapter:
+            await qdrant_adapter.disconnect()
+        if neo4j_adapter:
+            await neo4j_adapter.disconnect()
+        if typesense_adapter:
+            await typesense_adapter.disconnect()
+        for key, value in scoped_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 @pytest.fixture

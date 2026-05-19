@@ -136,6 +136,7 @@ class ExperimentConfig:
     phoenix_endpoint: str
     phoenix_project_name: str
     phoenix_access_mode: str
+    scenario_ids: list[str] = field(default_factory=list)
     skip_provider_health: bool = False
 
 
@@ -826,7 +827,14 @@ class CIARChallengeExperiment:
         return state
 
     async def build_scenarios(self, state: ExperimentState) -> ExperimentState:
-        state.scenarios = build_default_scenarios()
+        scenarios = build_default_scenarios()
+        if self.config.scenario_ids:
+            requested = set(self.config.scenario_ids)
+            scenarios = [scenario for scenario in scenarios if scenario.scenario_id in requested]
+            missing = requested - {scenario.scenario_id for scenario in scenarios}
+            if missing:
+                raise ValueError(f"Unknown scenario ids: {', '.join(sorted(missing))}")
+        state.scenarios = scenarios
         write_json(self.output_dir / "scenarios.json", [asdict(s) for s in state.scenarios])
         return state
 
@@ -883,7 +891,12 @@ class CIARChallengeExperiment:
             ),
             fact_extractor=ObservedFactExtractor(FactExtractor(llm_client=llm_client)),
             ciar_scorer=scorer,
-            config={"promotion_threshold": self.config.min_ciar, "batch_min_turns": 10},
+            config={
+                "promotion_threshold": self.config.min_ciar,
+                "batch_min_turns": 10,
+                "enable_final_fallback": False,
+                "enable_segment_fallback": False,
+            },
             telemetry_stream=self.telemetry,
         )
         write_json(
@@ -894,7 +907,7 @@ class CIARChallengeExperiment:
 
     async def seed_l1(self, state: ExperimentState) -> ExperimentState:
         for scenario in state.scenarios:
-            session_id = f"{self.config.run_id}:{scenario.scenario_id}"
+            session_id = f"{self.config.run_id}__{scenario.scenario_id}"
             state.session_by_scenario[scenario.scenario_id] = session_id
             if self.config.dry_run:
                 continue
@@ -1131,7 +1144,12 @@ class CIARChallengeExperiment:
         for session_id in state.session_by_scenario.values():
             result: dict[str, Any] = {"l1_deleted": False, "l2_deleted": False}
             try:
-                result["l1_deleted"] = await state.resources.l1_tier.delete(session_id)
+                redis_key = f"l1:session:{session_id}"
+                redis_deleted = await state.resources.redis_adapter.delete(redis_key)
+                postgres_deleted = await state.resources.postgres_l1.delete_by_filters(
+                    "active_context", {"session_id": session_id}
+                )
+                result["l1_deleted"] = bool(redis_deleted or postgres_deleted)
             except Exception as exc:
                 result["l1_error"] = str(exc)
             try:
@@ -1170,6 +1188,12 @@ def parse_args() -> argparse.Namespace:
         default="auto",
     )
     parser.add_argument("--phoenix-project-name")
+    parser.add_argument(
+        "--scenario-id",
+        action="append",
+        default=[],
+        help="Scenario id to run. Repeat to run multiple scenarios. Defaults to all scenarios.",
+    )
     parser.add_argument("--allow-localhost-phoenix", action="store_true")
     parser.add_argument("--skip-provider-health", action="store_true")
     return parser.parse_args()
@@ -1193,6 +1217,7 @@ async def async_main() -> int:
         phoenix_endpoint=endpoint,
         phoenix_project_name=project_name,
         phoenix_access_mode=access_mode,
+        scenario_ids=list(args.scenario_id),
         skip_provider_health=bool(args.skip_provider_health),
     )
     experiment = CIARChallengeExperiment(config)

@@ -89,6 +89,7 @@ class TopicSegmenter:
         model_name: str | None = None,
         min_turns: int = DEFAULT_MIN_TURNS,
         max_turns: int = DEFAULT_MAX_TURNS,
+        max_output_tokens: int | None = None,
     ):
         self.llm_client: LLMClient = llm_client or LLMClient.from_env()
         self.model_name = (
@@ -99,6 +100,9 @@ class TopicSegmenter:
         )
         self.min_turns = min_turns
         self.max_turns = max_turns
+        self.max_output_tokens = max_output_tokens or int(
+            os.environ.get("MAS_MAX_OUTPUT_TOKENS", "8192")
+        )
 
     async def segment_turns(
         self, turns: list[dict[str, Any]], metadata: dict[str, Any] | None = None
@@ -155,7 +159,7 @@ class TopicSegmenter:
             system_instruction=TOPIC_SEGMENTATION_SYSTEM_INSTRUCTION,
             response_schema=TOPIC_SEGMENTATION_SCHEMA,
             temperature=0.3,
-            max_output_tokens=8192,
+            max_output_tokens=self.max_output_tokens,
         )
 
         # Parse response; tolerate markdown fences from some providers

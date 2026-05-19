@@ -63,7 +63,7 @@ def _init_phoenix_instrumentation() -> None:
             tracer_provider = register(
                 project_name=project_name,
                 endpoint=endpoint,
-                auto_instrument=True,  # Auto-detect and instrument installed packages
+                auto_instrument=False,
             )
 
             logger.info(
@@ -180,9 +180,11 @@ class LLMClient:
 
         ensure_phoenix_instrumentation()
 
+        openrouter_timeout = float(os.environ.get("MAS_OPENROUTER_TIMEOUT", "45.0"))
+
         client = cls(
             provider_configs=[
-                ProviderConfig(name="openrouter", timeout=45.0, priority=0),
+                ProviderConfig(name="openrouter", timeout=openrouter_timeout, priority=0),
                 ProviderConfig(name="groq", timeout=30.0, priority=1),
                 ProviderConfig(name="mistral", timeout=30.0, priority=2),
                 ProviderConfig(name="gemini", timeout=30.0, priority=3),

@@ -102,6 +102,7 @@ Unit tests for the demo output behaviors are provided at `tests/utils/test_llm_c
 - `scripts/test_gemini.py` - Small script to validate Google Gemini connectivity and basic generation flows.
 - `scripts/test_groq.py` - Small script to validate Groq connectivity and basic generation flows.
 - `scripts/test_mistral.py` - Small script to validate Mistral connectivity and basic generation flows.
+- `scripts/check_openrouter_grok_connectivity.py` - Small script to validate OpenRouter connectivity for `x-ai/grok-4.1-fast` and smoke-test CIAR experiment task fitness without printing secrets.
 - `scripts/run_smoke_tests.sh` - Higher-level script to run smoke tests (see the scripts folder for details).
 - `scripts/run_memory_integration_tests.sh` - Integration harness for memory system tests (includes storage and LLM connectivity checks).
 - `scripts/archive_docs_to_typesense.py` - Archive markdown documentation to Typesense for semantic search. Scans the repository for `.md` files, excludes benchmark code, and uploads with doc_type tagging.
