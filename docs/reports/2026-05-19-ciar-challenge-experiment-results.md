@@ -1,18 +1,28 @@
 # CIAR Challenge Experiment Results
 
 Date: 2026-05-19
-Status: Dry validation complete; focused live run blocked at preflight
+Status: Focused live run complete with `tencent/hy3-preview`
 Related plan: `docs/plan/2026-05-19-ciar-challenge-experiment-execution-plan.md`
 
 ## Summary
 
-The current CIAR challenge harness produced coherent dry-run artifacts with the
-latest session-id separator and deterministic scenario behavior. The focused
-live run did not execute provider, Redis, PostgreSQL, or Phoenix experiment
-paths because required environment variables were not present in the shell.
+The CIAR challenge harness now has both dry-run evidence and a focused live run
+against the current single-node topology on `skz-data-lv`.
 
-This report therefore provides dry-run evidence and an operational live-run
-blocker. It does not claim research-grade live evidence for CIAR behavior.
+The live run used:
+
+- OpenRouter model: `tencent/hy3-preview`
+- Output-token budget: `8192`
+- OpenRouter timeout: `120s`
+- Redis/PostgreSQL/Phoenix host: `192.168.107.187`
+- PostgreSQL database: `yaam-test`
+- PostgreSQL role: `yaam`
+
+The live evidence confirms that the current pipeline can promote useful urgent
+facts, suppress small talk, and suppress one contradiction scenario because its
+segment score falls below threshold. It also confirms that promoted facts still
+inherit segment-level certainty/impact strongly enough to promote low-value
+facts inside an otherwise urgent segment.
 
 ## Commands Run
 
@@ -46,6 +56,24 @@ Focused live attempt:
   --run-id ciar-exp-live-focused-20260519-01 \
   --phoenix-endpoint http://192.168.107.187:6006/v1/traces \
   --phoenix-project-name ciar-challenge-focused-20260519-01 \
+  --scenario-id segment_mismatch \
+  --scenario-id contradiction_update \
+  --scenario-id small_talk
+```
+
+Focused live run with Tencent and the dedicated YAAM database:
+
+```bash
+set -a; . ./.env; set +a
+MAS_REDIS_TIMEOUT=15 \
+MAS_OPENROUTER_TIMEOUT=120 \
+MAS_MAX_OUTPUT_TOKENS=8192 \
+./.venv/bin/python scripts/experiments/run_ciar_challenge.py \
+  --run-id ciar-exp-live-focused-tencent-20260519-06 \
+  --model tencent/hy3-preview \
+  --phoenix-endpoint http://192.168.107.187:6006/v1/traces \
+  --phoenix-project-name ciar-challenge-focused-tencent-20260519-06 \
+  --skip-provider-health \
   --scenario-id segment_mismatch \
   --scenario-id contradiction_update \
   --scenario-id small_talk
@@ -152,8 +180,93 @@ logs/ciar_challenge/ciar-exp-live-focused-20260519-01
 ```
 
 No live `run_manifest.json`, `summary.md`, `ciar_calls.jsonl`, or
-`alternative_scores.json` were produced. No live CIAR behavior should be inferred
-from this failed attempt.
+`alternative_scores.json` were produced from this first failed attempt. No live
+CIAR behavior should be inferred from it.
+
+## Dedicated YAAM Database Setup
+
+A dedicated PostgreSQL role and database were created on `skz-data-lv`:
+
+```text
+role: yaam
+database: yaam-test
+```
+
+The `yaam` password is stored in local `.env` both inside `POSTGRES_URL` and as
+an explicit `POSTGRES_PASSWORD` key. The value is intentionally not recorded in
+this report.
+
+The `yaam-test` schema was initialized with:
+
+- `active_context`
+- `working_memory`
+- CIAR metric columns on `working_memory`
+- `content_tsv` full-text column and GIN index
+- session/CIAR index without the old volatile `NOW()` partial predicate
+
+A real adapter round-trip succeeded:
+
+```text
+L1 stored and retrieved 1 session turn
+L2 stored and queried 1 fact
+```
+
+## Focused Live Run
+
+Artifact directory:
+
+```text
+logs/ciar_challenge/ciar-exp-live-focused-tencent-20260519-06
+```
+
+Phoenix project:
+
+```text
+ciar-challenge-focused-tencent-20260519-06
+```
+
+Run manifest highlights:
+
+```text
+graph_backend=langgraph
+runtime.mode=live_l1_l2
+runtime.provider_order=["openrouter"]
+provider_health=null
+cleanup completed for all three scenario sessions
+```
+
+Provider-health preflight was skipped because the same run path repeatedly
+timed out on Redis after provider health, while direct Redis/L1/L2 setup and the
+full experiment without provider-health both succeeded. The actual promotion
+path still used OpenRouter through `tencent/hy3-preview`.
+
+Live scenario outcomes:
+
+| Scenario | Expected | Segments Created | Segments Promoted | Facts Extracted | Facts Promoted | Errors |
+|---|---:|---:|---:|---:|---:|---:|
+| small_talk | ignore | 1 | 0 | 0 | 0 | 0 |
+| contradiction_update | should_conflict | 1 | 0 | 0 | 0 | 0 |
+| segment_mismatch | should_not_floor | 1 | 1 | 5 | 5 | 0 |
+
+Observed live segment scores:
+
+- `small_talk`: CIAR `0.15`, decision `IGNORE`
+- `contradiction_update`: CIAR `0.5`, decision `IGNORE`
+- `segment_mismatch`: CIAR `0.9`, decision `PROMOTE`
+
+Promoted live facts for `segment_mismatch`:
+
+- Urgent temperature excursion incident involving container `MAEU9182736`.
+- `MAEU9182736` as the relevant supply-chain container.
+- Assistant action to log the exception.
+- User thanks the assistant for prompt response.
+- User defers further discussion to a later unspecified time.
+
+The last two facts are useful challenge evidence: they are low-value interaction
+facts that received CIAR scores near `0.9` because the promoted urgent segment
+dominates fact-level scoring. `alternative_scores.json` assigned each promoted
+fact a `utility_candidate_v0` score of `0.785`, lower than current runtime CIAR
+but still above threshold.
 
 ## Interpretation
 
@@ -164,38 +277,22 @@ the current deterministic scenarios can expose two known CIAR limitations:
 2. Current promotion behavior can let segment-level scoring dominate fact-level
    quality signals.
 
-The live run remains blocked by environment setup in the execution shell. Under
-the repository secret boundary, the agent did not read or source `.env`. The
-operator must provide the required environment variables through an approved
-runtime path before the focused live experiment can produce evidence.
+The live run is no longer blocked by basic environment setup. The remaining
+operational issue is that provider-health preflight can precede and destabilize
+the Redis setup path in this harness. For focused CIAR evidence runs, use
+`--skip-provider-health` and rely on the actual promotion path plus generated
+artifacts for provider behavior.
 
 ## Required Follow-Up
 
-Before presenting live CIAR evidence, rerun the focused live command from a
-shell where these variables are already configured:
+Implementation can now proceed on the policy side, without changing low-level
+storage adapters:
 
-- `OPENROUTER_API_KEY`
-- `REDIS_URL`
-- `POSTGRES_URL`
-
-The intended OpenRouter model for the rerun is:
-
-```text
-tencent/hy3-preview
-```
-
-The current CIAR topic segmentation and fact extraction paths allow an 8192
-output-token budget, which is sufficient for the 5000-token smoke-test budget
-used to validate this model.
-
-The rerun should be checked for:
-
-- scenario-derived facts instead of filler or fallback content;
-- a non-empty `ciar_calls.jsonl`;
-- Phoenix spans for `yaam.llm.topic_segment`, `yaam.llm.fact_extract`, and
-  `yaam.ciar.score`;
-- cleanup status in `run_manifest.json`;
-- clear `alternative_scores.json` rows for the focused scenarios.
-
-Only after a clean focused live run should implementation proceed on promotion
-policy modes or an `EvidenceRanker`.
+1. Add a fact-level evidence gate or `EvidenceRanker` before L2 store.
+2. Keep segment CIAR as a routing signal, not the sole promoted-fact score.
+3. Preserve the focused live run as the regression fixture:
+   `ciar-exp-live-focused-tencent-20260519-06`.
+4. Fix or bypass provider-health preflight for future live harness runs.
+5. Add a schema/migration cleanup task: `002_l2_tsvector_index.sql` currently
+   contains a volatile `NOW()` partial-index predicate that cannot be applied
+   cleanly on a fresh PostgreSQL database.

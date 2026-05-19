@@ -852,7 +852,14 @@ class CIARChallengeExperiment:
         from src.storage.redis_adapter import RedisAdapter
 
         ensure_phoenix_instrumentation()
-        redis_adapter = RedisAdapter({"url": os.environ["REDIS_URL"], "window_size": 20})
+        redis_timeout = float(os.environ.get("MAS_REDIS_TIMEOUT", "15.0"))
+        redis_adapter = RedisAdapter(
+            {
+                "url": os.environ["REDIS_URL"],
+                "window_size": 20,
+                "socket_timeout": redis_timeout,
+            }
+        )
         postgres_l1 = PostgresAdapter({"url": os.environ["POSTGRES_URL"], "table": "active_context"})
         postgres_l2 = PostgresAdapter({"url": os.environ["POSTGRES_URL"], "table": "working_memory"})
         l1_tier = ActiveContextTier(
