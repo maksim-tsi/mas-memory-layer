@@ -160,6 +160,80 @@ async def test_score_alternatives_matches_raw_ciar_when_storage_rewrites_fact_id
 
 
 @pytest.mark.asyncio
+async def test_score_alternatives_recovers_provenance_from_events_when_storage_drops_metadata(
+    tmp_path: Path,
+) -> None:
+    config = ExperimentConfig(
+        run_id="ciar-test",
+        output_dir=tmp_path,
+        dry_run=True,
+        keep_data=False,
+        model="test-model",
+        min_ciar=0.6,
+        phoenix_endpoint="http://127.0.0.1:16006/v1/traces",
+        phoenix_project_name="ciar-test",
+        phoenix_access_mode="configured",
+        promotion_policy_mode="hybrid_gate",
+    )
+    experiment = CIARChallengeExperiment(config)
+    state = ExperimentState(config=config)
+    scenario = Scenario(
+        scenario_id="segment_mismatch",
+        title="Segment mismatch",
+        expectation="should_not_floor",
+        turns=[],
+    )
+    state.scenarios = [scenario]
+    state.session_by_scenario = {"segment_mismatch": "session-1"}
+    state.events = [
+        {
+            "event_type": "fact_promoted",
+            "session_id": "session-1",
+            "data": {
+                "fact_id": "pre-store-uuid",
+                "content": "Urgent container temperature excursion.",
+                "ciar_provenance": {
+                    "promotion_policy_mode": "hybrid_gate",
+                    "segment_ciar": 0.9,
+                    "raw_fact_ciar": 0.8,
+                    "pre_inheritance_ciar": 0.8,
+                    "post_inheritance_ciar": 0.8,
+                    "stored_ciar": 0.8,
+                    "ciar_score_source": "raw_fact",
+                    "segment_inherited": False,
+                    "fact_gate_decision": True,
+                    "evidence_quality_flags": {"domain_signal": True},
+                },
+            },
+        }
+    ]
+    state.ciar_calls = []
+    state.l2_facts = {
+        "segment_mismatch": [
+            {
+                "fact_id": "42",
+                "session_id": "session-1",
+                "content": "Urgent container temperature excursion.",
+                "ciar_score": 0.8,
+                "certainty": 1.0,
+                "impact": 0.8,
+                "source_type": "extracted",
+                "metadata": {},
+            }
+        ]
+    }
+
+    await experiment.score_alternatives(state)
+
+    row = state.alternative_scores[0]
+    assert row["promotion_policy_mode"] == "hybrid_gate"
+    assert row["raw_fact_ciar"] == 0.8
+    assert row["stored_ciar"] == 0.8
+    assert row["ciar_score_source"] == "raw_fact"
+    assert row["evidence_quality_flags"]["domain_signal"] is True
+
+
+@pytest.mark.asyncio
 async def test_preflight_records_provider_health_skip_reason(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

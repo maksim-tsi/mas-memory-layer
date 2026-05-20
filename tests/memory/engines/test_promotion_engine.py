@@ -231,6 +231,157 @@ async def test_process_session_batch_success(
 
 
 @pytest.mark.asyncio
+async def test_segment_gate_records_provenance_and_preserves_current_inheritance(
+    mock_l1, mock_l2, mock_segmenter, mock_extractor, sample_turns
+):
+    """Default segment_gate records raw and inherited CIAR while preserving promotion."""
+    mock_l1.retrieve.return_value = sample_turns
+    mock_l2.ciar_threshold = 0.5
+    segment = TopicSegment(
+        segment_id="seg-policy",
+        topic="Urgent shipment update",
+        summary="Shipment update has high segment importance.",
+        key_points=["Shipment update"],
+        turn_indices=[0, 1, 2],
+        certainty=0.9,
+        impact=0.9,
+    )
+    fact = Fact(
+        fact_id="fact-low",
+        session_id="123",
+        content="Assistant said thanks",
+        certainty=0.4,
+        impact=0.3,
+        fact_type=FactType.MENTION,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    mock_segmenter.segment_turns.return_value = [segment]
+    mock_extractor.extract_facts.return_value = [fact]
+    engine = PromotionEngine(
+        l1_tier=mock_l1,
+        l2_tier=mock_l2,
+        topic_segmenter=mock_segmenter,
+        fact_extractor=mock_extractor,
+        ciar_scorer=CIARScorer(),
+        config={"promotion_threshold": 0.5, "batch_min_turns": 10},
+    )
+
+    stats = await engine.process(session_id="123")
+
+    assert stats["facts_promoted"] == 1
+    stored_fact = mock_l2.store.call_args.args[0]
+    provenance = stored_fact.metadata["ciar_provenance"]
+    assert provenance["promotion_policy_mode"] == "segment_gate"
+    assert provenance["raw_fact_ciar"] == 0.12
+    assert provenance["post_inheritance_ciar"] == 0.81
+    assert provenance["stored_ciar"] == 0.81
+    assert provenance["segment_inherited"] is True
+    assert provenance["fact_gate_decision"] is False
+
+
+@pytest.mark.asyncio
+async def test_fact_gate_filters_by_pre_inheritance_ciar(
+    mock_l1, mock_l2, mock_segmenter, mock_extractor, sample_turns
+):
+    """fact_gate prevents segment CIAR from promoting low-value facts."""
+    mock_l1.retrieve.return_value = sample_turns
+    mock_l2.ciar_threshold = 0.5
+    segment = TopicSegment(
+        segment_id="seg-policy",
+        topic="Urgent shipment update",
+        summary="Shipment update has high segment importance.",
+        key_points=["Shipment update"],
+        turn_indices=[0, 1, 2],
+        certainty=0.9,
+        impact=0.9,
+    )
+    fact = Fact(
+        fact_id="fact-low",
+        session_id="123",
+        content="Assistant said thanks",
+        certainty=0.4,
+        impact=0.3,
+        fact_type=FactType.MENTION,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    mock_segmenter.segment_turns.return_value = [segment]
+    mock_extractor.extract_facts.return_value = [fact]
+    engine = PromotionEngine(
+        l1_tier=mock_l1,
+        l2_tier=mock_l2,
+        topic_segmenter=mock_segmenter,
+        fact_extractor=mock_extractor,
+        ciar_scorer=CIARScorer(),
+        config={
+            "promotion_threshold": 0.5,
+            "batch_min_turns": 10,
+            "promotion_policy_mode": "fact_gate",
+        },
+    )
+
+    stats = await engine.process(session_id="123")
+
+    assert stats["facts_promoted"] == 0
+    assert stats["facts_filtered"] == 1
+    mock_l2.store.assert_not_called()
+    provenance = fact.metadata["ciar_provenance"]
+    assert provenance["promotion_policy_mode"] == "fact_gate"
+    assert provenance["raw_fact_ciar"] == 0.12
+    assert provenance["stored_ciar"] is None
+    assert provenance["segment_inherited"] is False
+
+
+@pytest.mark.asyncio
+async def test_hybrid_gate_marks_conversational_residue_review_only(
+    mock_l1, mock_l2, mock_segmenter, mock_extractor, sample_turns
+):
+    """hybrid_gate keeps obvious residue out of L2 even if raw CIAR is high."""
+    mock_l1.retrieve.return_value = sample_turns
+    mock_l2.ciar_threshold = 0.5
+    segment = TopicSegment(
+        segment_id="seg-policy",
+        topic="Shipment update",
+        summary="Segment is important enough for extraction.",
+        key_points=["Shipment update"],
+        turn_indices=[0, 1, 2],
+        certainty=0.9,
+        impact=0.9,
+    )
+    fact = Fact(
+        fact_id="fact-residue",
+        session_id="123",
+        content="Thanks",
+        certainty=0.9,
+        impact=0.7,
+        fact_type=FactType.MENTION,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    mock_segmenter.segment_turns.return_value = [segment]
+    mock_extractor.extract_facts.return_value = [fact]
+    engine = PromotionEngine(
+        l1_tier=mock_l1,
+        l2_tier=mock_l2,
+        topic_segmenter=mock_segmenter,
+        fact_extractor=mock_extractor,
+        ciar_scorer=CIARScorer(),
+        config={
+            "promotion_threshold": 0.5,
+            "batch_min_turns": 10,
+            "promotion_policy_mode": "hybrid_gate",
+        },
+    )
+
+    stats = await engine.process(session_id="123")
+
+    assert stats["facts_promoted"] == 0
+    assert stats["facts_review_only"] == 1
+    mock_l2.store.assert_not_called()
+    provenance = fact.metadata["ciar_provenance"]
+    assert provenance["review_only"] is True
+    assert provenance["evidence_quality_flags"]["conversational_residue"] is True
+
+
+@pytest.mark.asyncio
 async def test_process_session_segment_below_threshold(
     engine, mock_l1, mock_segmenter, mock_extractor, mock_l2, sample_turns
 ):

@@ -9,7 +9,8 @@ This engine implements ADR-003's batch processing strategy:
 """
 
 import logging
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, ClassVar
 from unittest.mock import AsyncMock, MagicMock, Mock
 from uuid import uuid4
 
@@ -22,6 +23,93 @@ from src.memory.tiers.active_context_tier import ActiveContextTier
 from src.memory.tiers.working_memory_tier import WorkingMemoryTier
 
 logger = logging.getLogger(__name__)
+
+PROMOTION_POLICY_MODES = {"segment_gate", "fact_gate", "hybrid_gate"}
+
+
+@dataclass(frozen=True)
+class EvidenceAssessment:
+    """Fact-level evidence assessment used by non-default promotion policies."""
+
+    score: float
+    flags: dict[str, bool]
+    decision: str
+
+
+class EvidenceRanker:
+    """Small first-pass evidence gate for promotion experiments.
+
+    The ranker is intentionally heuristic and conservative: it blocks obvious
+    conversational residue, and it flags contradiction/update language for
+    review without trying to resolve truth.
+    """
+
+    RESIDUE_PHRASES: ClassVar[set[str]] = {
+        "thanks",
+        "thank you",
+        "ok",
+        "okay",
+        "great",
+        "perfect",
+        "sounds good",
+        "let me check",
+        "i'll check",
+        "i will check",
+        "you're welcome",
+    }
+    DOMAIN_TERMS: ClassVar[set[str]] = {
+        "container",
+        "shipment",
+        "eta",
+        "delivery",
+        "address",
+        "invoice",
+        "customs",
+        "port",
+        "reroute",
+        "warehouse",
+    }
+    CONTRADICTION_TERMS: ClassVar[set[str]] = {
+        "actually",
+        "correction",
+        "corrected",
+        "changed",
+        "instead",
+        "no longer",
+        "updated",
+        "reroute",
+        "rerouted",
+    }
+
+    def assess(self, fact: Fact, *, raw_fact_ciar: float, threshold: float) -> EvidenceAssessment:
+        content = " ".join(fact.content.lower().split())
+        words = content.split()
+        has_domain_term = any(term in content for term in self.DOMAIN_TERMS)
+        residue_phrase = content in self.RESIDUE_PHRASES or any(
+            content.startswith(f"{phrase}.") for phrase in self.RESIDUE_PHRASES
+        )
+        low_value_mention = (
+            fact.fact_type == FactType.MENTION
+            and fact.impact < 0.4
+            and len(words) <= 8
+            and not has_domain_term
+        )
+        contradiction_candidate = any(term in content for term in self.CONTRADICTION_TERMS)
+        conversational_residue = residue_phrase or low_value_mention
+        score = max(0.0, min(1.0, raw_fact_ciar))
+        if conversational_residue:
+            score = min(score, 0.2)
+
+        decision = "REVIEW_ONLY" if conversational_residue or score + 1e-6 < threshold else "STORE"
+        return EvidenceAssessment(
+            score=round(score, 4),
+            flags={
+                "conversational_residue": conversational_residue,
+                "domain_signal": has_domain_term,
+                "contradiction_candidate": contradiction_candidate,
+            },
+            decision=decision,
+        )
 
 
 class PromotionEngine(BaseEngine):
@@ -79,6 +167,15 @@ class PromotionEngine(BaseEngine):
         )
         self.batch_min_turns = self.config.get("batch_min_turns", self.DEFAULT_BATCH_MIN_TURNS)
         self.batch_max_turns = self.config.get("batch_max_turns", self.DEFAULT_BATCH_MAX_TURNS)
+        self.promotion_policy_mode = str(
+            self.config.get("promotion_policy_mode", "segment_gate")
+        )
+        if self.promotion_policy_mode not in PROMOTION_POLICY_MODES:
+            raise ValueError(
+                "promotion_policy_mode must be one of "
+                f"{sorted(PROMOTION_POLICY_MODES)}, got {self.promotion_policy_mode!r}"
+            )
+        self.evidence_ranker = EvidenceRanker()
 
     async def process(self, session_id: str | None = None) -> dict[str, Any]:
         """
@@ -120,7 +217,9 @@ class PromotionEngine(BaseEngine):
             "facts_extracted": 0,
             "facts_promoted": 0,
             "facts_filtered": 0,
+            "facts_review_only": 0,
             "errors": 0,
+            "promotion_policy_mode": self.promotion_policy_mode,
         }
         logger.info(f"DEBUG: PromotionEngine processing session {session_id}")
 
@@ -258,24 +357,30 @@ class PromotionEngine(BaseEngine):
                             fact.fact_type = FactType.MENTION
                         if fact.fact_category is None:
                             fact.fact_category = FactCategory.OPERATIONAL
-                        # Inherit segment's certainty/impact if fact doesn't have strong values
-                        if fact.certainty < segment.certainty:
-                            fact.certainty = segment.certainty
-                        if fact.impact < segment.impact:
-                            fact.impact = segment.impact
 
-                        # Recalculate CIAR with inherited values
-                        fact.ciar_score = max(self.scorer.calculate(fact), self.promotion_threshold)
-
-                        # Respect L2 threshold before store to avoid ValueError from WorkingMemoryTier
-                        ciar_threshold = getattr(
-                            self.l2, "ciar_threshold", self.promotion_threshold
+                        policy_result = self._apply_promotion_policy(
+                            fact=fact,
+                            segment=segment,
+                            segment_score=segment_score,
                         )
-                        if fact.ciar_score < ciar_threshold:
+                        if policy_result["decision"] == "REVIEW_ONLY":
+                            if self.telemetry_stream:
+                                await self.telemetry_stream.publish(
+                                    event_type="fact_review_only",
+                                    session_id=session_id,
+                                    data={
+                                        "fact_id": fact.fact_id,
+                                        "content": fact.content,
+                                        "ciar_provenance": fact.metadata.get("ciar_provenance"),
+                                    },
+                                )
+                            inc("facts_review_only")
+                            continue
+                        if policy_result["decision"] == "FILTER":
                             logger.info(
                                 "Filtered fact %s below CIAR threshold %.2f (score=%.3f)",
                                 fact.fact_id,
-                                ciar_threshold,
+                                policy_result["gate_threshold"],
                                 fact.ciar_score,
                             )
                             inc("facts_filtered")
@@ -292,6 +397,7 @@ class PromotionEngine(BaseEngine):
                                     "fact_id": fact.fact_id,
                                     "content": fact.content,
                                     "ciar_score": fact.ciar_score,
+                                    "ciar_provenance": fact.metadata.get("ciar_provenance"),
                                     "justification": fact.justification,
                                     "source_segment": segment.topic,
                                 },
@@ -412,5 +518,125 @@ class PromotionEngine(BaseEngine):
                 "promotion_threshold": self.promotion_threshold,
                 "batch_min_turns": self.batch_min_turns,
                 "batch_max_turns": self.batch_max_turns,
+                "promotion_policy_mode": self.promotion_policy_mode,
             },
         }
+
+    def _apply_promotion_policy(
+        self,
+        *,
+        fact: Fact,
+        segment: TopicSegment,
+        segment_score: float,
+    ) -> dict[str, Any]:
+        """Apply configured fact promotion policy and attach CIAR provenance."""
+        raw_fact_ciar = float(self.scorer.calculate(fact))
+        raw_components = self._calculate_components(fact, raw_fact_ciar)
+        original_certainty = fact.certainty
+        original_impact = fact.impact
+        inherited_fields: list[str] = []
+
+        if self.promotion_policy_mode == "segment_gate":
+            if fact.certainty < segment.certainty:
+                fact.certainty = segment.certainty
+                inherited_fields.append("certainty")
+            if fact.impact < segment.impact:
+                fact.impact = segment.impact
+                inherited_fields.append("impact")
+
+        post_components = self._calculate_components(fact, raw_fact_ciar)
+        post_inheritance_ciar = float(post_components["final_score"])
+        gate_threshold = self._l2_ciar_threshold()
+        evidence = self.evidence_ranker.assess(
+            fact,
+            raw_fact_ciar=raw_fact_ciar,
+            threshold=gate_threshold,
+        )
+
+        if self.promotion_policy_mode == "segment_gate":
+            stored_ciar = max(post_inheritance_ciar, self.promotion_threshold)
+            score_source = (
+                "segment_inherited_floor"
+                if stored_ciar > post_inheritance_ciar
+                else "segment_inherited"
+            )
+            decision = "STORE" if self._passes_threshold(stored_ciar, gate_threshold) else "FILTER"
+        elif self.promotion_policy_mode == "fact_gate":
+            fact.certainty = original_certainty
+            fact.impact = original_impact
+            stored_ciar = raw_fact_ciar
+            score_source = "raw_fact"
+            decision = "STORE" if self._passes_threshold(raw_fact_ciar, gate_threshold) else "FILTER"
+        else:
+            fact.certainty = original_certainty
+            fact.impact = original_impact
+            stored_ciar = raw_fact_ciar
+            score_source = "raw_fact"
+            decision = "STORE" if evidence.decision == "STORE" else "REVIEW_ONLY"
+
+        fact.ciar_score = round(stored_ciar, 4)
+        segment_inherited = bool(inherited_fields)
+        provenance = {
+            "promotion_policy_mode": self.promotion_policy_mode,
+            "segment_ciar": round(segment_score, 4),
+            "raw_fact_ciar": round(raw_fact_ciar, 4),
+            "pre_inheritance_ciar": round(raw_fact_ciar, 4),
+            "pre_inheritance_components": raw_components,
+            "post_inheritance_ciar": round(post_inheritance_ciar, 4),
+            "post_inheritance_components": post_components,
+            "stored_ciar": fact.ciar_score if decision == "STORE" else None,
+            "ciar_score_source": score_source,
+            "segment_inherited": segment_inherited,
+            "inherited_fields": inherited_fields,
+            "gate_threshold": round(gate_threshold, 4),
+            "fact_gate_decision": self._passes_threshold(raw_fact_ciar, gate_threshold),
+            "review_only": decision == "REVIEW_ONLY",
+            "evidence_score": evidence.score,
+            "evidence_decision": evidence.decision,
+            "evidence_quality_flags": evidence.flags,
+        }
+        fact.metadata = {**(fact.metadata or {}), "ciar_provenance": provenance}
+        return {
+            "decision": decision,
+            "gate_threshold": gate_threshold,
+            "ciar_provenance": provenance,
+        }
+
+    def _calculate_components(self, fact: Fact, fallback_score: float) -> dict[str, float]:
+        calculate_components = getattr(self.scorer, "calculate_components", None)
+        if callable(calculate_components):
+            components = calculate_components(fact)
+            if isinstance(components, dict):
+                return {
+                    "certainty": round(float(components.get("certainty", fact.certainty)), 4),
+                    "impact": round(float(components.get("impact", fact.impact)), 4),
+                    "age_decay": round(float(components.get("age_decay", fact.age_decay)), 4),
+                    "recency_boost": round(
+                        float(components.get("recency_boost", fact.recency_boost)), 4
+                    ),
+                    "base_score": round(float(components.get("base_score", fallback_score)), 4),
+                    "temporal_score": round(
+                        float(components.get("temporal_score", fact.age_decay)), 4
+                    ),
+                    "final_score": round(float(components.get("final_score", fallback_score)), 4),
+                }
+        return {
+            "certainty": round(float(fact.certainty), 4),
+            "impact": round(float(fact.impact), 4),
+            "age_decay": round(float(fact.age_decay), 4),
+            "recency_boost": round(float(fact.recency_boost), 4),
+            "base_score": round(float(fact.certainty * fact.impact), 4),
+            "temporal_score": round(float(fact.age_decay * fact.recency_boost), 4),
+            "final_score": round(float(fallback_score), 4),
+        }
+
+    def _l2_ciar_threshold(self) -> float:
+        raw_threshold = getattr(self.l2, "ciar_threshold", self.promotion_threshold)
+        try:
+            return float(raw_threshold)
+        except (TypeError, ValueError):
+            return float(self.promotion_threshold)
+
+    @staticmethod
+    def _passes_threshold(score: float, threshold: float) -> bool:
+        return score + 1e-6 >= threshold

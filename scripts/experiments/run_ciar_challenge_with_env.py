@@ -153,6 +153,8 @@ def build_harness_command(args: argparse.Namespace) -> list[str]:
         phoenix_project_name,
         "--provider-health-timeout",
         str(args.provider_health_timeout),
+        "--promotion-policy-mode",
+        getattr(args, "promotion_policy_mode", "segment_gate"),
     ]
     if args.skip_provider_health:
         command.extend(
@@ -199,6 +201,11 @@ def parse_args() -> argparse.Namespace:
         default="focused live run uses promotion path as provider smoke",
     )
     parser.add_argument("--require-provider-health", action="store_true")
+    parser.add_argument(
+        "--promotion-policy-mode",
+        choices=("segment_gate", "fact_gate", "hybrid_gate"),
+        default=os.environ.get("MAS_PROMOTION_POLICY_MODE", "segment_gate"),
+    )
     return parser.parse_args()
 
 

@@ -146,6 +146,7 @@ class ExperimentConfig:
     provider_health_skip_reason: str = "operator requested skip"
     provider_health_timeout_s: float = 60.0
     require_provider_health: bool = False
+    promotion_policy_mode: str = "segment_gate"
 
 
 @dataclass
@@ -931,6 +932,7 @@ class CIARChallengeExperiment:
         state.manifest["runtime"] = {
             "mode": "live_l1_l2",
             "provider_order": llm_client.available_providers(),
+            "promotion_policy_mode": self.config.promotion_policy_mode,
         }
         state.manifest["_promotion_engine"] = PromotionEngine(
             l1_tier=l1_tier,
@@ -946,6 +948,7 @@ class CIARChallengeExperiment:
                 "batch_min_turns": 10,
                 "enable_final_fallback": False,
                 "enable_segment_fallback": False,
+                "promotion_policy_mode": self.config.promotion_policy_mode,
             },
             telemetry_stream=self.telemetry,
         )
@@ -1049,6 +1052,7 @@ class CIARChallengeExperiment:
                 "batch_min_turns": 10,
                 "enable_final_fallback": False,
                 "enable_segment_fallback": False,
+                "promotion_policy_mode": self.config.promotion_policy_mode,
             },
             telemetry_stream=self.telemetry,
         )
@@ -1090,6 +1094,24 @@ class CIARChallengeExperiment:
                 raw_by_session_content.setdefault((str(call_session_id), content_key), []).append(
                     call
                 )
+        provenance_by_fact_id: dict[str, dict[str, Any]] = {}
+        provenance_by_session_content: dict[tuple[str, str], dict[str, Any]] = {}
+        for event in state.events:
+            if event.get("event_type") not in {"fact_promoted", "fact_review_only"}:
+                continue
+            event_data = event.get("data") or {}
+            provenance = event_data.get("ciar_provenance") or {}
+            if not provenance:
+                continue
+            event_fact_id = event_data.get("fact_id")
+            if event_fact_id is not None:
+                provenance_by_fact_id[str(event_fact_id)] = provenance
+            event_content_key = normalize_fact_content(event_data.get("content"))
+            event_session_id = event.get("session_id")
+            if event_content_key and event_session_id:
+                provenance_by_session_content[(str(event_session_id), event_content_key)] = (
+                    provenance
+                )
         rows = []
         for scenario in state.scenarios:
             session_id = state.session_by_scenario[scenario.scenario_id]
@@ -1103,7 +1125,17 @@ class CIARChallengeExperiment:
                     raw_by_content=raw_by_content,
                 )
                 raw_score = raw_call.get("score")
+                provenance = (fact.get("metadata") or {}).get("ciar_provenance", {})
+                if not provenance:
+                    provenance = provenance_by_fact_id.get(fact_id, {})
+                if not provenance:
+                    provenance = provenance_by_session_content.get(
+                        (session_id, normalize_fact_content(fact.get("content"))),
+                        {},
+                    )
+                raw_score = provenance.get("raw_fact_ciar", raw_score)
                 stored_score = fact.get("ciar_score")
+                stored_ciar = provenance.get("stored_ciar", stored_score)
                 floor_applied = (
                     isinstance(raw_score, int | float)
                     and isinstance(stored_score, int | float)
@@ -1127,23 +1159,71 @@ class CIARChallengeExperiment:
                     "fact_id": fact_id,
                     "content": fact.get("content"),
                     "expectation": scenario.expectation,
-                    "segment_ciar": segment_score_by_session.get(session_id),
+                    "promotion_policy_mode": provenance.get(
+                        "promotion_policy_mode", self.config.promotion_policy_mode
+                    ),
+                    "segment_ciar": provenance.get("segment_ciar")
+                    or segment_score_by_session.get(session_id),
                     "raw_fact_ciar": raw_score,
+                    "pre_inheritance_ciar": provenance.get("pre_inheritance_ciar"),
+                    "post_inheritance_ciar": provenance.get("post_inheritance_ciar"),
+                    "stored_ciar": stored_ciar,
+                    "ciar_score_source": provenance.get("ciar_score_source"),
                     "current_runtime_ciar": stored_score,
                     "fact_gate_decision": bool(
-                        isinstance(raw_score, int | float) and raw_score >= self.config.min_ciar
+                        provenance.get("fact_gate_decision")
+                        if "fact_gate_decision" in provenance
+                        else isinstance(raw_score, int | float) and raw_score >= self.config.min_ciar
                     ),
                     "floor_applied": floor_applied,
                     "utility_candidate_v0": round(utility_candidate, 4),
                     "evidence_quality_flags": {
                         "llm_extracted": "llm" in str(fact.get("source_type", "")),
                         "rule_fallback": fact.get("source_type") == "rule_fallback",
-                        "segment_inherited": raw_call.get("components", {}).get("certainty")
-                        == fact.get("certainty"),
+                        "segment_inherited": bool(
+                            provenance.get(
+                                "segment_inherited",
+                                raw_call.get("components", {}).get("certainty")
+                                == fact.get("certainty"),
+                            )
+                        ),
                         "contradiction_candidate": contradiction,
+                        **provenance.get("evidence_quality_flags", {}),
                     },
                 }
                 rows.append(row)
+
+        for event in state.events:
+            if event.get("event_type") != "fact_review_only":
+                continue
+            data = event.get("data") or {}
+            provenance = data.get("ciar_provenance") or {}
+            scenario_id = self._scenario_id_for_session(state, str(event.get("session_id", "")))
+            scenario = next((s for s in state.scenarios if s.scenario_id == scenario_id), None)
+            rows.append(
+                {
+                    "scenario_id": scenario_id,
+                    "session_id": event.get("session_id"),
+                    "fact_id": data.get("fact_id"),
+                    "content": data.get("content"),
+                    "expectation": scenario.expectation if scenario else None,
+                    "promotion_policy_mode": provenance.get(
+                        "promotion_policy_mode", self.config.promotion_policy_mode
+                    ),
+                    "segment_ciar": provenance.get("segment_ciar"),
+                    "raw_fact_ciar": provenance.get("raw_fact_ciar"),
+                    "pre_inheritance_ciar": provenance.get("pre_inheritance_ciar"),
+                    "post_inheritance_ciar": provenance.get("post_inheritance_ciar"),
+                    "stored_ciar": None,
+                    "ciar_score_source": provenance.get("ciar_score_source"),
+                    "current_runtime_ciar": None,
+                    "fact_gate_decision": bool(provenance.get("fact_gate_decision")),
+                    "floor_applied": False,
+                    "review_only": True,
+                    "utility_candidate_v0": None,
+                    "evidence_quality_flags": provenance.get("evidence_quality_flags", {}),
+                }
+            )
 
         state.alternative_scores = rows
         write_json(self.output_dir / "alternative_scores.json", rows)
@@ -1183,6 +1263,12 @@ class CIARChallengeExperiment:
             return content_candidates[0]
 
         return {}
+
+    def _scenario_id_for_session(self, state: ExperimentState, session_id: str) -> str | None:
+        for scenario_id, mapped_session_id in state.session_by_scenario.items():
+            if mapped_session_id == session_id:
+                return scenario_id
+        return None
 
     async def summarize(self, state: ExperimentState) -> ExperimentState:
         lines = [
@@ -1312,6 +1398,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Fail live preflight when provider health check fails or times out.",
     )
+    parser.add_argument(
+        "--promotion-policy-mode",
+        choices=("segment_gate", "fact_gate", "hybrid_gate"),
+        default=os.environ.get("MAS_PROMOTION_POLICY_MODE", "segment_gate"),
+        help="Promotion policy mode used by the L1->L2 promotion engine.",
+    )
     return parser.parse_args()
 
 
@@ -1340,6 +1432,7 @@ async def async_main() -> int:
         provider_health_skip_reason=args.provider_health_skip_reason,
         provider_health_timeout_s=float(args.provider_health_timeout),
         require_provider_health=bool(args.require_provider_health),
+        promotion_policy_mode=args.promotion_policy_mode,
     )
     experiment = CIARChallengeExperiment(config)
     state = await experiment.run()

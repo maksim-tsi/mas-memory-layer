@@ -2,7 +2,7 @@
 
 Date: 2026-05-19
 Last updated: 2026-05-20
-Status: Live evidence collected; implementation coordination active
+Status: Policy modes implemented locally; full verification and live comparison pending
 Related:
 `docs/reports/2026-05-18-ciar-design-and-implementation-audit.md`,
 `docs/reports/2026-05-19-ciar-challenge-experiment-results.md`,
@@ -15,11 +15,10 @@ post-live-run implementation coordination. The dry run and focused live run
 produced enough evidence to proceed on policy and observability work above the
 storage layer.
 
-CIAR v1 remains the deterministic L1 -> L2 retention baseline. The next work is
-to make promotion behavior explicit, separate segment-level and fact-level
-signals, improve experiment observability, and prepare an evidence policy above
-CIAR. This plan tracks that work so implementation can be split safely without
-architectural drift.
+CIAR v1 remains the deterministic L1 -> L2 retention baseline. The current
+implementation makes promotion behavior explicit, separates segment-level and
+fact-level signals in metadata/artifacts, and adds a first evidence policy for
+review-only facts without changing the default runtime path.
 
 ## Current Baseline
 
@@ -70,6 +69,28 @@ Resolved instrumentation caveat:
 - The 2026-05-20 live run fixed this: `alternative_scores.json` has non-null
   `raw_fact_ciar` for promoted live facts.
 
+Current implementation delta:
+
+- `segment_gate` is the default policy and preserves the previous segment-driven
+  promotion behavior.
+- `fact_gate` uses true pre-inheritance fact CIAR for the store/filter decision.
+- `hybrid_gate` uses segment CIAR to admit extraction, then keeps below-threshold
+  or obvious conversational-residue facts out of L2 as review-only artifacts.
+- Promotion metadata now carries `segment_ciar`, `raw_fact_ciar`,
+  `pre_inheritance_ciar`, `post_inheritance_ciar`, `stored_ciar`,
+  `ciar_score_source`, `segment_inherited`, gate decision, and evidence flags.
+- Dry policy comparison artifacts were generated on 2026-05-20:
+  `ciar-exp-dry-segment-gate-20260520-01`,
+  `ciar-exp-dry-fact-gate-20260520-01`, and
+  `ciar-exp-dry-hybrid-gate-20260520-01`.
+- Initial live policy comparison artifacts were generated on 2026-05-20:
+  `ciar-exp-live-segment-gate-20260520-01`,
+  `ciar-exp-live-fact-gate-20260520-01`,
+  `ciar-exp-live-hybrid-gate-20260520-01`, and
+  `ciar-exp-live-hybrid-gate-20260520-02`.
+- `alternative_scores.json` now recovers provenance from promotion events when
+  PostgreSQL rows do not round-trip fact metadata.
+
 ## Scope And Boundaries
 
 In scope:
@@ -99,9 +120,9 @@ Out of scope without explicit user approval:
 | CIAR-EXP-0 | Complete | Dry/live evidence collection, model selection, artifact capture, and results report | Experiment owner | None | `docs/reports/2026-05-19-ciar-challenge-experiment-results.md`, `logs/ciar_challenge/ciar-exp-live-env-20260520-03` | Dry and live artifacts exist, results are documented, and the live fixture is named |
 | CIAR-EXP-1 | Complete | Fix harness observability so raw CIAR calls join reliably to stored L2 facts | Experiment owner | CIAR-EXP-0 | `tests/scripts/test_ciar_challenge_experiment.py`, `logs/ciar_challenge/ciar-exp-live-env-20260520-03/alternative_scores.json` | Scorer calls record session ids, storage-rewritten fact ids can join by session/content, and live `alternative_scores.json` has non-null `raw_fact_ciar` |
 | CIAR-EXP-2 | Complete | Stabilize provider-health preflight or document an explicit bypass policy | Experiment owner | CIAR-EXP-0 | `scripts/experiments/run_ciar_challenge.py`, `scripts/experiments/run_ciar_challenge_with_env.py`, `tests/scripts/test_ciar_challenge_experiment.py` | Provider health is diagnostic by default, skip reasons are recorded in `run_manifest.json`, callers can require provider health explicitly, and the wrapper can force skz-data-lv endpoints while preserving credentials |
-| CIAR-POL-1 | To do | Add explicit promotion policy modes: `segment_gate`, `fact_gate`, `hybrid_gate` | Memory policy owner | CIAR-EXP-1 recommended | Promotion engine tests and config docs | Promotion behavior is selected by a named mode, with current behavior preserved only as an explicit mode |
-| CIAR-POL-2 | To do | Separate segment, raw fact, and stored fact score metadata | Memory policy owner | CIAR-POL-1 | Promotion telemetry, L2 fact metadata, experiment artifacts | Promotion outputs report `segment_ciar`, `raw_fact_ciar`, and `stored_ciar` without overwriting the meaning of each score |
-| CIAR-POL-3 | To do | Add first fact-level evidence gate or `EvidenceRanker` before L2 store | Memory policy owner | CIAR-POL-1, CIAR-POL-2 | Policy tests, focused dry run, focused live run if approved | Low-value facts in `segment_mismatch` are explainably filtered, downgraded, or marked for review while urgent facts remain promotable |
+| CIAR-POL-1 | Complete | Add explicit promotion policy modes: `segment_gate`, `fact_gate`, `hybrid_gate` | Memory policy owner | CIAR-EXP-1 recommended | `src/memory/engines/promotion_engine.py`, `tests/memory/engines/test_promotion_engine.py`, dry/live policy artifacts | Promotion behavior is selected by a named mode and current behavior is preserved as `segment_gate` |
+| CIAR-POL-2 | Complete | Separate segment, raw fact, and stored fact score metadata | Memory policy owner | CIAR-POL-1 | Promotion telemetry, L2 fact metadata where storage preserves it, event provenance fallback, `alternative_scores.json` | Promotion outputs report `segment_ciar`, `raw_fact_ciar`, `pre_inheritance_ciar`, `post_inheritance_ciar`, and `stored_ciar` without overwriting the meaning of each score |
+| CIAR-POL-3 | Complete | Add first fact-level evidence gate or `EvidenceRanker` before L2 store | Memory policy owner | CIAR-POL-1, CIAR-POL-2 | `EvidenceRanker`, policy tests, dry/live policy artifacts | `segment_mismatch` low-value facts are filtered by `fact_gate` or marked review-only by `hybrid_gate` while urgent facts remain promotable |
 | CIAR-CONF-1 | To do | CIAR conformance cleanup: stale docstrings, v2 score recomputation tests, clamping/high-access/stale-fact coverage | Memory policy owner | CIAR-EXP-0 | CIAR unit tests, v2 route tests, docs diff | ADR-004, scorer, validators, tools, and docs describe the same CIAR behavior |
 | CIAR-DB-1 | To do | Plan schema/migration cleanup for `002_l2_tsvector_index.sql` volatile `NOW()` partial-index predicate | Database owner | Explicit user approval before migration edits | Migration file and fresh database verification notes | Fresh dedicated PostgreSQL setup can apply schema cleanly without manual index workaround |
 | CIAR-MCP-1 | Backlog | Extract shared CIAR/evidence service layer for future REST, LangChain, and MCP adapters | Interface owner | CIAR-POL-2, CIAR-POL-3 | RFC update or implementation plan | LangChain tools and future MCP tools can call stable service functions rather than duplicating policy logic |
@@ -109,6 +130,8 @@ Out of scope without explicit user approval:
 Status meanings:
 
 - `Complete`: implemented or documented and no longer blocking current work.
+- `Complete locally`: implemented and locally verified; live evidence is still
+  pending when noted in `Done When`.
 - `In progress`: next implementation target or known partial implementation.
 - `To do`: approved direction but not yet implemented.
 - `Backlog`: important follow-on work that should not block CIAR experiment
@@ -126,12 +149,13 @@ promotion_policy_mode
 Accepted values:
 
 - `segment_gate`: segment CIAR decides whether extraction/storage proceeds;
-  fact scores remain honest and are recorded separately.
+  previous certainty/impact inheritance and threshold floor behavior is
+  preserved, with honest fact-level provenance recorded separately.
 - `fact_gate`: every extracted fact must independently meet the configured CIAR
   threshold before L2 storage.
 - `hybrid_gate`: segment CIAR permits extraction, but below-threshold facts are
-  either filtered, downgraded, or stored as review evidence according to policy
-  configuration.
+  kept out of L2 as review-only artifacts; obvious conversational residue is
+  also marked review-only by the first evidence gate.
 
 The implementation must preserve benchmark continuity by making any current
 behavior explicit rather than silently changing it.
@@ -160,10 +184,14 @@ reviewed fact:
 - `expectation`
 - `segment_ciar`
 - `raw_fact_ciar`
+- `pre_inheritance_ciar`
+- `post_inheritance_ciar`
 - `stored_ciar`
+- `ciar_score_source`
 - `current_runtime_ciar` if retained for backward compatibility
 - `fact_gate_decision`
 - `floor_applied`
+- `review_only` when applicable
 - `promotion_policy_mode`
 - `utility_candidate_v0` or the active evidence-ranker score
 - `evidence_quality_flags`
@@ -174,8 +202,8 @@ reviewed fact:
 - `rule_fallback`
 - `segment_inherited`
 - `contradiction_candidate`
-- `assistant_inferred`
-- `low_value_interaction`
+- `conversational_residue`
+- `domain_signal`
 
 ## Execution History
 
@@ -232,31 +260,59 @@ MAS_MAX_OUTPUT_TOKENS=8192 \
 ```
 
 Future live runs must be explicitly approved because they use real LLM/backend
-calls. Until CIAR-EXP-2 is complete, focused CIAR live runs should use
-`--skip-provider-health` and rely on the actual promotion path plus artifacts
-for provider behavior.
+calls. Focused CIAR live runs currently use `--skip-provider-health` with a
+recorded reason and rely on the actual promotion path plus artifacts for
+provider behavior.
+
+### Policy comparison runs
+
+Dry comparison artifacts:
+
+- `ciar-exp-dry-segment-gate-20260520-01`: preserves previous behavior;
+  `segment_mismatch` promotes both facts.
+- `ciar-exp-dry-fact-gate-20260520-01`: filters the low-value
+  `segment_mismatch` fact.
+- `ciar-exp-dry-hybrid-gate-20260520-01`: stores the urgent
+  `segment_mismatch` fact and records the low-value fact as review-only.
+
+Live comparison artifacts:
+
+- `ciar-exp-live-segment-gate-20260520-01`: matches the baseline shape;
+  `contradiction_update` promoted 3 facts, `segment_mismatch` promoted 4 facts,
+  and `small_talk` promoted 0 facts.
+- `ciar-exp-live-fact-gate-20260520-01`: promoted 2 and filtered 3 in
+  `contradiction_update`; promoted 1 and filtered 2 in `segment_mismatch`.
+- `ciar-exp-live-hybrid-gate-20260520-01`: promoted 2 and marked 1 review-only
+  in `contradiction_update`; promoted 2 and marked 2 review-only in
+  `segment_mismatch`.
+- `ciar-exp-live-hybrid-gate-20260520-02`: rerun after artifact provenance
+  recovery; `segment_mismatch` promoted 3 and marked 2 review-only, while
+  `contradiction_update` had no promoted facts due to live LLM empty-segment
+  behavior.
 
 ## Implementation Sequence
 
-1. Fix experiment observability first.
+1. Fix experiment observability first. Complete.
    - Join `ciar_calls.jsonl` to stored L2 facts reliably.
    - Prefer stable fact identifiers or deterministic join keys carried through
      extraction, scoring, storage, and artifact collection.
    - Re-run the focused dry scenario and confirm non-null `raw_fact_ciar`.
 
-2. Add promotion policy modes.
+2. Add promotion policy modes. Implemented locally; full verification pending.
    - Introduce the named policy mode at the promotion engine boundary.
    - Preserve current behavior as an explicit mode.
    - Add tests for `segment_gate`, `fact_gate`, and `hybrid_gate`.
    - Ensure tests assert both promoted counts and score metadata.
 
-3. Add score separation and evidence metadata.
+3. Add score separation and evidence metadata. Implemented locally; artifact
+   verification pending.
    - Record segment CIAR, raw fact CIAR, stored CIAR, policy mode, and gate
      decision separately.
    - Do not overload `ciar_score` to mean both routing score and fact score.
    - Include feature provenance for certainty and impact where available.
 
-4. Add the first evidence policy.
+4. Add the first evidence policy. Implemented locally for `hybrid_gate`; dry and
+   live comparisons pending.
    - Implement the minimal fact-level evidence gate or `EvidenceRanker` outside
      `src/storage/`.
    - Treat contradiction/supersession as a policy signal, not a CIAR formula
