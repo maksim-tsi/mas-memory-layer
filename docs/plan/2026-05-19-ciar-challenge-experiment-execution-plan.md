@@ -2,7 +2,7 @@
 
 Date: 2026-05-19
 Last updated: 2026-05-20
-Status: Policy modes implemented locally; full verification and live comparison pending
+Status: Policy modes implemented; CIAR-DEF-1 live default-policy evaluation planning in progress
 Related:
 `docs/reports/2026-05-18-ciar-design-and-implementation-audit.md`,
 `docs/reports/2026-05-19-ciar-challenge-experiment-results.md`,
@@ -125,6 +125,7 @@ Out of scope without explicit user approval:
 | CIAR-POL-3 | Complete | Add first fact-level evidence gate or `EvidenceRanker` before L2 store | Memory policy owner | CIAR-POL-1, CIAR-POL-2 | `EvidenceRanker`, policy tests, dry/live policy artifacts | `segment_mismatch` low-value facts are filtered by `fact_gate` or marked review-only by `hybrid_gate` while urgent facts remain promotable |
 | CIAR-CONF-1 | Complete | CIAR conformance cleanup: stale docstrings, v2 score recomputation tests, clamping/high-access/stale-fact coverage | Memory policy owner | CIAR-EXP-0 | `tests/memory/test_ciar_scorer.py`, `tests/agents/tools/test_ciar_tools.py`, `tests/api/test_v2_router_ciar.py`, `./.venv/bin/pytest tests/ -v` | ADR-004, scorer, validators, tools, and docs describe the same deterministic CIAR behavior |
 | CIAR-SUP-1 | Complete | Add contradiction/supersession suppression policy above CIAR without changing storage schema | Memory policy owner | CIAR-POL-2, CIAR-POL-3, CIAR-CONF-1 | `tests/memory/test_contradiction_policy.py`, `tests/memory/engines/test_promotion_engine.py`, `tests/memory/test_unified_memory_system.py`, `logs/ciar_challenge/ciar-exp-dry-supersession-20260520-02` | Explicit corrections can mark/suppress superseded facts while CIAR remains a retention score |
+| CIAR-DEF-1 | In progress | Choose candidate default CIAR policy using live `fact_gate`/`hybrid_gate` matrix | Experiment owner | CIAR-SUP-1 | 12-run live matrix, aggregate analysis, default-policy recommendation | Default policy is recommended with documented evidence, risks, and next approval step |
 | CIAR-DB-1 | To do | Plan schema/migration cleanup for `002_l2_tsvector_index.sql` volatile `NOW()` partial-index predicate | Database owner | Explicit user approval before migration edits | Migration file and fresh database verification notes | Fresh dedicated PostgreSQL setup can apply schema cleanly without manual index workaround |
 | CIAR-MCP-1 | Backlog | Extract shared CIAR/evidence service layer for future REST, LangChain, and MCP adapters | Interface owner | CIAR-POL-2, CIAR-POL-3 | RFC update or implementation plan | LangChain tools and future MCP tools can call stable service functions rather than duplicating policy logic |
 
@@ -137,6 +138,94 @@ Status meanings:
 - `To do`: approved direction but not yet implemented.
 - `Backlog`: important follow-on work that should not block CIAR experiment
   hardening.
+
+## CIAR-DEF-1 Default Policy Evaluation Tracker
+
+Goal:
+
+- Select a proposed default CIAR policy candidate based on live evidence rather
+  than dry-run-only behavior.
+- Compare `fact_gate` and `hybrid_gate` under both contradiction policy `off`
+  and `suppress_superseded`.
+- Preserve the current code default, `segment_gate + off`, until a separate
+  default-change decision is approved.
+
+Planned run matrix:
+
+| Promotion Policy | Contradiction Policy | Repetitions | Planned Run IDs |
+|---|---|---:|---|
+| `fact_gate` | `off` | 3 | `ciar-exp-live-default-fact-gate-off-20260520-01` through `-03` |
+| `fact_gate` | `suppress_superseded` | 3 | `ciar-exp-live-default-fact-gate-suppress-20260520-01` through `-03` |
+| `hybrid_gate` | `off` | 3 | `ciar-exp-live-default-hybrid-gate-off-20260520-01` through `-03` |
+| `hybrid_gate` | `suppress_superseded` | 3 | `ciar-exp-live-default-hybrid-gate-suppress-20260520-01` through `-03` |
+
+Execution tracker:
+
+| Run ID | Promotion Policy | Contradiction Policy | Repetition | Status | Phoenix Project | Artifact Path | Notes |
+|---|---|---|---:|---|---|---|---|
+| `ciar-exp-live-default-fact-gate-off-20260520-01` | `fact_gate` | `off` | 1 | To do | `ciar-challenge-live-default-fact-gate-off-20260520-01` | `logs/ciar_challenge/ciar-exp-live-default-fact-gate-off-20260520-01` |  |
+| `ciar-exp-live-default-fact-gate-off-20260520-02` | `fact_gate` | `off` | 2 | To do | `ciar-challenge-live-default-fact-gate-off-20260520-02` | `logs/ciar_challenge/ciar-exp-live-default-fact-gate-off-20260520-02` |  |
+| `ciar-exp-live-default-fact-gate-off-20260520-03` | `fact_gate` | `off` | 3 | To do | `ciar-challenge-live-default-fact-gate-off-20260520-03` | `logs/ciar_challenge/ciar-exp-live-default-fact-gate-off-20260520-03` |  |
+| `ciar-exp-live-default-fact-gate-suppress-20260520-01` | `fact_gate` | `suppress_superseded` | 1 | To do | `ciar-challenge-live-default-fact-gate-suppress-20260520-01` | `logs/ciar_challenge/ciar-exp-live-default-fact-gate-suppress-20260520-01` |  |
+| `ciar-exp-live-default-fact-gate-suppress-20260520-02` | `fact_gate` | `suppress_superseded` | 2 | To do | `ciar-challenge-live-default-fact-gate-suppress-20260520-02` | `logs/ciar_challenge/ciar-exp-live-default-fact-gate-suppress-20260520-02` |  |
+| `ciar-exp-live-default-fact-gate-suppress-20260520-03` | `fact_gate` | `suppress_superseded` | 3 | To do | `ciar-challenge-live-default-fact-gate-suppress-20260520-03` | `logs/ciar_challenge/ciar-exp-live-default-fact-gate-suppress-20260520-03` |  |
+| `ciar-exp-live-default-hybrid-gate-off-20260520-01` | `hybrid_gate` | `off` | 1 | To do | `ciar-challenge-live-default-hybrid-gate-off-20260520-01` | `logs/ciar_challenge/ciar-exp-live-default-hybrid-gate-off-20260520-01` |  |
+| `ciar-exp-live-default-hybrid-gate-off-20260520-02` | `hybrid_gate` | `off` | 2 | To do | `ciar-challenge-live-default-hybrid-gate-off-20260520-02` | `logs/ciar_challenge/ciar-exp-live-default-hybrid-gate-off-20260520-02` |  |
+| `ciar-exp-live-default-hybrid-gate-off-20260520-03` | `hybrid_gate` | `off` | 3 | To do | `ciar-challenge-live-default-hybrid-gate-off-20260520-03` | `logs/ciar_challenge/ciar-exp-live-default-hybrid-gate-off-20260520-03` |  |
+| `ciar-exp-live-default-hybrid-gate-suppress-20260520-01` | `hybrid_gate` | `suppress_superseded` | 1 | To do | `ciar-challenge-live-default-hybrid-gate-suppress-20260520-01` | `logs/ciar_challenge/ciar-exp-live-default-hybrid-gate-suppress-20260520-01` |  |
+| `ciar-exp-live-default-hybrid-gate-suppress-20260520-02` | `hybrid_gate` | `suppress_superseded` | 2 | To do | `ciar-challenge-live-default-hybrid-gate-suppress-20260520-02` | `logs/ciar_challenge/ciar-exp-live-default-hybrid-gate-suppress-20260520-02` |  |
+| `ciar-exp-live-default-hybrid-gate-suppress-20260520-03` | `hybrid_gate` | `suppress_superseded` | 3 | To do | `ciar-challenge-live-default-hybrid-gate-suppress-20260520-03` | `logs/ciar_challenge/ciar-exp-live-default-hybrid-gate-suppress-20260520-03` |  |
+
+Live command pattern:
+
+```bash
+./.venv/bin/python scripts/experiments/run_ciar_challenge_with_env.py \
+  --run-id <run-id> \
+  --phoenix-project-name <phoenix-project> \
+  --force-data-node-services \
+  --skip-provider-health \
+  --provider-health-skip-reason "provider health checked separately; default policy evaluation" \
+  --promotion-policy-mode <fact_gate|hybrid_gate> \
+  --contradiction-policy-mode <off|suppress_superseded> \
+  --scenario-id segment_mismatch \
+  --scenario-id contradiction_update \
+  --scenario-id small_talk
+```
+
+Results documentation requirements:
+
+- For every run, record artifact availability for `summary.md`,
+  `promotion_results.json`, `alternative_scores.json`, `events.jsonl`, and
+  `run_manifest.json`.
+- For each policy pair, aggregate promoted, filtered, review-only, and
+  suppressed fact counts by scenario.
+- Record small-talk leakage, urgent-fact retention, stale/superseded-fact
+  handling, raw-vs-stored CIAR differences, and provider/backend failures.
+- Classify failed or partial runs as operational evidence unless artifacts show
+  a policy-level failure.
+- Update
+  `docs/reports/2026-05-19-ciar-challenge-experiment-results.md` with a
+  `Default Policy Evaluation` section after live runs and analysis complete.
+
+Important findings log:
+
+| Date/Time | Run/Config | Finding | Evidence File | Impact On Default-Policy Decision | Follow-up Needed |
+|---|---|---|---|---|---|
+| 2026-05-20 | Planning | Live evidence must compare `fact_gate` and `hybrid_gate` with contradiction policy `off` and `suppress_superseded`; dry CIAR-SUP-1 evidence alone is not enough to choose a default. | This tracker | Establishes 12-run matrix before any runtime default change | Execute matrix and aggregate results |
+
+Decision criteria:
+
+- Prefer `hybrid_gate + suppress_superseded` only if it retains important facts
+  more reliably than `fact_gate`, keeps weak facts review-only or filtered,
+  suppresses explicit superseded facts, and preserves zero or near-zero
+  `small_talk` promotion.
+- Reject `fact_gate` as the default if it materially drops urgent or corrected
+  facts more often than `hybrid_gate`, even when it produces cleaner storage.
+- Reject `suppress_superseded` as the contradiction default if live runs show
+  mis-suppression, missing correction facts, or insufficient audit provenance.
+- If evidence is directionally positive but noisy, document
+  `hybrid_gate + suppress_superseded` as the proposed experimental default
+  rather than changing the production/runtime default immediately.
 
 ## Intended Policy Interface
 
