@@ -234,6 +234,64 @@ async def test_score_alternatives_recovers_provenance_from_events_when_storage_d
 
 
 @pytest.mark.asyncio
+async def test_score_alternatives_records_suppressed_facts_from_events(
+    tmp_path: Path,
+) -> None:
+    config = ExperimentConfig(
+        run_id="ciar-test",
+        output_dir=tmp_path,
+        dry_run=True,
+        keep_data=False,
+        model="test-model",
+        min_ciar=0.6,
+        phoenix_endpoint="http://127.0.0.1:16006/v1/traces",
+        phoenix_project_name="ciar-test",
+        phoenix_access_mode="configured",
+        promotion_policy_mode="hybrid_gate",
+        contradiction_policy_mode="suppress_superseded",
+    )
+    experiment = CIARChallengeExperiment(config)
+    state = ExperimentState(config=config)
+    scenario = Scenario(
+        scenario_id="contradiction_update",
+        title="Contradiction update",
+        expectation="should_conflict",
+        turns=[],
+    )
+    state.scenarios = [scenario]
+    state.session_by_scenario = {"contradiction_update": "session-1"}
+    state.events = [
+        {
+            "event_type": "fact_suppressed",
+            "session_id": "session-1",
+            "data": {
+                "fact_id": "fact-old-route",
+                "content": "The shipment was scheduled for Oakland.",
+                "ciar_provenance": {
+                    "promotion_policy_mode": "hybrid_gate",
+                    "raw_fact_ciar": 0.72,
+                    "fact_gate_decision": True,
+                },
+                "contradiction_policy": {
+                    "mode": "suppress_superseded",
+                    "decision": "SUPPRESS",
+                    "superseded_by_fact_id": "fact-new-route",
+                },
+            },
+        }
+    ]
+    state.ciar_calls = []
+    state.l2_facts = {"contradiction_update": []}
+
+    await experiment.score_alternatives(state)
+
+    row = state.alternative_scores[0]
+    assert row["suppressed"] is True
+    assert row["contradiction_policy_mode"] == "suppress_superseded"
+    assert row["contradiction_policy"]["superseded_by_fact_id"] == "fact-new-route"
+
+
+@pytest.mark.asyncio
 async def test_preflight_records_provider_health_skip_reason(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

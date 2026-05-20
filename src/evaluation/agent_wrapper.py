@@ -152,6 +152,7 @@ class WrapperConfig:
     window_size: int = 20
     ttl_hours: int = 24
     min_ciar: float = 0.6
+    contradiction_policy_mode: str = "off"
 
 
 @dataclass
@@ -304,7 +305,10 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
         topic_segmenter=topic_segmenter,
         fact_extractor=fact_extractor,
         ciar_scorer=ciar_scorer,
-        config={"promotion_threshold": config.min_ciar},
+        config={
+            "promotion_threshold": config.min_ciar,
+            "contradiction_policy_mode": config.contradiction_policy_mode,
+        },
     )
 
     memory_system = UnifiedMemorySystem(
@@ -591,6 +595,7 @@ def build_config(args: argparse.Namespace) -> WrapperConfig:
     window_size = int(os.environ.get("MAS_L1_WINDOW", "20"))
     ttl_hours = int(os.environ.get("MAS_L1_TTL_HOURS", "24"))
     min_ciar = float(os.environ.get("MAS_MIN_CIAR", "0.6"))
+    contradiction_policy_mode = os.environ.get("MAS_CONTRADICTION_POLICY_MODE", "off")
 
     return WrapperConfig(
         agent_type=args.agent_type,
@@ -603,6 +608,7 @@ def build_config(args: argparse.Namespace) -> WrapperConfig:
         window_size=window_size,
         ttl_hours=ttl_hours,
         min_ciar=min_ciar,
+        contradiction_policy_mode=contradiction_policy_mode,
     )
 
 

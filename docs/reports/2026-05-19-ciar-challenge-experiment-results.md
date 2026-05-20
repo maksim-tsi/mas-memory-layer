@@ -2,7 +2,7 @@
 
 Date: 2026-05-19
 Last updated: 2026-05-20
-Status: Live baseline, policy comparison, and CIAR conformance cleanup complete
+Status: Live baseline, policy comparison, CIAR conformance, and deterministic supersession cleanup complete
 Related plan: `docs/plan/2026-05-19-ciar-challenge-experiment-execution-plan.md`
 
 ## Summary
@@ -23,11 +23,11 @@ The live run used:
 
 The evidence confirms that CIAR is useful as a deterministic retention score
 but incomplete as a memory policy. The current default behavior can suppress
-small talk and retain urgent facts, but it does not resolve truth/supersession
-and can let segment-level scoring promote low-value facts inside an otherwise
-important segment. The new `fact_gate` and `hybrid_gate` policy modes reduce
-that over-promotion while preserving `segment_gate` as the backward-compatible
-baseline.
+small talk and retain urgent facts, but CIAR alone does not resolve
+truth/supersession and can let segment-level scoring promote low-value facts
+inside an otherwise important segment. The new `fact_gate`, `hybrid_gate`, and
+`suppress_superseded` policies reduce those failure modes while preserving
+`segment_gate` and contradiction policy `off` as backward-compatible defaults.
 
 ## Commands Run
 
@@ -184,6 +184,39 @@ comparison work:
 - Tests now cover final-score clamping, high-access reinforcement,
   future/stale timestamp behavior, explicit component recomputation, access
   updates, v2 route consistency, and CIAR tool explanation wording.
+
+## CIAR-SUP-1 Findings
+
+CIAR-SUP-1 adds a deterministic contradiction/supersession policy above CIAR.
+CIAR still scores retention priority; the new policy records explicit correction
+metadata and can suppress superseded facts from promotion and prompt context.
+
+The implemented modes are:
+
+- `off`: current backward-compatible behavior.
+- `metadata_only`: annotate conflict/supersession metadata while storing both
+  facts.
+- `suppress_superseded`: store the current correction, emit `fact_suppressed`
+  for the old fact, and omit superseded L2 facts from `query_memory()` and
+  `get_context_block()`.
+
+Dry-run evidence:
+
+```text
+logs/ciar_challenge/ciar-exp-dry-supersession-20260520-02
+```
+
+Result with `hybrid_gate + suppress_superseded`:
+
+```text
+contradiction_update: facts_extracted=2, facts_promoted=1, facts_suppressed=1
+segment_mismatch: facts_extracted=2, facts_promoted=1, facts_review_only=1
+small_talk: segments_promoted=0, facts_promoted=0
+```
+
+The dry harness also recorded blocked Phoenix export attempts to
+`127.0.0.1:16006` in the sandbox. That is operational noise for this local
+dry-run; artifact generation completed successfully.
 
 ## Dry-Run Artifacts
 
@@ -393,7 +426,7 @@ Current live baseline outcomes:
 | Scenario | Segments Promoted | Facts Promoted | Key Finding |
 |---|---:|---:|---|
 | small_talk | 0 | 0 | Correctly ignored |
-| contradiction_update | 1 | 3 | CIAR retained stale/corrected facts and does not resolve supersession |
+| contradiction_update | 1 | 3 | CIAR baseline retained stale/corrected facts and does not resolve supersession |
 | segment_mismatch | 1 | 4 | Segment-level score promoted low-value interaction facts |
 
 The current baseline also fixed the earlier artifact matching issue:
@@ -480,8 +513,8 @@ conformance, repeatability, and policy refinement:
    evaluation chooses a new default.
 2. Use `fact_gate` and `hybrid_gate` comparison artifacts as the next regression
    fixtures for policy work.
-3. Improve contradiction/supersession handling above CIAR; do not encode truth
-   resolution into the CIAR formula.
+3. Use CIAR-SUP-1 as the deterministic contradiction baseline; next evaluate it
+   on focused live runs before changing defaults.
 4. Fix or continue explicitly bypassing provider-health preflight for focused
    live harness runs.
 5. Keep CIAR conformance tests as regression gates for scorer, validators,

@@ -124,6 +124,7 @@ Out of scope without explicit user approval:
 | CIAR-POL-2 | Complete | Separate segment, raw fact, and stored fact score metadata | Memory policy owner | CIAR-POL-1 | Promotion telemetry, L2 fact metadata where storage preserves it, event provenance fallback, `alternative_scores.json` | Promotion outputs report `segment_ciar`, `raw_fact_ciar`, `pre_inheritance_ciar`, `post_inheritance_ciar`, and `stored_ciar` without overwriting the meaning of each score |
 | CIAR-POL-3 | Complete | Add first fact-level evidence gate or `EvidenceRanker` before L2 store | Memory policy owner | CIAR-POL-1, CIAR-POL-2 | `EvidenceRanker`, policy tests, dry/live policy artifacts | `segment_mismatch` low-value facts are filtered by `fact_gate` or marked review-only by `hybrid_gate` while urgent facts remain promotable |
 | CIAR-CONF-1 | Complete | CIAR conformance cleanup: stale docstrings, v2 score recomputation tests, clamping/high-access/stale-fact coverage | Memory policy owner | CIAR-EXP-0 | `tests/memory/test_ciar_scorer.py`, `tests/agents/tools/test_ciar_tools.py`, `tests/api/test_v2_router_ciar.py`, `./.venv/bin/pytest tests/ -v` | ADR-004, scorer, validators, tools, and docs describe the same deterministic CIAR behavior |
+| CIAR-SUP-1 | Complete | Add contradiction/supersession suppression policy above CIAR without changing storage schema | Memory policy owner | CIAR-POL-2, CIAR-POL-3, CIAR-CONF-1 | `tests/memory/test_contradiction_policy.py`, `tests/memory/engines/test_promotion_engine.py`, `tests/memory/test_unified_memory_system.py`, `logs/ciar_challenge/ciar-exp-dry-supersession-20260520-02` | Explicit corrections can mark/suppress superseded facts while CIAR remains a retention score |
 | CIAR-DB-1 | To do | Plan schema/migration cleanup for `002_l2_tsvector_index.sql` volatile `NOW()` partial-index predicate | Database owner | Explicit user approval before migration edits | Migration file and fresh database verification notes | Fresh dedicated PostgreSQL setup can apply schema cleanly without manual index workaround |
 | CIAR-MCP-1 | Backlog | Extract shared CIAR/evidence service layer for future REST, LangChain, and MCP adapters | Interface owner | CIAR-POL-2, CIAR-POL-3 | RFC update or implementation plan | LangChain tools and future MCP tools can call stable service functions rather than duplicating policy logic |
 
@@ -229,8 +230,9 @@ Expected and observed dry-run behavior:
 - Artifact files are written under the run directory.
 - High-value scenarios promote facts.
 - Low-value and speculative scenarios do not promote facts.
-- `contradiction_update` promotes both old and corrected dry-run facts,
-  demonstrating that CIAR does not resolve truth or supersession by itself.
+- `contradiction_update` promotes both old and corrected dry-run facts in the
+  baseline, demonstrating that CIAR alone does not resolve truth or
+  supersession.
 - `segment_mismatch` promotes both urgent and low-value dry-run facts,
   demonstrating the segment/fact policy problem.
 

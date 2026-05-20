@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, ValidationError
 from src.llm.client import LLMClient
 from src.memory.artifacts.repository import ArtifactRepository
 from src.memory.artifacts.service import ArtifactService
+from src.memory.contradiction_policy import CONTRADICTION_POLICY_MODES, ContradictionPolicy
 from src.memory.engines.consolidation_engine import ConsolidationEngine
 from src.memory.engines.distillation_engine import DistillationEngine
 from src.memory.engines.promotion_engine import PromotionEngine
@@ -147,6 +148,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
         promotion_engine: PromotionEngine | None = None,
         consolidation_engine: ConsolidationEngine | None = None,
         distillation_engine: DistillationEngine | None = None,
+        contradiction_policy_mode: str | None = None,
     ):
         """
         Initializes the memory system with clients for all layers.
@@ -186,6 +188,15 @@ class UnifiedMemorySystem(HybridMemorySystem):
         self.promotion_engine = promotion_engine
         self.consolidation_engine = consolidation_engine
         self.distillation_engine = distillation_engine
+        self.contradiction_policy_mode = (
+            contradiction_policy_mode
+            or getattr(promotion_engine, "contradiction_policy_mode", "off")
+        )
+        if self.contradiction_policy_mode not in CONTRADICTION_POLICY_MODES:
+            raise ValueError(
+                "contradiction_policy_mode must be one of "
+                f"{sorted(CONTRADICTION_POLICY_MODES)}, got {self.contradiction_policy_mode!r}"
+            )
         self.artifact_service: ArtifactService | None = None
         self.artifacts: ArtifactService | None = None
         if self.l3_tier and getattr(self.l3_tier, "neo4j", None):
@@ -547,6 +558,8 @@ class UnifiedMemorySystem(HybridMemorySystem):
                         },
                     )
 
+                    l2_facts = self._filter_superseded_l2_facts(l2_facts)
+
                     if l2_facts:
                         l2_scores = [f.ciar_score for f in l2_facts]
                         min_score, max_score = min(l2_scores), max(l2_scores)
@@ -755,6 +768,7 @@ class UnifiedMemorySystem(HybridMemorySystem):
                     )
                 else:
                     facts = []
+                facts = self._filter_superseded_l2_facts(facts)
                 context.significant_facts = facts
                 context.fact_count = len(facts)
             except Exception as e:
@@ -764,6 +778,12 @@ class UnifiedMemorySystem(HybridMemorySystem):
         context.estimate_token_count()
 
         return context
+
+    def _filter_superseded_l2_facts(self, facts: list[Fact]) -> list[Fact]:
+        return ContradictionPolicy.filter_superseded(
+            facts,
+            mode=self.contradiction_policy_mode,
+        )
 
 
 if __name__ == "__main__":

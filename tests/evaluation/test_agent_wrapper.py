@@ -270,6 +270,7 @@ def test_build_config_from_env(monkeypatch):
     monkeypatch.setenv("MAS_L1_WINDOW", "15")
     monkeypatch.setenv("MAS_L1_TTL_HOURS", "12")
     monkeypatch.setenv("MAS_MIN_CIAR", "0.7")
+    monkeypatch.setenv("MAS_CONTRADICTION_POLICY_MODE", "suppress_superseded")
 
     args = agent_wrapper.parse_args(
         ["--agent-type", "full", "--port", "8080", "--model", "unit-model"]
@@ -280,4 +281,5 @@ def test_build_config_from_env(monkeypatch):
     assert config.window_size == 15
     assert config.ttl_hours == 12
     assert config.min_ciar == 0.7
+    assert config.contradiction_policy_mode == "suppress_superseded"
     assert config.model == "unit-model"

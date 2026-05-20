@@ -155,6 +155,8 @@ def build_harness_command(args: argparse.Namespace) -> list[str]:
         str(args.provider_health_timeout),
         "--promotion-policy-mode",
         getattr(args, "promotion_policy_mode", "segment_gate"),
+        "--contradiction-policy-mode",
+        getattr(args, "contradiction_policy_mode", "off"),
     ]
     if args.skip_provider_health:
         command.extend(
@@ -205,6 +207,11 @@ def parse_args() -> argparse.Namespace:
         "--promotion-policy-mode",
         choices=("segment_gate", "fact_gate", "hybrid_gate"),
         default=os.environ.get("MAS_PROMOTION_POLICY_MODE", "segment_gate"),
+    )
+    parser.add_argument(
+        "--contradiction-policy-mode",
+        choices=("off", "metadata_only", "suppress_superseded"),
+        default=os.environ.get("MAS_CONTRADICTION_POLICY_MODE", "off"),
     )
     return parser.parse_args()
 

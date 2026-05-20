@@ -33,6 +33,7 @@ def mock_l2():
     """Mock L2 Working Memory tier."""
     tier = MagicMock(spec=WorkingMemoryTier)
     tier.store = AsyncMock()
+    tier.query_by_session = AsyncMock(return_value=[])
     tier.health_check = AsyncMock(return_value={"status": "healthy"})
     return tier
 
@@ -379,6 +380,137 @@ async def test_hybrid_gate_marks_conversational_residue_review_only(
     provenance = fact.metadata["ciar_provenance"]
     assert provenance["review_only"] is True
     assert provenance["evidence_quality_flags"]["conversational_residue"] is True
+
+
+@pytest.mark.asyncio
+async def test_contradiction_policy_suppresses_superseded_batch_fact(
+    mock_l1, mock_l2, mock_segmenter, mock_extractor, sample_turns
+):
+    """suppress_superseded keeps current correction and suppresses the old fact."""
+    mock_l1.retrieve.return_value = sample_turns
+    mock_l2.ciar_threshold = 0.5
+    segment = TopicSegment(
+        segment_id="seg-contradiction",
+        topic="Route correction",
+        summary="Shipment route was corrected.",
+        key_points=["Oakland", "Los Angeles correction"],
+        turn_indices=[0, 1, 2],
+        certainty=0.9,
+        impact=0.9,
+    )
+    old_fact = Fact(
+        fact_id="fact-old-route",
+        session_id="123",
+        content="The shipment was scheduled for Oakland.",
+        certainty=0.9,
+        impact=0.8,
+        fact_type=FactType.EVENT,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    corrected_fact = Fact(
+        fact_id="fact-new-route",
+        session_id="123",
+        content="Correction: it is now rerouted to Los Angeles, not Oakland.",
+        certainty=0.95,
+        impact=0.9,
+        fact_type=FactType.EVENT,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    mock_segmenter.segment_turns.return_value = [segment]
+    mock_extractor.extract_facts.return_value = [old_fact, corrected_fact]
+    telemetry = MagicMock()
+    telemetry.publish = AsyncMock()
+    engine = PromotionEngine(
+        l1_tier=mock_l1,
+        l2_tier=mock_l2,
+        topic_segmenter=mock_segmenter,
+        fact_extractor=mock_extractor,
+        ciar_scorer=CIARScorer(),
+        config={
+            "promotion_threshold": 0.5,
+            "batch_min_turns": 10,
+            "promotion_policy_mode": "hybrid_gate",
+            "contradiction_policy_mode": "suppress_superseded",
+        },
+        telemetry_stream=telemetry,
+    )
+
+    stats = await engine.process(session_id="123")
+
+    assert stats["facts_promoted"] == 1
+    assert stats["facts_suppressed"] == 1
+    stored_fact = mock_l2.store.call_args.args[0]
+    assert stored_fact.fact_id == "fact-new-route"
+    assert stored_fact.metadata["contradiction_policy"]["supersedes_fact_ids"] == [
+        "fact-old-route"
+    ]
+    assert old_fact.metadata["contradiction_policy"]["decision"] == "SUPPRESS"
+    assert old_fact.metadata["contradiction_policy"]["superseded_by_fact_id"] == "fact-new-route"
+    assert any(
+        call.kwargs.get("event_type") == "fact_suppressed"
+        for call in telemetry.publish.await_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_contradiction_policy_metadata_only_stores_both_facts(
+    mock_l1, mock_l2, mock_segmenter, mock_extractor, sample_turns
+):
+    """metadata_only annotates conflict without suppressing historical evidence."""
+    mock_l1.retrieve.return_value = sample_turns
+    mock_l2.ciar_threshold = 0.5
+    segment = TopicSegment(
+        segment_id="seg-contradiction",
+        topic="Route correction",
+        summary="Shipment route was corrected.",
+        key_points=["Oakland", "Los Angeles correction"],
+        turn_indices=[0, 1, 2],
+        certainty=0.9,
+        impact=0.9,
+    )
+    old_fact = Fact(
+        fact_id="fact-old-route",
+        session_id="123",
+        content="The shipment was scheduled for Oakland.",
+        certainty=0.9,
+        impact=0.8,
+        fact_type=FactType.EVENT,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    corrected_fact = Fact(
+        fact_id="fact-new-route",
+        session_id="123",
+        content="Correction: it is now rerouted to Los Angeles, not Oakland.",
+        certainty=0.95,
+        impact=0.9,
+        fact_type=FactType.EVENT,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    mock_segmenter.segment_turns.return_value = [segment]
+    mock_extractor.extract_facts.return_value = [old_fact, corrected_fact]
+    engine = PromotionEngine(
+        l1_tier=mock_l1,
+        l2_tier=mock_l2,
+        topic_segmenter=mock_segmenter,
+        fact_extractor=mock_extractor,
+        ciar_scorer=CIARScorer(),
+        config={
+            "promotion_threshold": 0.5,
+            "batch_min_turns": 10,
+            "promotion_policy_mode": "hybrid_gate",
+            "contradiction_policy_mode": "metadata_only",
+        },
+    )
+
+    stats = await engine.process(session_id="123")
+
+    assert stats["facts_promoted"] == 2
+    assert stats["facts_suppressed"] == 0
+    assert mock_l2.store.await_count == 2
+    assert old_fact.metadata["contradiction_policy"]["decision"] == "ANNOTATE"
+    assert corrected_fact.metadata["contradiction_policy"]["supersedes_fact_ids"] == [
+        "fact-old-route"
+    ]
 
 
 @pytest.mark.asyncio

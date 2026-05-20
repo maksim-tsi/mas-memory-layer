@@ -85,6 +85,8 @@ def test_build_harness_command_defaults_to_focused_live_scenarios(monkeypatch) -
             "redis_timeout": 15.0,
             "openrouter_timeout": 120.0,
             "max_output_tokens": 8192,
+            "promotion_policy_mode": "hybrid_gate",
+            "contradiction_policy_mode": "suppress_superseded",
         },
     )()
 
@@ -94,6 +96,8 @@ def test_build_harness_command_defaults_to_focused_live_scenarios(monkeypatch) -
     assert "--scenario-id segment_mismatch" in command_text
     assert "--scenario-id contradiction_update" in command_text
     assert "--scenario-id small_talk" in command_text
+    assert "--promotion-policy-mode hybrid_gate" in command_text
+    assert "--contradiction-policy-mode suppress_superseded" in command_text
     assert "http://192.168.107.187:6006/v1/traces" in command
     assert os.environ["MAS_OPENROUTER_TIMEOUT"] == "120.0"
 

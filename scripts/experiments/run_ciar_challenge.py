@@ -147,6 +147,7 @@ class ExperimentConfig:
     provider_health_timeout_s: float = 60.0
     require_provider_health: bool = False
     promotion_policy_mode: str = "segment_gate"
+    contradiction_policy_mode: str = "off"
 
 
 @dataclass
@@ -933,6 +934,7 @@ class CIARChallengeExperiment:
             "mode": "live_l1_l2",
             "provider_order": llm_client.available_providers(),
             "promotion_policy_mode": self.config.promotion_policy_mode,
+            "contradiction_policy_mode": self.config.contradiction_policy_mode,
         }
         state.manifest["_promotion_engine"] = PromotionEngine(
             l1_tier=l1_tier,
@@ -949,6 +951,7 @@ class CIARChallengeExperiment:
                 "enable_final_fallback": False,
                 "enable_segment_fallback": False,
                 "promotion_policy_mode": self.config.promotion_policy_mode,
+                "contradiction_policy_mode": self.config.contradiction_policy_mode,
             },
             telemetry_stream=self.telemetry,
         )
@@ -1053,6 +1056,7 @@ class CIARChallengeExperiment:
                 "enable_final_fallback": False,
                 "enable_segment_fallback": False,
                 "promotion_policy_mode": self.config.promotion_policy_mode,
+                "contradiction_policy_mode": self.config.contradiction_policy_mode,
             },
             telemetry_stream=self.telemetry,
         )
@@ -1126,6 +1130,9 @@ class CIARChallengeExperiment:
                 )
                 raw_score = raw_call.get("score")
                 provenance = (fact.get("metadata") or {}).get("ciar_provenance", {})
+                contradiction_policy = (fact.get("metadata") or {}).get(
+                    "contradiction_policy", {}
+                )
                 if not provenance:
                     provenance = provenance_by_fact_id.get(fact_id, {})
                 if not provenance:
@@ -1162,6 +1169,10 @@ class CIARChallengeExperiment:
                     "promotion_policy_mode": provenance.get(
                         "promotion_policy_mode", self.config.promotion_policy_mode
                     ),
+                    "contradiction_policy_mode": contradiction_policy.get(
+                        "mode", self.config.contradiction_policy_mode
+                    ),
+                    "contradiction_policy": contradiction_policy,
                     "segment_ciar": provenance.get("segment_ciar")
                     or segment_score_by_session.get(session_id),
                     "raw_fact_ciar": raw_score,
@@ -1176,6 +1187,7 @@ class CIARChallengeExperiment:
                         else isinstance(raw_score, int | float) and raw_score >= self.config.min_ciar
                     ),
                     "floor_applied": floor_applied,
+                    "suppressed": False,
                     "utility_candidate_v0": round(utility_candidate, 4),
                     "evidence_quality_flags": {
                         "llm_extracted": "llm" in str(fact.get("source_type", "")),
@@ -1194,12 +1206,14 @@ class CIARChallengeExperiment:
                 rows.append(row)
 
         for event in state.events:
-            if event.get("event_type") != "fact_review_only":
+            if event.get("event_type") not in {"fact_review_only", "fact_suppressed"}:
                 continue
             data = event.get("data") or {}
             provenance = data.get("ciar_provenance") or {}
+            contradiction_policy = data.get("contradiction_policy") or {}
             scenario_id = self._scenario_id_for_session(state, str(event.get("session_id", "")))
             scenario = next((s for s in state.scenarios if s.scenario_id == scenario_id), None)
+            suppressed = event.get("event_type") == "fact_suppressed"
             rows.append(
                 {
                     "scenario_id": scenario_id,
@@ -1210,6 +1224,10 @@ class CIARChallengeExperiment:
                     "promotion_policy_mode": provenance.get(
                         "promotion_policy_mode", self.config.promotion_policy_mode
                     ),
+                    "contradiction_policy_mode": contradiction_policy.get(
+                        "mode", self.config.contradiction_policy_mode
+                    ),
+                    "contradiction_policy": contradiction_policy,
                     "segment_ciar": provenance.get("segment_ciar"),
                     "raw_fact_ciar": provenance.get("raw_fact_ciar"),
                     "pre_inheritance_ciar": provenance.get("pre_inheritance_ciar"),
@@ -1219,7 +1237,8 @@ class CIARChallengeExperiment:
                     "current_runtime_ciar": None,
                     "fact_gate_decision": bool(provenance.get("fact_gate_decision")),
                     "floor_applied": False,
-                    "review_only": True,
+                    "review_only": not suppressed,
+                    "suppressed": suppressed,
                     "utility_candidate_v0": None,
                     "evidence_quality_flags": provenance.get("evidence_quality_flags", {}),
                 }
@@ -1282,8 +1301,8 @@ class CIARChallengeExperiment:
             "",
             "## Scenario Outcomes",
             "",
-            "| Scenario | Expected | Segments Promoted | Facts Promoted | Floor Flags |",
-            "|---|---:|---:|---:|---:|",
+            "| Scenario | Expected | Segments Promoted | Facts Promoted | Facts Suppressed | Floor Flags |",
+            "|---|---:|---:|---:|---:|---:|",
         ]
         floors_by_scenario: dict[str, int] = {}
         for row in state.alternative_scores:
@@ -1294,11 +1313,12 @@ class CIARChallengeExperiment:
         for scenario in state.scenarios:
             stats = state.promotion_stats.get(scenario.scenario_id, {})
             lines.append(
-                "| {scenario} | {expectation} | {segments} | {facts} | {floors} |".format(
+                "| {scenario} | {expectation} | {segments} | {facts} | {suppressed} | {floors} |".format(
                     scenario=scenario.scenario_id,
                     expectation=scenario.expectation,
                     segments=stats.get("segments_promoted", 0),
                     facts=stats.get("facts_promoted", 0),
+                    suppressed=stats.get("facts_suppressed", 0),
                     floors=floors_by_scenario.get(scenario.scenario_id, 0),
                 )
             )
@@ -1404,6 +1424,12 @@ def parse_args() -> argparse.Namespace:
         default=os.environ.get("MAS_PROMOTION_POLICY_MODE", "segment_gate"),
         help="Promotion policy mode used by the L1->L2 promotion engine.",
     )
+    parser.add_argument(
+        "--contradiction-policy-mode",
+        choices=("off", "metadata_only", "suppress_superseded"),
+        default=os.environ.get("MAS_CONTRADICTION_POLICY_MODE", "off"),
+        help="Contradiction/supersession policy applied above CIAR.",
+    )
     return parser.parse_args()
 
 
@@ -1433,6 +1459,7 @@ async def async_main() -> int:
         provider_health_timeout_s=float(args.provider_health_timeout),
         require_provider_health=bool(args.require_provider_health),
         promotion_policy_mode=args.promotion_policy_mode,
+        contradiction_policy_mode=args.contradiction_policy_mode,
     )
     experiment = CIARChallengeExperiment(config)
     state = await experiment.run()

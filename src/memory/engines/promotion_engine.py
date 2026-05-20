@@ -15,6 +15,11 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 from uuid import uuid4
 
 from src.memory.ciar_scorer import CIARScorer
+from src.memory.contradiction_policy import (
+    CONTRADICTION_POLICY_MODES,
+    ContradictionAssessment,
+    ContradictionPolicy,
+)
 from src.memory.engines.base_engine import BaseEngine
 from src.memory.engines.fact_extractor import FactExtractor
 from src.memory.engines.topic_segmenter import TopicSegment, TopicSegmenter
@@ -175,7 +180,16 @@ class PromotionEngine(BaseEngine):
                 "promotion_policy_mode must be one of "
                 f"{sorted(PROMOTION_POLICY_MODES)}, got {self.promotion_policy_mode!r}"
             )
+        self.contradiction_policy_mode = str(
+            self.config.get("contradiction_policy_mode", "off")
+        )
+        if self.contradiction_policy_mode not in CONTRADICTION_POLICY_MODES:
+            raise ValueError(
+                "contradiction_policy_mode must be one of "
+                f"{sorted(CONTRADICTION_POLICY_MODES)}, got {self.contradiction_policy_mode!r}"
+            )
         self.evidence_ranker = EvidenceRanker()
+        self.contradiction_policy = ContradictionPolicy(self.contradiction_policy_mode)
 
     async def process(self, session_id: str | None = None) -> dict[str, Any]:
         """
@@ -218,8 +232,10 @@ class PromotionEngine(BaseEngine):
             "facts_promoted": 0,
             "facts_filtered": 0,
             "facts_review_only": 0,
+            "facts_suppressed": 0,
             "errors": 0,
             "promotion_policy_mode": self.promotion_policy_mode,
+            "contradiction_policy_mode": self.contradiction_policy_mode,
         }
         logger.info(f"DEBUG: PromotionEngine processing session {session_id}")
 
@@ -351,18 +367,41 @@ class PromotionEngine(BaseEngine):
                         facts = [fallback_fact]
                     inc("facts_extracted", len(facts))
 
-                    # 7. Store facts with segment context in L2
                     for fact in facts:
                         if fact.fact_type is None:
                             fact.fact_type = FactType.MENTION
                         if fact.fact_category is None:
                             fact.fact_category = FactCategory.OPERATIONAL
 
+                    contradiction_assessments = await self._assess_contradictions(
+                        session_id=session_id,
+                        facts=facts,
+                    )
+
+                    # 7. Store facts with segment context in L2
+                    for fact in facts:
                         policy_result = self._apply_promotion_policy(
                             fact=fact,
                             segment=segment,
                             segment_score=segment_score,
+                            contradiction=contradiction_assessments.get(fact.fact_id),
                         )
+                        if policy_result["decision"] == "SUPPRESS":
+                            if self.telemetry_stream:
+                                await self.telemetry_stream.publish(
+                                    event_type="fact_suppressed",
+                                    session_id=session_id,
+                                    data={
+                                        "fact_id": fact.fact_id,
+                                        "content": fact.content,
+                                        "ciar_provenance": fact.metadata.get("ciar_provenance"),
+                                        "contradiction_policy": fact.metadata.get(
+                                            "contradiction_policy"
+                                        ),
+                                    },
+                                )
+                            inc("facts_suppressed")
+                            continue
                         if policy_result["decision"] == "REVIEW_ONLY":
                             if self.telemetry_stream:
                                 await self.telemetry_stream.publish(
@@ -519,6 +558,7 @@ class PromotionEngine(BaseEngine):
                 "batch_min_turns": self.batch_min_turns,
                 "batch_max_turns": self.batch_max_turns,
                 "promotion_policy_mode": self.promotion_policy_mode,
+                "contradiction_policy_mode": self.contradiction_policy_mode,
             },
         }
 
@@ -528,6 +568,7 @@ class PromotionEngine(BaseEngine):
         fact: Fact,
         segment: TopicSegment,
         segment_score: float,
+        contradiction: ContradictionAssessment | None = None,
     ) -> dict[str, Any]:
         """Apply configured fact promotion policy and attach CIAR provenance."""
         raw_fact_ciar = float(self.scorer.calculate(fact))
@@ -574,6 +615,9 @@ class PromotionEngine(BaseEngine):
             score_source = "raw_fact"
             decision = "STORE" if evidence.decision == "STORE" else "REVIEW_ONLY"
 
+        if contradiction and contradiction.decision == "SUPPRESS":
+            decision = "SUPPRESS"
+
         fact.ciar_score = round(stored_ciar, 4)
         segment_inherited = bool(inherited_fields)
         provenance = {
@@ -595,12 +639,43 @@ class PromotionEngine(BaseEngine):
             "evidence_decision": evidence.decision,
             "evidence_quality_flags": evidence.flags,
         }
+        if contradiction:
+            fact.metadata = {
+                **(fact.metadata or {}),
+                "contradiction_policy": contradiction.to_metadata(),
+            }
         fact.metadata = {**(fact.metadata or {}), "ciar_provenance": provenance}
         return {
             "decision": decision,
             "gate_threshold": gate_threshold,
             "ciar_provenance": provenance,
         }
+
+    async def _assess_contradictions(
+        self,
+        *,
+        session_id: str,
+        facts: list[Fact],
+    ) -> dict[str, ContradictionAssessment]:
+        if self.contradiction_policy_mode == "off":
+            return {}
+
+        existing_facts: list[Fact] = []
+        try:
+            query_by_session = getattr(self.l2, "query_by_session", None)
+            if callable(query_by_session):
+                existing_facts = await query_by_session(
+                    session_id=session_id,
+                    min_ciar_score=0.0,
+                    limit=100,
+                )
+        except Exception as exc:
+            logger.debug("Skipping existing-fact contradiction scan: %s", exc)
+
+        return self.contradiction_policy.assess(
+            facts,
+            existing_facts=existing_facts,
+        )
 
     def _calculate_components(self, fact: Fact, fallback_score: float) -> dict[str, float]:
         calculate_components = getattr(self.scorer, "calculate_components", None)
