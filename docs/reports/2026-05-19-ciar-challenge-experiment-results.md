@@ -2,7 +2,7 @@
 
 Date: 2026-05-19
 Last updated: 2026-05-20
-Status: Live baseline, policy comparison, CIAR conformance, and deterministic supersession cleanup complete
+Status: Live baseline, policy comparison, CIAR conformance, deterministic supersession cleanup, and CIAR-DEF-1 default-policy evaluation complete
 Related plan: `docs/plan/2026-05-19-ciar-challenge-experiment-execution-plan.md`
 
 ## Summary
@@ -28,6 +28,9 @@ truth/supersession and can let segment-level scoring promote low-value facts
 inside an otherwise important segment. The new `fact_gate`, `hybrid_gate`, and
 `suppress_superseded` policies reduce those failure modes while preserving
 `segment_gate` and contradiction policy `off` as backward-compatible defaults.
+The CIAR-DEF-1 live matrix now supports `hybrid_gate` as the experimental
+promotion default candidate, but it does not yet support defaulting
+`suppress_superseded` because live suppression events did not fire.
 
 ## Commands Run
 
@@ -120,6 +123,31 @@ Policy comparison pattern:
   --scenario-id small_talk
 ```
 
+CIAR-DEF-1 default-policy matrix pattern:
+
+```bash
+./.venv/bin/python scripts/experiments/run_ciar_challenge_with_env.py \
+  --run-id ciar-exp-live-default-<promotion>-<contradiction>-20260520-<nn> \
+  --phoenix-project-name ciar-challenge-live-default-<promotion>-<contradiction>-20260520-<nn> \
+  --force-data-node-services \
+  --skip-provider-health \
+  --provider-health-skip-reason "provider health checked separately; default policy evaluation" \
+  --promotion-policy-mode <fact_gate|hybrid_gate> \
+  --contradiction-policy-mode <off|suppress_superseded> \
+  --scenario-id segment_mismatch \
+  --scenario-id contradiction_update \
+  --scenario-id small_talk
+```
+
+CIAR-DEF-1 artifact aggregation:
+
+```bash
+./.venv/bin/python scripts/experiments/analyze_ciar_policy_runs.py \
+  logs/ciar_challenge/ciar-exp-live-default-*-20260520-* \
+  --json-output logs/ciar_challenge/ciar-def-1-analysis-20260520.json \
+  --markdown-output logs/ciar_challenge/ciar-def-1-analysis-20260520.md
+```
+
 ## Verification Results
 
 Host verification passed on the local MacBook checkout.
@@ -163,6 +191,13 @@ tests/memory/test_ciar_scorer.py: 49 passed
 tests/agents/tools/test_ciar_tools.py: 16 passed
 tests/api/test_v2_router_ciar.py: 1 passed
 tests/memory/test_working_memory_tier.py: 18 passed
+```
+
+For CIAR-DEF-1 analyzer and harness coverage:
+
+```text
+ruff: All checks passed for analyzer and script tests
+tests/scripts/test_ciar_policy_analysis.py tests/scripts/test_ciar_challenge_experiment.py tests/scripts/test_ciar_challenge_with_env.py: 16 passed
 ```
 
 ## CIAR-CONF-1 Findings
@@ -487,6 +522,81 @@ The first `hybrid_gate` live run is better evidence for contradiction behavior.
 The second `hybrid_gate` live run is better evidence for corrected artifact
 provenance because it was rerun after event-based provenance recovery was added.
 
+## Default Policy Evaluation
+
+CIAR-DEF-1 executed 12 focused live runs on 2026-05-20:
+
+- 3 runs of `fact_gate + off`
+- 3 runs of `fact_gate + suppress_superseded`
+- 3 runs of `hybrid_gate + off`
+- 3 runs of `hybrid_gate + suppress_superseded`
+
+Aggregate artifact:
+
+```text
+logs/ciar_challenge/ciar-def-1-analysis-20260520.md
+logs/ciar_challenge/ciar-def-1-analysis-20260520.json
+```
+
+All 12 runs produced `summary.md`, `promotion_results.json`,
+`alternative_scores.json`, `events.jsonl`, and `run_manifest.json`.
+
+Run matrix:
+
+| Run | Config | contradiction_update p/r/f/s | segment_mismatch p/r/f/s | small_talk promoted |
+|---|---|---:|---:|---:|
+| `ciar-exp-live-default-fact-gate-off-20260520-01` | `fact_gate+off` | 1/0/2/0 | 1/0/0/0 | 0 |
+| `ciar-exp-live-default-fact-gate-off-20260520-02` | `fact_gate+off` | 2/0/3/0 | 3/0/2/0 | 0 |
+| `ciar-exp-live-default-fact-gate-off-20260520-03` | `fact_gate+off` | 2/0/3/0 | 3/0/2/0 | 0 |
+| `ciar-exp-live-default-fact-gate-suppress-20260520-01` | `fact_gate+suppress_superseded` | 1/0/2/0 | 3/0/2/0 | 0 |
+| `ciar-exp-live-default-fact-gate-suppress-20260520-02` | `fact_gate+suppress_superseded` | 2/0/1/0 | 2/0/2/0 | 0 |
+| `ciar-exp-live-default-fact-gate-suppress-20260520-03` | `fact_gate+suppress_superseded` | 2/0/1/0 | 3/0/1/0 | 0 |
+| `ciar-exp-live-default-hybrid-gate-off-20260520-01` | `hybrid_gate+off` | 2/1/0/0 | 3/2/0/0 | 0 |
+| `ciar-exp-live-default-hybrid-gate-off-20260520-02` | `hybrid_gate+off` | 0/0/0/0 | 5/1/0/0 | 0 |
+| `ciar-exp-live-default-hybrid-gate-off-20260520-03` | `hybrid_gate+off` | 2/1/0/0 | 3/1/0/0 | 0 |
+| `ciar-exp-live-default-hybrid-gate-suppress-20260520-01` | `hybrid_gate+suppress_superseded` | 2/1/0/0 | 1/0/0/0 | 0 |
+| `ciar-exp-live-default-hybrid-gate-suppress-20260520-02` | `hybrid_gate+suppress_superseded` | 1/2/0/0 | 3/1/0/0 | 0 |
+| `ciar-exp-live-default-hybrid-gate-suppress-20260520-03` | `hybrid_gate+suppress_superseded` | 4/4/0/0 | 3/1/0/0 | 0 |
+
+Legend: `p/r/f/s` means promoted / review-only / filtered / suppressed facts.
+
+Aggregate recommendation inputs:
+
+| Config | Small Talk Promoted | Segment Mismatch Promoted | Segment Mismatch Review-Only | Contradiction Promoted | Contradiction Review-Only | Contradiction Suppressed |
+|---|---:|---:|---:|---:|---:|---:|
+| `fact_gate+off` | 0 | 7 | 0 | 5 | 0 | 0 |
+| `fact_gate+suppress_superseded` | 0 | 8 | 0 | 5 | 0 | 0 |
+| `hybrid_gate+off` | 0 | 11 | 4 | 4 | 2 | 0 |
+| `hybrid_gate+suppress_superseded` | 0 | 7 | 2 | 7 | 7 | 0 |
+
+Findings:
+
+- `small_talk` remained clean: zero promoted facts in all 12 live runs.
+- `hybrid_gate` retained urgent `segment_mismatch` facts and produced
+  review-only evidence for weak or conversational facts. This better matches
+  the desired audit trail than strict filtering alone.
+- `fact_gate` filtered facts but does not preserve review-only evidence, making
+  it less useful as the default when we want conservative retention plus
+  inspectable non-storage decisions.
+- `suppress_superseded` did not emit any live `fact_suppressed` events. In live
+  LLM outputs, stale Oakland facts were commonly filtered or marked
+  review-only before the suppression policy could prove a supersession pair.
+- One `hybrid_gate+suppress_superseded` run recorded an OpenRouter provider
+  failure and recovered through rule fallback. The run completed and produced
+  artifacts, but it should be treated as operational noise when interpreting
+  LLM behavior.
+
+Recommendation:
+
+- Proposed experimental promotion default: `hybrid_gate`.
+- Proposed contradiction default: keep `off`.
+- Do not default `suppress_superseded` yet. Dry evidence proves the mechanism,
+  but live evidence shows the current matching policy is not reliably activated
+  on LLM-extracted correction facts.
+- Next implementation should either switch only `promotion_policy_mode` to
+  `hybrid_gate` after approval, or first add CIAR-SUP-2 to improve live
+  supersession matching and then rerun the contradiction slice.
+
 ## Interpretation
 
 The dry and live runs validate that the isolated harness is structurally useful
@@ -506,19 +616,57 @@ artifacts for provider behavior.
 
 ## Required Follow-Up
 
-The initial policy implementation is complete. Follow-up should now focus on
-conformance, repeatability, and policy refinement:
+The initial policy implementation and CIAR-DEF-1 live default-policy evaluation
+are complete. Follow-up should now focus on converting the evidence into a
+controlled default change, improving live supersession behavior, and reducing
+operational ambiguity in future live runs.
 
-1. Preserve `segment_gate` as the backward-compatible default until broader
-   evaluation chooses a new default.
-2. Use `fact_gate` and `hybrid_gate` comparison artifacts as the next regression
-   fixtures for policy work.
-3. Use CIAR-SUP-1 as the deterministic contradiction baseline; next evaluate it
-   on focused live runs before changing defaults.
-4. Fix or continue explicitly bypassing provider-health preflight for focused
-   live harness runs.
-5. Keep CIAR conformance tests as regression gates for scorer, validators,
-   tools, docs, and v2 routes.
-6. Add a schema/migration cleanup task: `002_l2_tsvector_index.sql` currently
-   contains a volatile `NOW()` partial-index predicate that cannot be applied
-   cleanly on a fresh PostgreSQL database.
+1. CIAR-DEF-2: implement the approved experimental promotion default switch to
+   `hybrid_gate`.
+   - Evidence: the 12-run matrix kept `small_talk` at zero promoted facts, and
+     `hybrid_gate` retained urgent `segment_mismatch` facts while producing
+     review-only evidence for weak facts.
+   - Constraint: keep `segment_gate` and `fact_gate` as explicit override modes
+     and do not change contradiction policy default in this step.
+   - Acceptance: default-path dry and focused live smoke runs show
+     `hybrid_gate` behavior without passing `--promotion-policy-mode`.
+
+2. CIAR-SUP-2: improve live supersession matching before defaulting
+   `suppress_superseded`.
+   - Evidence: dry CIAR-SUP-1 produced `facts_suppressed=1`, but all 12 live
+     CIAR-DEF-1 runs produced `facts_suppressed=0`.
+   - Likely gap: live LLM wording creates paraphrased old/new facts that are
+     filtered or review-only before the deterministic policy can prove a
+     supersession pair.
+   - Acceptance: focused live `contradiction_update` reruns emit auditable
+     `fact_suppressed` events, or the report documents why suppression should
+     remain opt-in.
+
+3. CIAR-EVAL-2: broaden scenario coverage before treating `hybrid_gate` as a
+   production-grade default.
+   - Evidence: CIAR-DEF-1 is strong enough for an experimental default
+     candidate, but it still covers only `small_talk`, `segment_mismatch`, and
+     `contradiction_update`.
+   - Add scenarios for stale preferences, explicit reversals, repeated
+     corrections, low-value assistant acknowledgements, and urgent facts inside
+     longer chatter.
+   - Acceptance: `analyze_ciar_policy_runs.py` aggregates the expanded matrix
+     and the report records scenario-level regressions or improvements.
+
+4. CIAR-OPS-1: improve live-run operational classification.
+   - Evidence: one Phoenix preflight attempt was blocked by sandbox networking,
+     and one OpenRouter provider failure recovered through rule fallback.
+   - Add or document manifest fields that distinguish provider fallback,
+     Phoenix preflight status, cleanup status, and policy evidence quality.
+   - Acceptance: future analysis can classify operational noise from artifacts
+     without relying on console logs.
+
+5. Keep CIAR conformance tests as non-negotiable regression gates.
+   - Evidence: today’s full suite passed with `624 passed, 140 skipped`.
+   - Continue running scorer, validator, tool, API, promotion policy, and
+     analyzer tests before changing defaults.
+
+6. Keep CIAR-DB-1 separate from policy work.
+   - Evidence: the current policy improvements stayed above storage, while the
+     PostgreSQL migration issue remains a fresh-database readiness risk.
+   - Do not edit migrations or schema files without explicit authorization.
