@@ -10,6 +10,7 @@ import pytest
 _EXPERIMENTS_DIR = Path(__file__).parent.parent.parent / "scripts" / "experiments"
 sys.path.insert(0, str(_EXPERIMENTS_DIR))
 
+import run_ciar_challenge as ciar_experiment  # noqa: E402
 from run_ciar_challenge import (  # noqa: E402
     CIARChallengeExperiment,
     ExperimentConfig,
@@ -156,3 +157,79 @@ async def test_score_alternatives_matches_raw_ciar_when_storage_rewrites_fact_id
     assert state.alternative_scores[0]["raw_fact_ciar"] == 0.4
     assert state.alternative_scores[0]["fact_gate_decision"] is False
     assert state.alternative_scores[0]["floor_applied"] is True
+
+
+@pytest.mark.asyncio
+async def test_preflight_records_provider_health_skip_reason(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "present")
+    monkeypatch.setenv("REDIS_URL", "redis://example.test:6379/0")
+    monkeypatch.setenv("POSTGRES_URL", "postgresql://example.test/db")
+    monkeypatch.setattr(
+        ciar_experiment,
+        "check_http_reachable",
+        lambda url: {"ok": True, "status": 200, "url": url},
+    )
+    config = ExperimentConfig(
+        run_id="ciar-test",
+        output_dir=tmp_path,
+        dry_run=False,
+        keep_data=False,
+        model="test-model",
+        min_ciar=0.6,
+        phoenix_endpoint="http://phoenix.test:6006/v1/traces",
+        phoenix_project_name="ciar-test",
+        phoenix_access_mode="configured",
+        skip_provider_health=True,
+        provider_health_skip_reason="known Redis setup interaction",
+    )
+    experiment = CIARChallengeExperiment(config)
+    state = ExperimentState(config=config)
+
+    await experiment.preflight(state)
+
+    assert state.manifest["provider_health"] == {
+        "status": "skipped",
+        "reason": "known Redis setup interaction",
+        "required": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_provider_health_failure_is_recorded_when_not_required(tmp_path: Path) -> None:
+    config = ExperimentConfig(
+        run_id="ciar-test",
+        output_dir=tmp_path,
+        dry_run=False,
+        keep_data=False,
+        model="test-model",
+        min_ciar=0.6,
+        phoenix_endpoint="http://phoenix.test:6006/v1/traces",
+        phoenix_project_name="ciar-test",
+        phoenix_access_mode="configured",
+        provider_health_timeout_s=0.1,
+    )
+    experiment = CIARChallengeExperiment(config)
+
+    async def failing_health_check() -> dict[str, object]:
+        raise TimeoutError("provider health timed out")
+
+    class FakeLLMClient:
+        @classmethod
+        def from_env(cls):
+            client = cls()
+            client.health_check = failing_health_check
+            return client
+
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        monkeypatch.setattr("src.llm.client.LLMClient", FakeLLMClient)
+        result = await experiment._run_provider_health_check()
+    finally:
+        monkeypatch.undo()
+
+    assert result["status"] == "failed"
+    assert result["required"] is False
+    assert result["error_type"] == "TimeoutError"

@@ -23,16 +23,22 @@ architectural drift.
 
 ## Current Baseline
 
-Baseline fixture:
+Current baseline fixture:
+
+```text
+logs/ciar_challenge/ciar-exp-live-env-20260520-03
+```
+
+Current baseline Phoenix project:
+
+```text
+ciar-challenge-live-env-20260520-03
+```
+
+Previous baseline fixture:
 
 ```text
 logs/ciar_challenge/ciar-exp-live-focused-tencent-20260519-06
-```
-
-Baseline Phoenix project:
-
-```text
-ciar-challenge-focused-tencent-20260519-06
 ```
 
 Baseline runtime:
@@ -43,31 +49,33 @@ Baseline runtime:
 - Redis/PostgreSQL/Phoenix host: `192.168.107.187`
 - PostgreSQL database: `yaam-test`
 - provider order: `["openrouter"]`
-- provider-health preflight: skipped for the successful focused run
+- provider-health preflight: checked separately, then skipped in the successful
+  focused run with a recorded manifest reason
+- `.env` loading: `scripts/experiments/run_ciar_challenge_with_env.py`, with
+  secret values kept out of logs
 
 Baseline finding:
 
 - `small_talk` produced no promoted facts.
-- `contradiction_update` produced no promoted facts because its live segment
-  score was below threshold.
-- `segment_mismatch` promoted one segment and five facts, including low-value
+- `contradiction_update` promoted one segment and three facts, confirming CIAR
+  does not resolve truth or supersession by itself.
+- `segment_mismatch` promoted one segment and four facts, including low-value
   interaction facts, because segment-level certainty and impact dominated the
   promoted facts' stored CIAR scores.
 
-Instrumentation caveat:
+Resolved instrumentation caveat:
 
-- The live run contains five `ciar_calls.jsonl` records, but
-  `alternative_scores.json` has `raw_fact_ciar=null` for live rows because the
-  scorer-call fact IDs do not match the stored L2 fact IDs. The policy issue is
-  visible, but the automated raw-vs-stored fact score comparison is not yet
-  reliable.
+- The 2026-05-19 live run had `raw_fact_ciar=null` in `alternative_scores.json`
+  because scorer-call fact IDs did not match stored L2 fact IDs.
+- The 2026-05-20 live run fixed this: `alternative_scores.json` has non-null
+  `raw_fact_ciar` for promoted live facts.
 
 ## Scope And Boundaries
 
 In scope:
 
 - Maintain the isolated CIAR challenge harness and its dry/live artifact set.
-- Preserve `ciar-exp-live-focused-tencent-20260519-06` as the current
+- Preserve `ciar-exp-live-env-20260520-03` as the current
   regression fixture until a cleaner run replaces it.
 - Add observability needed to compare segment, raw fact, and stored fact scores.
 - Add explicit promotion policy modes and tests.
@@ -88,9 +96,9 @@ Out of scope without explicit user approval:
 
 | ID | Status | Workstream | Owner | Dependencies | Tracking Evidence | Done When |
 |---|---|---|---|---|---|---|
-| CIAR-EXP-0 | Complete | Dry/live evidence collection, model selection, artifact capture, and results report | Experiment owner | None | `docs/reports/2026-05-19-ciar-challenge-experiment-results.md` | Dry and live artifacts exist, results are documented, and the live fixture is named |
-| CIAR-EXP-1 | Complete | Fix harness observability so raw CIAR calls join reliably to stored L2 facts | Experiment owner | CIAR-EXP-0 | `tests/scripts/test_ciar_challenge_experiment.py`, temporary dry-run artifact `ciar-exp-dry-observability-verify` | Scorer calls record session ids, storage-rewritten fact ids can join by session/content, and dry `alternative_scores.json` has non-null `raw_fact_ciar` |
-| CIAR-EXP-2 | To do | Stabilize provider-health preflight or document an explicit bypass policy | Experiment owner | CIAR-EXP-0 | `run_manifest.json`, provider health output | Future live runs either record provider health without destabilizing Redis setup or intentionally record `provider_health_skipped_reason` |
+| CIAR-EXP-0 | Complete | Dry/live evidence collection, model selection, artifact capture, and results report | Experiment owner | None | `docs/reports/2026-05-19-ciar-challenge-experiment-results.md`, `logs/ciar_challenge/ciar-exp-live-env-20260520-03` | Dry and live artifacts exist, results are documented, and the live fixture is named |
+| CIAR-EXP-1 | Complete | Fix harness observability so raw CIAR calls join reliably to stored L2 facts | Experiment owner | CIAR-EXP-0 | `tests/scripts/test_ciar_challenge_experiment.py`, `logs/ciar_challenge/ciar-exp-live-env-20260520-03/alternative_scores.json` | Scorer calls record session ids, storage-rewritten fact ids can join by session/content, and live `alternative_scores.json` has non-null `raw_fact_ciar` |
+| CIAR-EXP-2 | Complete | Stabilize provider-health preflight or document an explicit bypass policy | Experiment owner | CIAR-EXP-0 | `scripts/experiments/run_ciar_challenge.py`, `scripts/experiments/run_ciar_challenge_with_env.py`, `tests/scripts/test_ciar_challenge_experiment.py` | Provider health is diagnostic by default, skip reasons are recorded in `run_manifest.json`, callers can require provider health explicitly, and the wrapper can force skz-data-lv endpoints while preserving credentials |
 | CIAR-POL-1 | To do | Add explicit promotion policy modes: `segment_gate`, `fact_gate`, `hybrid_gate` | Memory policy owner | CIAR-EXP-1 recommended | Promotion engine tests and config docs | Promotion behavior is selected by a named mode, with current behavior preserved only as an explicit mode |
 | CIAR-POL-2 | To do | Separate segment, raw fact, and stored fact score metadata | Memory policy owner | CIAR-POL-1 | Promotion telemetry, L2 fact metadata, experiment artifacts | Promotion outputs report `segment_ciar`, `raw_fact_ciar`, and `stored_ciar` without overwriting the meaning of each score |
 | CIAR-POL-3 | To do | Add first fact-level evidence gate or `EvidenceRanker` before L2 store | Memory policy owner | CIAR-POL-1, CIAR-POL-2 | Policy tests, focused dry run, focused live run if approved | Low-value facts in `segment_mismatch` are explainably filtered, downgraded, or marked for review while urgent facts remain promotable |

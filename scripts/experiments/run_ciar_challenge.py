@@ -143,6 +143,9 @@ class ExperimentConfig:
     phoenix_access_mode: str
     scenario_ids: list[str] = field(default_factory=list)
     skip_provider_health: bool = False
+    provider_health_skip_reason: str = "operator requested skip"
+    provider_health_timeout_s: float = 60.0
+    require_provider_health: bool = False
 
 
 @dataclass
@@ -825,15 +828,46 @@ class CIARChallengeExperiment:
         )
 
         if not self.config.dry_run and not self.config.skip_provider_health:
-            from src.llm.client import LLMClient
-
-            health = await LLMClient.from_env().health_check()
+            state.manifest["provider_health"] = await self._run_provider_health_check()
+        elif self.config.skip_provider_health:
             state.manifest["provider_health"] = {
-                name: getattr(report, "__dict__", str(report)) for name, report in health.items()
+                "status": "skipped",
+                "reason": self.config.provider_health_skip_reason,
+                "required": self.config.require_provider_health,
             }
 
         write_json(self.output_dir / "run_manifest.json", state.manifest)
         return state
+
+    async def _run_provider_health_check(self) -> dict[str, Any]:
+        from src.llm.client import LLMClient
+
+        started = time.perf_counter()
+        timeout_s = self.config.provider_health_timeout_s
+        try:
+            health = await asyncio.wait_for(LLMClient.from_env().health_check(), timeout=timeout_s)
+            return {
+                "status": "checked",
+                "required": self.config.require_provider_health,
+                "timeout_s": timeout_s,
+                "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
+                "reports": {
+                    name: getattr(report, "__dict__", str(report))
+                    for name, report in health.items()
+                },
+            }
+        except Exception as exc:
+            result = {
+                "status": "failed",
+                "required": self.config.require_provider_health,
+                "timeout_s": timeout_s,
+                "elapsed_ms": round((time.perf_counter() - started) * 1000, 3),
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }
+            if self.config.require_provider_health:
+                raise RuntimeError(f"Provider health check failed: {result}") from exc
+            return result
 
     async def build_scenarios(self, state: ExperimentState) -> ExperimentState:
         scenarios = build_default_scenarios()
@@ -1264,11 +1298,27 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--allow-localhost-phoenix", action="store_true")
     parser.add_argument("--skip-provider-health", action="store_true")
+    parser.add_argument(
+        "--provider-health-skip-reason",
+        default=os.environ.get("MAS_PROVIDER_HEALTH_SKIP_REASON", "operator requested skip"),
+    )
+    parser.add_argument(
+        "--provider-health-timeout",
+        type=float,
+        default=float(os.environ.get("MAS_PROVIDER_HEALTH_TIMEOUT", "60.0")),
+    )
+    parser.add_argument(
+        "--require-provider-health",
+        action="store_true",
+        help="Fail live preflight when provider health check fails or times out.",
+    )
     return parser.parse_args()
 
 
 async def async_main() -> int:
     args = parse_args()
+    if args.skip_provider_health and args.require_provider_health:
+        raise ValueError("--skip-provider-health cannot be combined with --require-provider-health")
     endpoint, access_mode = resolve_phoenix_endpoint(
         explicit_endpoint=args.phoenix_endpoint,
         access_mode=args.phoenix_access_mode,
@@ -1287,6 +1337,9 @@ async def async_main() -> int:
         phoenix_access_mode=access_mode,
         scenario_ids=list(args.scenario_id),
         skip_provider_health=bool(args.skip_provider_health),
+        provider_health_skip_reason=args.provider_health_skip_reason,
+        provider_health_timeout_s=float(args.provider_health_timeout),
+        require_provider_health=bool(args.require_provider_health),
     )
     experiment = CIARChallengeExperiment(config)
     state = await experiment.run()
