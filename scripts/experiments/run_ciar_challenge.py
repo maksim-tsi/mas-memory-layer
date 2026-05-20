@@ -67,6 +67,11 @@ def safe_env_presence(keys: list[str]) -> dict[str, bool]:
     return {key: bool(os.environ.get(key)) for key in keys}
 
 
+def normalize_fact_content(value: Any) -> str:
+    """Normalize fact text for artifact joins across storage-generated ids."""
+    return " ".join(str(value or "").casefold().split())
+
+
 def endpoint_ui_base(endpoint: str) -> str:
     if endpoint.endswith("/v1/traces"):
         return endpoint[: -len("/v1/traces")]
@@ -194,9 +199,11 @@ class ObservedCIARScorer:
     def calculate(self, fact: Any) -> float:
         fact_id = getattr(fact, "fact_id", None)
         content = getattr(fact, "content", None)
+        session_id = getattr(fact, "session_id", None)
         if isinstance(fact, dict):
             fact_id = fact.get("fact_id", fact_id)
             content = fact.get("content", content)
+            session_id = fact.get("session_id", session_id)
 
         from src.observability import set_span_attributes, start_span
 
@@ -207,6 +214,7 @@ class ObservedCIARScorer:
             attributes={
                 "yaam.ciar.threshold": self.threshold,
                 "yaam.fact_id": fact_id,
+                "session.id": session_id,
                 "input.value": content,
             },
         ) as span:
@@ -227,6 +235,7 @@ class ObservedCIARScorer:
 
         record = {
             "timestamp": utc_now().isoformat(),
+            "session_id": session_id,
             "fact_id": fact_id,
             "content": content,
             "score": score,
@@ -1035,12 +1044,30 @@ class CIARChallengeExperiment:
         raw_by_fact_id = {
             str(call.get("fact_id")): call for call in state.ciar_calls if call.get("fact_id")
         }
+        raw_by_session_content: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        raw_by_content: dict[str, list[dict[str, Any]]] = {}
+        for call in state.ciar_calls:
+            content_key = normalize_fact_content(call.get("content"))
+            if not content_key:
+                continue
+            raw_by_content.setdefault(content_key, []).append(call)
+            call_session_id = call.get("session_id")
+            if call_session_id:
+                raw_by_session_content.setdefault((str(call_session_id), content_key), []).append(
+                    call
+                )
         rows = []
         for scenario in state.scenarios:
             session_id = state.session_by_scenario[scenario.scenario_id]
             for fact in state.l2_facts.get(scenario.scenario_id, []):
                 fact_id = str(fact.get("fact_id"))
-                raw_call = raw_by_fact_id.get(fact_id, {})
+                raw_call = self._match_raw_ciar_call(
+                    fact=fact,
+                    session_id=session_id,
+                    raw_by_fact_id=raw_by_fact_id,
+                    raw_by_session_content=raw_by_session_content,
+                    raw_by_content=raw_by_content,
+                )
                 raw_score = raw_call.get("score")
                 stored_score = fact.get("ciar_score")
                 floor_applied = (
@@ -1088,6 +1115,40 @@ class CIARChallengeExperiment:
         write_json(self.output_dir / "alternative_scores.json", rows)
         write_json(self.output_dir / "formula_probes.json", build_formula_probe_rows())
         return state
+
+    def _match_raw_ciar_call(
+        self,
+        fact: dict[str, Any],
+        session_id: str,
+        raw_by_fact_id: dict[str, dict[str, Any]],
+        raw_by_session_content: dict[tuple[str, str], list[dict[str, Any]]],
+        raw_by_content: dict[str, list[dict[str, Any]]],
+    ) -> dict[str, Any]:
+        """Match a stored L2 fact to its pre-store CIAR scorer call.
+
+        Live PostgreSQL rows can expose the database row id as `fact_id`, while
+        the scorer observes the original extracted fact id before storage. Use
+        fact id first, then a session-scoped content match when ids diverge.
+        """
+        fact_id = fact.get("fact_id")
+        if fact_id is not None:
+            raw_call = raw_by_fact_id.get(str(fact_id))
+            if raw_call:
+                return raw_call
+
+        content_key = normalize_fact_content(fact.get("content"))
+        if not content_key:
+            return {}
+
+        session_candidates = raw_by_session_content.get((session_id, content_key), [])
+        if len(session_candidates) == 1:
+            return session_candidates[0]
+
+        content_candidates = raw_by_content.get(content_key, [])
+        if len(content_candidates) == 1:
+            return content_candidates[0]
+
+        return {}
 
     async def summarize(self, state: ExperimentState) -> ExperimentState:
         lines = [
