@@ -7,9 +7,9 @@ with validation and serialization support.
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from src.memory.ciar_formula import (
     DEFAULT_AGE_DECAY_LAMBDA,
@@ -128,22 +128,25 @@ class Fact(BaseModel):
 
     model_config = {"use_enum_values": True}
 
-    @field_validator("ciar_score")
-    @classmethod
-    def validate_ciar_score(cls, v: float, info: ValidationInfo) -> float:
-        """Ensure CIAR score is consistent with components if all are present."""
-        values = info.data
-        if all(k in values for k in ["certainty", "impact", "age_decay", "recency_boost"]):
+    @model_validator(mode="after")
+    def validate_ciar_score(self) -> Self:
+        """Keep explicit CIAR components authoritative when all are supplied."""
+        component_fields = {"certainty", "impact", "age_decay", "recency_boost"}
+        fields_set = getattr(self, "model_fields_set", set())
+
+        if component_fields.issubset(fields_set) or (
+            "ciar_score" not in fields_set and component_fields & fields_set
+        ):
             expected = calculate_ciar_score(
-                values["certainty"],
-                values["impact"],
-                values["age_decay"],
-                values["recency_boost"],
+                self.certainty,
+                self.impact,
+                self.age_decay,
+                self.recency_boost,
             )
-            # Allow small floating point differences
-            if abs(v - expected) > 0.01:
-                return float(round(expected, 4))
-        return v
+            if abs(self.ciar_score - expected) > 0.01:
+                self.ciar_score = float(round(expected, 4))
+
+        return self
 
     def mark_accessed(self, alpha: float = DEFAULT_RECENCY_ALPHA) -> None:
         """Update access tracking."""
@@ -170,7 +173,7 @@ class Fact(BaseModel):
         Calculate age decay factor based on time since extraction.
 
         Args:
-            decay_lambda: Decay rate (default: 0.1 per day)
+            decay_lambda: Decay rate (default: ADR-004 lambda, about a 30-day half-life)
         """
         source_timestamp = self.created_at or self.extracted_at
         self.age_decay = round(

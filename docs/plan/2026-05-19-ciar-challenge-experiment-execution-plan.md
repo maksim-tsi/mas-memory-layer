@@ -123,7 +123,7 @@ Out of scope without explicit user approval:
 | CIAR-POL-1 | Complete | Add explicit promotion policy modes: `segment_gate`, `fact_gate`, `hybrid_gate` | Memory policy owner | CIAR-EXP-1 recommended | `src/memory/engines/promotion_engine.py`, `tests/memory/engines/test_promotion_engine.py`, dry/live policy artifacts | Promotion behavior is selected by a named mode and current behavior is preserved as `segment_gate` |
 | CIAR-POL-2 | Complete | Separate segment, raw fact, and stored fact score metadata | Memory policy owner | CIAR-POL-1 | Promotion telemetry, L2 fact metadata where storage preserves it, event provenance fallback, `alternative_scores.json` | Promotion outputs report `segment_ciar`, `raw_fact_ciar`, `pre_inheritance_ciar`, `post_inheritance_ciar`, and `stored_ciar` without overwriting the meaning of each score |
 | CIAR-POL-3 | Complete | Add first fact-level evidence gate or `EvidenceRanker` before L2 store | Memory policy owner | CIAR-POL-1, CIAR-POL-2 | `EvidenceRanker`, policy tests, dry/live policy artifacts | `segment_mismatch` low-value facts are filtered by `fact_gate` or marked review-only by `hybrid_gate` while urgent facts remain promotable |
-| CIAR-CONF-1 | To do | CIAR conformance cleanup: stale docstrings, v2 score recomputation tests, clamping/high-access/stale-fact coverage | Memory policy owner | CIAR-EXP-0 | CIAR unit tests, v2 route tests, docs diff | ADR-004, scorer, validators, tools, and docs describe the same CIAR behavior |
+| CIAR-CONF-1 | Complete | CIAR conformance cleanup: stale docstrings, v2 score recomputation tests, clamping/high-access/stale-fact coverage | Memory policy owner | CIAR-EXP-0 | `tests/memory/test_ciar_scorer.py`, `tests/agents/tools/test_ciar_tools.py`, `tests/api/test_v2_router_ciar.py`, `./.venv/bin/pytest tests/ -v` | ADR-004, scorer, validators, tools, and docs describe the same deterministic CIAR behavior |
 | CIAR-DB-1 | To do | Plan schema/migration cleanup for `002_l2_tsvector_index.sql` volatile `NOW()` partial-index predicate | Database owner | Explicit user approval before migration edits | Migration file and fresh database verification notes | Fresh dedicated PostgreSQL setup can apply schema cleanly without manual index workaround |
 | CIAR-MCP-1 | Backlog | Extract shared CIAR/evidence service layer for future REST, LangChain, and MCP adapters | Interface owner | CIAR-POL-2, CIAR-POL-3 | RFC update or implementation plan | LangChain tools and future MCP tools can call stable service functions rather than duplicating policy logic |
 
@@ -319,12 +319,12 @@ Live comparison artifacts:
      change.
    - Keep per-factor explanations visible in artifacts and future interfaces.
 
-5. Clean up conformance and operational debt.
-   - Update stale CIAR docstrings and explanatory text.
-   - Add tests for model validator score recomputation and v2 route behavior.
-   - Add tests for CIAR clamping, high access counts, component overrides, and
-     stale facts.
-   - Resolve provider-health preflight behavior.
+5. Keep completed conformance cleanup as a regression gate.
+   - CIAR-CONF-1 now covers stale CIAR docstrings and explanatory text.
+   - Tests cover model validator score recomputation and v2 route behavior.
+   - Tests cover CIAR clamping, high access counts, component overrides, and
+     future/stale timestamp behavior.
+   - Continue tracking provider-health preflight behavior as operational debt.
    - Plan the PostgreSQL migration cleanup with explicit authorization before
      editing migration/schema files.
 

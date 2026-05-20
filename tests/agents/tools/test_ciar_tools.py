@@ -274,6 +274,7 @@ class TestCIARExplainTool:
         assert "Base Score" in result
         assert "Temporal Score" in result
         assert "Final CIAR Score" in result
+        assert "clamp(Base x Temporal, 0..1)" in result
         assert "Verdict:" in result
         assert "Formula: 1 + (alpha x count)" in result
 

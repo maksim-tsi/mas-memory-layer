@@ -2,7 +2,7 @@
 
 Date: 2026-05-19
 Last updated: 2026-05-20
-Status: Live baseline and policy comparison complete with `tencent/hy3-preview`
+Status: Live baseline, policy comparison, and CIAR conformance cleanup complete
 Related plan: `docs/plan/2026-05-19-ciar-challenge-experiment-execution-plan.md`
 
 ## Summary
@@ -148,6 +148,42 @@ The CIAR policy/provenance implementation was committed as:
 ```text
 eb23673 feat: add CIAR promotion policy modes
 ```
+
+After the May 20 CIAR-CONF-1 cleanup:
+
+```text
+ruff: All checks passed
+pytest: 611 passed, 140 skipped in 259.29s
+```
+
+Focused conformance tests also passed:
+
+```text
+tests/memory/test_ciar_scorer.py: 49 passed
+tests/agents/tools/test_ciar_tools.py: 16 passed
+tests/api/test_v2_router_ciar.py: 1 passed
+tests/memory/test_working_memory_tier.py: 18 passed
+```
+
+## CIAR-CONF-1 Findings
+
+CIAR-CONF-1 closed the main conformance gaps identified after the policy
+comparison work:
+
+- `Fact.validate_ciar_score()` was a field validator on `ciar_score`, so it ran
+  before all component fields were available. It now validates after model
+  construction and treats explicitly supplied full CIAR components as
+  authoritative.
+- `POST /v2/memory/l2/facts` previously constructed facts with
+  `ciar_score=1.0`, `certainty=0.8`, and `impact=0.5`, which contradicted the
+  ADR-004 formula. It now creates an internally consistent high-confidence
+  semantic assertion and records agent/task provenance in metadata.
+- ADR-004, scorer docstrings, and CIAR tool explanations now agree that
+  reinforcement can exceed `1.0`, while the stored final CIAR score is clamped
+  to `[0.0, 1.0]`.
+- Tests now cover final-score clamping, high-access reinforcement,
+  future/stale timestamp behavior, explicit component recomputation, access
+  updates, v2 route consistency, and CIAR tool explanation wording.
 
 ## Dry-Run Artifacts
 
@@ -448,8 +484,8 @@ conformance, repeatability, and policy refinement:
    resolution into the CIAR formula.
 4. Fix or continue explicitly bypassing provider-health preflight for focused
    live harness runs.
-5. Complete CIAR conformance cleanup across scorer, validators, tools, docs, and
-   v2 routes.
+5. Keep CIAR conformance tests as regression gates for scorer, validators,
+   tools, docs, and v2 routes.
 6. Add a schema/migration cleanup task: `002_l2_tsvector_index.sql` currently
    contains a volatile `NOW()` partial-index predicate that cannot be applied
    cleanly on a fresh PostgreSQL database.
