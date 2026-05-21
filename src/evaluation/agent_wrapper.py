@@ -152,6 +152,7 @@ class WrapperConfig:
     window_size: int = 20
     ttl_hours: int = 24
     min_ciar: float = 0.6
+    promotion_policy_mode: str = "hybrid_gate"
     contradiction_policy_mode: str = "off"
 
 
@@ -307,6 +308,7 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
         ciar_scorer=ciar_scorer,
         config={
             "promotion_threshold": config.min_ciar,
+            "promotion_policy_mode": config.promotion_policy_mode,
             "contradiction_policy_mode": config.contradiction_policy_mode,
         },
     )
@@ -595,6 +597,7 @@ def build_config(args: argparse.Namespace) -> WrapperConfig:
     window_size = int(os.environ.get("MAS_L1_WINDOW", "20"))
     ttl_hours = int(os.environ.get("MAS_L1_TTL_HOURS", "24"))
     min_ciar = float(os.environ.get("MAS_MIN_CIAR", "0.6"))
+    promotion_policy_mode = os.environ.get("MAS_PROMOTION_POLICY_MODE", "hybrid_gate")
     contradiction_policy_mode = os.environ.get("MAS_CONTRADICTION_POLICY_MODE", "off")
 
     return WrapperConfig(
@@ -608,6 +611,7 @@ def build_config(args: argparse.Namespace) -> WrapperConfig:
         window_size=window_size,
         ttl_hours=ttl_hours,
         min_ciar=min_ciar,
+        promotion_policy_mode=promotion_policy_mode,
         contradiction_policy_mode=contradiction_policy_mode,
     )
 

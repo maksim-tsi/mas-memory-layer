@@ -30,6 +30,7 @@ from src.memory.tiers.working_memory_tier import WorkingMemoryTier
 logger = logging.getLogger(__name__)
 
 PROMOTION_POLICY_MODES = {"segment_gate", "fact_gate", "hybrid_gate"}
+DEFAULT_PROMOTION_POLICY_MODE = "hybrid_gate"
 
 
 @dataclass(frozen=True)
@@ -173,7 +174,7 @@ class PromotionEngine(BaseEngine):
         self.batch_min_turns = self.config.get("batch_min_turns", self.DEFAULT_BATCH_MIN_TURNS)
         self.batch_max_turns = self.config.get("batch_max_turns", self.DEFAULT_BATCH_MAX_TURNS)
         self.promotion_policy_mode = str(
-            self.config.get("promotion_policy_mode", "segment_gate")
+            self.config.get("promotion_policy_mode", DEFAULT_PROMOTION_POLICY_MODE)
         )
         if self.promotion_policy_mode not in PROMOTION_POLICY_MODES:
             raise ValueError(

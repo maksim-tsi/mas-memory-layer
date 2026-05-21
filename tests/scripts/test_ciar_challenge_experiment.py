@@ -65,8 +65,16 @@ def test_resolve_phoenix_allows_explicit_tunnel_port() -> None:
 
 def test_default_scenarios_are_batch_ready() -> None:
     scenarios = build_default_scenarios()
+    scenario_ids = {scenario.scenario_id for scenario in scenarios}
 
-    assert len(scenarios) >= 6
+    assert len(scenarios) >= 12
+    assert scenario_ids >= {
+        "stale_preference",
+        "explicit_reversal",
+        "repeated_correction",
+        "assistant_acknowledgement_noise",
+        "urgent_with_chatter",
+    }
     assert {scenario.expectation for scenario in scenarios} >= {
         "promote",
         "ignore",

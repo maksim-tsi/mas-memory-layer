@@ -78,9 +78,11 @@ def test_build_harness_command_defaults_to_focused_live_scenarios(monkeypatch) -
             "phoenix_project_name": None,
             "data_node_ip": None,
             "provider_health_timeout": 45.0,
+            "scenario_delay_s": 12.0,
             "skip_provider_health": True,
             "provider_health_skip_reason": "test skip",
             "require_provider_health": False,
+            "use_harness_policy_defaults": False,
             "scenario_id": [],
             "redis_timeout": 15.0,
             "openrouter_timeout": 120.0,
@@ -98,8 +100,43 @@ def test_build_harness_command_defaults_to_focused_live_scenarios(monkeypatch) -
     assert "--scenario-id small_talk" in command_text
     assert "--promotion-policy-mode hybrid_gate" in command_text
     assert "--contradiction-policy-mode suppress_superseded" in command_text
+    assert "--scenario-delay-s 12.0" in command_text
     assert "http://192.168.107.187:6006/v1/traces" in command
     assert os.environ["MAS_OPENROUTER_TIMEOUT"] == "120.0"
+
+
+def test_build_harness_command_can_use_child_policy_defaults(monkeypatch) -> None:
+    monkeypatch.setenv("DATA_NODE_IP", "192.168.107.187")
+    namespace = type(
+        "Args",
+        (),
+        {
+            "run_id": "ciar-exp-live-default-test",
+            "output_dir": "logs/ciar_challenge",
+            "model": "tencent/hy3-preview",
+            "phoenix_endpoint": None,
+            "phoenix_project_name": None,
+            "data_node_ip": None,
+            "provider_health_timeout": 45.0,
+            "scenario_delay_s": 0.0,
+            "skip_provider_health": True,
+            "provider_health_skip_reason": "test skip",
+            "require_provider_health": False,
+            "use_harness_policy_defaults": True,
+            "scenario_id": ["small_talk"],
+            "redis_timeout": 15.0,
+            "openrouter_timeout": 120.0,
+            "max_output_tokens": 8192,
+            "promotion_policy_mode": "segment_gate",
+            "contradiction_policy_mode": "suppress_superseded",
+        },
+    )()
+
+    command_text = " ".join(build_harness_command(namespace))
+
+    assert "--scenario-id small_talk" in command_text
+    assert "--promotion-policy-mode" not in command_text
+    assert "--contradiction-policy-mode" not in command_text
 
 
 def test_replace_url_host_port_preserves_credentials_and_path() -> None:

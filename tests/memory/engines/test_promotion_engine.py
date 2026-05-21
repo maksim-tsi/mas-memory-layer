@@ -235,7 +235,7 @@ async def test_process_session_batch_success(
 async def test_segment_gate_records_provenance_and_preserves_current_inheritance(
     mock_l1, mock_l2, mock_segmenter, mock_extractor, sample_turns
 ):
-    """Default segment_gate records raw and inherited CIAR while preserving promotion."""
+    """Explicit segment_gate records raw and inherited CIAR while preserving promotion."""
     mock_l1.retrieve.return_value = sample_turns
     mock_l2.ciar_threshold = 0.5
     segment = TopicSegment(
@@ -264,7 +264,11 @@ async def test_segment_gate_records_provenance_and_preserves_current_inheritance
         topic_segmenter=mock_segmenter,
         fact_extractor=mock_extractor,
         ciar_scorer=CIARScorer(),
-        config={"promotion_threshold": 0.5, "batch_min_turns": 10},
+        config={
+            "promotion_threshold": 0.5,
+            "batch_min_turns": 10,
+            "promotion_policy_mode": "segment_gate",
+        },
     )
 
     stats = await engine.process(session_id="123")
@@ -278,6 +282,51 @@ async def test_segment_gate_records_provenance_and_preserves_current_inheritance
     assert provenance["stored_ciar"] == 0.81
     assert provenance["segment_inherited"] is True
     assert provenance["fact_gate_decision"] is False
+
+
+@pytest.mark.asyncio
+async def test_default_promotion_policy_is_hybrid_gate(
+    mock_l1, mock_l2, mock_segmenter, mock_extractor, sample_turns
+):
+    """Default promotion behavior uses hybrid_gate unless explicitly overridden."""
+    mock_l1.retrieve.return_value = sample_turns
+    mock_l2.ciar_threshold = 0.5
+    segment = TopicSegment(
+        segment_id="seg-policy",
+        topic="Shipment update",
+        summary="Segment is important enough for extraction.",
+        key_points=["Shipment update"],
+        turn_indices=[0, 1, 2],
+        certainty=0.9,
+        impact=0.9,
+    )
+    fact = Fact(
+        fact_id="fact-residue",
+        session_id="123",
+        content="Thanks",
+        certainty=0.9,
+        impact=0.7,
+        fact_type=FactType.MENTION,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    mock_segmenter.segment_turns.return_value = [segment]
+    mock_extractor.extract_facts.return_value = [fact]
+    engine = PromotionEngine(
+        l1_tier=mock_l1,
+        l2_tier=mock_l2,
+        topic_segmenter=mock_segmenter,
+        fact_extractor=mock_extractor,
+        ciar_scorer=CIARScorer(),
+        config={"promotion_threshold": 0.5, "batch_min_turns": 10},
+    )
+
+    stats = await engine.process(session_id="123")
+
+    assert stats["facts_promoted"] == 0
+    assert stats["facts_review_only"] == 1
+    provenance = fact.metadata["ciar_provenance"]
+    assert provenance["promotion_policy_mode"] == "hybrid_gate"
+    assert provenance["review_only"] is True
 
 
 @pytest.mark.asyncio

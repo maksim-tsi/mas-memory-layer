@@ -1,8 +1,8 @@
 # CIAR Challenge Experiment and Implementation Coordination Plan
 
 Date: 2026-05-19
-Last updated: 2026-05-20
-Status: CIAR-DEF-1 live default-policy evaluation complete; recommendation documented
+Last updated: 2026-05-21
+Status: CIAR-DEF-2, CIAR-SUP-2, and CIAR-EVAL-2 implemented and live-evaluated; follow-up remains for operational noise and broader suppression safety
 Related:
 `docs/reports/2026-05-18-ciar-design-and-implementation-audit.md`,
 `docs/reports/2026-05-19-ciar-challenge-experiment-results.md`,
@@ -126,9 +126,9 @@ Out of scope without explicit user approval:
 | CIAR-CONF-1 | Complete | CIAR conformance cleanup: stale docstrings, v2 score recomputation tests, clamping/high-access/stale-fact coverage | Memory policy owner | CIAR-EXP-0 | `tests/memory/test_ciar_scorer.py`, `tests/agents/tools/test_ciar_tools.py`, `tests/api/test_v2_router_ciar.py`, `./.venv/bin/pytest tests/ -v` | ADR-004, scorer, validators, tools, and docs describe the same deterministic CIAR behavior |
 | CIAR-SUP-1 | Complete | Add contradiction/supersession suppression policy above CIAR without changing storage schema | Memory policy owner | CIAR-POL-2, CIAR-POL-3, CIAR-CONF-1 | `tests/memory/test_contradiction_policy.py`, `tests/memory/engines/test_promotion_engine.py`, `tests/memory/test_unified_memory_system.py`, `logs/ciar_challenge/ciar-exp-dry-supersession-20260520-02` | Explicit corrections can mark/suppress superseded facts while CIAR remains a retention score |
 | CIAR-DEF-1 | Complete | Choose candidate default CIAR policy using live `fact_gate`/`hybrid_gate` matrix | Experiment owner | CIAR-SUP-1 | `logs/ciar_challenge/ciar-def-1-analysis-20260520.json`, `logs/ciar_challenge/ciar-def-1-analysis-20260520.md`, 12 live run artifacts | Recommend `hybrid_gate` as the experimental promotion default candidate; keep contradiction default `off` until live suppression behavior is improved |
-| CIAR-DEF-2 | To do | Implement approved experimental promotion default switch to `hybrid_gate` while preserving explicit override | Memory policy owner | CIAR-DEF-1, explicit user approval | Config/default change, wrapper/harness docs, regression tests, dry smoke artifact | Default promotion behavior uses `hybrid_gate`, callers can still select `segment_gate` or `fact_gate`, and CIAR-DEF-1 comparison artifacts remain reproducible |
-| CIAR-SUP-2 | To do | Improve live supersession matching so explicit corrections can trigger suppression after LLM extraction variance | Memory policy owner | CIAR-SUP-1, CIAR-DEF-1 | Policy tests, dry contradiction artifact, focused live contradiction reruns | Live `contradiction_update` runs produce auditable `fact_suppressed` events or a documented reason suppression is unsafe |
-| CIAR-EVAL-2 | To do | Broaden default-policy evaluation beyond the three deterministic challenge scenarios | Experiment owner | CIAR-DEF-2 recommended, CIAR-SUP-2 optional | Expanded scenario set, aggregate analyzer output, results report update | Candidate defaults are tested against additional correction, stale preference, low-value chatter, and urgent operational scenarios |
+| CIAR-DEF-2 | Complete | Implement approved experimental promotion default switch to `hybrid_gate` while preserving explicit override | Memory policy owner | CIAR-DEF-1, explicit user approval | `src/memory/engines/promotion_engine.py`, `scripts/experiments/run_ciar_challenge.py`, `scripts/experiments/run_ciar_challenge_with_env.py`, `src/evaluation/agent_wrapper.py`, `logs/ciar_challenge/ciar-exp-dry-default-hybrid-20260521-02`, `logs/ciar_challenge/ciar-exp-live-eval2-default-hybrid-off-20260521-01` | Default promotion behavior uses `hybrid_gate`, callers can still select `segment_gate` or `fact_gate`, and dry/live default-path artifacts show `hybrid_gate+off` |
+| CIAR-SUP-2 | Complete | Improve live supersession matching so explicit corrections can trigger suppression after LLM extraction variance | Memory policy owner | CIAR-SUP-1, CIAR-DEF-1 | `src/memory/contradiction_policy.py`, `tests/memory/test_contradiction_policy.py`, `logs/ciar_challenge/ciar-sup2-analysis-20260521.md` | Live `contradiction_update` runs produced auditable `fact_suppressed` events; suppression remains opt-in because broader reversal/stale-preference scenarios did not suppress reliably |
+| CIAR-EVAL-2 | Complete | Broaden default-policy evaluation beyond the three deterministic challenge scenarios | Experiment owner | CIAR-DEF-2 recommended, CIAR-SUP-2 optional | `scripts/experiments/run_ciar_challenge.py`, `logs/ciar_challenge/ciar-eval2-analysis-20260521.md`, `logs/ciar_challenge/ciar-eval2-analysis-20260521.json` | Candidate defaults were tested against additional correction, stale preference, low-value chatter, and urgent operational scenarios |
 | CIAR-OPS-1 | To do | Reduce live-run operational noise from provider-health bypass, OpenRouter fallback, and Phoenix preflight sandbox behavior | Experiment owner | CIAR-EXP-2, CIAR-DEF-1 | Runbook update, manifest fields, repeat live smoke evidence | Live experiment failures are classified cleanly and do not require manual interpretation from console output |
 | CIAR-DB-1 | To do | Plan schema/migration cleanup for `002_l2_tsvector_index.sql` volatile `NOW()` partial-index predicate | Database owner | Explicit user approval before migration edits | Migration file and fresh database verification notes | Fresh dedicated PostgreSQL setup can apply schema cleanly without manual index workaround |
 | CIAR-MCP-1 | Backlog | Extract shared CIAR/evidence service layer for future REST, LangChain, and MCP adapters | Interface owner | CIAR-POL-2, CIAR-POL-3 | RFC update or implementation plan | LangChain tools and future MCP tools can call stable service functions rather than duplicating policy logic |
@@ -246,9 +246,17 @@ Current recommendation from CIAR-DEF-1:
 
 ## Proposed Next Steps After CIAR-DEF-1
 
-The next steps are ordered by the evidence from the 2026-05-20 live matrix.
-They should be treated as the current implementation queue unless new evidence
-changes the policy recommendation.
+Update on 2026-05-21: CIAR-DEF-2, CIAR-SUP-2, and CIAR-EVAL-2 are now
+complete. The current runtime default is `hybrid_gate+off`. The 2026-05-21
+live matrix keeps `small_talk` at zero promoted facts, shows `segment_gate`
+still over-promotes correction scenarios, and shows `hybrid_gate` preserving
+review-only evidence that `fact_gate` discards. `suppress_superseded` produced
+live `fact_suppressed` events for `contradiction_update`, but not broadly
+enough across stale preference, explicit reversal, and repeated correction
+scenarios to become the default.
+
+The original next steps below were ordered by the evidence from the 2026-05-20
+live matrix and are retained for traceability.
 
 1. Plan and implement CIAR-DEF-2 after explicit approval.
    - Justification: `hybrid_gate` preserved the small-talk boundary and

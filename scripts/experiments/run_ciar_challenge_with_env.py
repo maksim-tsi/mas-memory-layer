@@ -24,6 +24,7 @@ REQUIRED_KEYS = ("OPENROUTER_API_KEY", "REDIS_URL", "POSTGRES_URL")
 DEFAULT_SCENARIOS = ("segment_mismatch", "contradiction_update", "small_talk")
 DEFAULT_MODEL = "tencent/hy3-preview"
 DEFAULT_DATA_NODE_IP = "192.168.107.187"
+DEFAULT_PROMOTION_POLICY_MODE = "hybrid_gate"
 
 
 def utc_stamp() -> str:
@@ -153,11 +154,18 @@ def build_harness_command(args: argparse.Namespace) -> list[str]:
         phoenix_project_name,
         "--provider-health-timeout",
         str(args.provider_health_timeout),
-        "--promotion-policy-mode",
-        getattr(args, "promotion_policy_mode", "segment_gate"),
-        "--contradiction-policy-mode",
-        getattr(args, "contradiction_policy_mode", "off"),
+        "--scenario-delay-s",
+        str(args.scenario_delay_s),
     ]
+    if not args.use_harness_policy_defaults:
+        command.extend(
+            [
+                "--promotion-policy-mode",
+                getattr(args, "promotion_policy_mode", DEFAULT_PROMOTION_POLICY_MODE),
+                "--contradiction-policy-mode",
+                getattr(args, "contradiction_policy_mode", "off"),
+            ]
+        )
     if args.skip_provider_health:
         command.extend(
             [
@@ -197,6 +205,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--openrouter-timeout", type=float, default=120.0)
     parser.add_argument("--max-output-tokens", type=int, default=8192)
     parser.add_argument("--provider-health-timeout", type=float, default=45.0)
+    parser.add_argument(
+        "--scenario-delay-s",
+        type=float,
+        default=float(os.environ.get("MAS_CIAR_SCENARIO_DELAY_S", "0.0")),
+    )
     parser.add_argument("--skip-provider-health", action="store_true")
     parser.add_argument(
         "--provider-health-skip-reason",
@@ -206,12 +219,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--promotion-policy-mode",
         choices=("segment_gate", "fact_gate", "hybrid_gate"),
-        default=os.environ.get("MAS_PROMOTION_POLICY_MODE", "segment_gate"),
+        default=os.environ.get("MAS_PROMOTION_POLICY_MODE", DEFAULT_PROMOTION_POLICY_MODE),
     )
     parser.add_argument(
         "--contradiction-policy-mode",
         choices=("off", "metadata_only", "suppress_superseded"),
         default=os.environ.get("MAS_CONTRADICTION_POLICY_MODE", "off"),
+    )
+    parser.add_argument(
+        "--use-harness-policy-defaults",
+        action="store_true",
+        help="Do not forward policy flags; let run_ciar_challenge.py apply its defaults.",
     )
     return parser.parse_args()
 

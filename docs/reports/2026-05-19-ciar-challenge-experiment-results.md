@@ -1,8 +1,8 @@
 # CIAR Challenge Experiment Results
 
 Date: 2026-05-19
-Last updated: 2026-05-20
-Status: Live baseline, policy comparison, CIAR conformance, deterministic supersession cleanup, and CIAR-DEF-1 default-policy evaluation complete
+Last updated: 2026-05-21
+Status: Live baseline, policy comparison, CIAR conformance, deterministic supersession cleanup, CIAR-DEF-2 default switch, CIAR-SUP-2 focused suppression validation, CIAR-EVAL-2 expanded live matrix, and Grok 4.3 single-node validation complete
 Related plan: `docs/plan/2026-05-19-ciar-challenge-experiment-execution-plan.md`
 
 ## Summary
@@ -22,15 +22,24 @@ The live run used:
 - PostgreSQL role: `yaam`
 
 The evidence confirms that CIAR is useful as a deterministic retention score
-but incomplete as a memory policy. The current default behavior can suppress
-small talk and retain urgent facts, but CIAR alone does not resolve
-truth/supersession and can let segment-level scoring promote low-value facts
-inside an otherwise important segment. The new `fact_gate`, `hybrid_gate`, and
-`suppress_superseded` policies reduce those failure modes while preserving
-`segment_gate` and contradiction policy `off` as backward-compatible defaults.
-The CIAR-DEF-1 live matrix now supports `hybrid_gate` as the experimental
-promotion default candidate, but it does not yet support defaulting
-`suppress_superseded` because live suppression events did not fire.
+but incomplete as a memory policy. The May 21 implementation changed the
+runtime promotion default to `hybrid_gate` while keeping `segment_gate` and
+`fact_gate` as explicit overrides and leaving contradiction policy default
+`off`. The expanded live matrix supports `hybrid_gate+off` as the experimental
+default: `small_talk` stayed clean, `segment_gate` still over-promoted
+correction scenarios, and `hybrid_gate` preserved review-only evidence that
+`fact_gate` discards. `suppress_superseded` now fires for live
+`contradiction_update`, but it is still not reliable enough across broader
+correction/reversal scenarios to become the default.
+
+Later on 2026-05-21, the live experiment was rerun against the current working
+session topology: all active infrastructure services were treated as running on
+`skz-data-lv` (`192.168.107.187`), with `skz-dev-lv` and `skz-cloud-lv`
+explicitly excluded because they were switched off. The OpenRouter key was
+loaded from the sibling `iaims26-mas-consensus-scm` repository, while
+PostgreSQL credentials were loaded from the homelab `skz-data-lv/.env` file.
+OpenRouter rejected the original `x-ai/grok-4.1-fast` model as deprecated, so
+the real validation run used `x-ai/grok-4.3`.
 
 ## Commands Run
 
@@ -597,6 +606,207 @@ Recommendation:
   `hybrid_gate` after approval, or first add CIAR-SUP-2 to improve live
   supersession matching and then rerun the contradiction slice.
 
+## May 21 Implementation And Expanded Validation
+
+CIAR-DEF-2, CIAR-SUP-2, and CIAR-EVAL-2 were implemented and validated on
+2026-05-21.
+
+Code and behavior changes:
+
+- Default promotion policy is now `hybrid_gate` in the runtime engine, CIAR
+  harness, safe `.env` wrapper, and agent wrapper configuration.
+- `segment_gate` and `fact_gate` remain explicit overrides through config,
+  `MAS_PROMOTION_POLICY_MODE`, and `--promotion-policy-mode`.
+- Contradiction policy default remains `off`.
+- The safe `.env` wrapper can run the child harness without forwarding policy
+  flags, so default-path dry/live runs prove the child harness defaults.
+- The contradiction policy now handles paraphrased route corrections when an
+  explicit update shares a shipment/route anchor and replaces a different
+  prior route/location term.
+- The harness now includes five expanded scenarios: `stale_preference`,
+  `explicit_reversal`, `repeated_correction`,
+  `assistant_acknowledgement_noise`, and `urgent_with_chatter`.
+
+Local verification after implementation:
+
+```text
+ruff: All checks passed
+pytest: 627 passed, 140 skipped in 271.99s
+```
+
+Default-path dry evidence:
+
+```text
+logs/ciar_challenge/ciar-exp-dry-default-hybrid-20260521-02
+```
+
+The dry manifest recorded:
+
+```text
+promotion_policy_mode=hybrid_gate
+contradiction_policy_mode=off
+scenarios=12
+```
+
+Focused SUP-2 live artifacts:
+
+```text
+logs/ciar_challenge/ciar-exp-live-sup2-hybrid-suppress-20260521-01
+logs/ciar_challenge/ciar-exp-live-sup2-hybrid-suppress-20260521-02
+logs/ciar_challenge/ciar-exp-live-sup2-hybrid-suppress-20260521-03
+logs/ciar_challenge/ciar-sup2-analysis-20260521.md
+logs/ciar_challenge/ciar-sup2-analysis-20260521.json
+```
+
+SUP-2 aggregate:
+
+| Config | Contradiction Promoted | Contradiction Review-Only | Contradiction Suppressed |
+|---|---:|---:|---:|
+| `hybrid_gate+suppress_superseded` | 5 | 2 | 3 |
+
+Interpretation:
+
+- Live `contradiction_update` suppression is now proven: the three focused runs
+  produced 3 total `fact_suppressed` events.
+- `stale_preference` and `explicit_reversal` produced stored/review-only
+  evidence but did not suppress reliably.
+- `repeated_correction` often failed earlier at segmentation, so it remains a
+  scenario-design or provider-reliability gap rather than a proven suppression
+  success.
+- Keep `suppress_superseded` opt-in until broader correction scenarios produce
+  reliable suppression or the report records why suppression is unsafe.
+
+Expanded EVAL-2 live matrix artifacts:
+
+```text
+logs/ciar_challenge/ciar-exp-live-eval2-default-hybrid-off-20260521-01
+logs/ciar_challenge/ciar-exp-live-eval2-default-hybrid-off-20260521-02
+logs/ciar_challenge/ciar-exp-live-eval2-fact-gate-off-20260521-01
+logs/ciar_challenge/ciar-exp-live-eval2-fact-gate-off-20260521-02
+logs/ciar_challenge/ciar-exp-live-eval2-segment-gate-off-20260521-01
+logs/ciar_challenge/ciar-exp-live-eval2-segment-gate-off-20260521-02
+logs/ciar_challenge/ciar-exp-live-eval2-hybrid-suppress-20260521-01
+logs/ciar_challenge/ciar-exp-live-eval2-hybrid-suppress-20260521-02
+logs/ciar_challenge/ciar-eval2-analysis-20260521.md
+logs/ciar_challenge/ciar-eval2-analysis-20260521.json
+```
+
+EVAL-2 aggregate:
+
+| Config | Small Talk Promoted | Segment Mismatch Promoted | Segment Mismatch Review-Only | Contradiction Promoted | Contradiction Review-Only | Contradiction Suppressed |
+|---|---:|---:|---:|---:|---:|---:|
+| `fact_gate+off` | 0 | 6 | 0 | 1 | 0 | 0 |
+| `hybrid_gate+off` | 0 | 6 | 4 | 2 | 1 | 0 |
+| `hybrid_gate+suppress_superseded` | 0 | 6 | 2 | 2 | 0 | 1 |
+| `segment_gate+off` | 0 | 8 | 0 | 14 | 0 | 0 |
+
+EVAL-2 findings:
+
+- All eight expanded live runs kept `small_talk` at zero promoted facts.
+- `segment_gate+off` still over-promotes correction scenarios and produced
+  floor flags in correction runs.
+- `fact_gate+off` filters aggressively but preserves no review-only audit trail.
+- `hybrid_gate+off` keeps the clean small-talk boundary and preserves
+  review-only evidence for weak `segment_mismatch` and correction facts.
+- `hybrid_gate+suppress_superseded` suppresses some live contradiction evidence,
+  but not enough to justify changing contradiction default from `off`.
+- OpenRouter/provider behavior was noisy: several runs used rule fallback after
+  empty, invalid, or failed LLM responses. The artifacts completed with zero
+  harness errors, but CIAR-OPS-1 remains important.
+
+## May 21 Grok 4.3 Single-Node Validation
+
+A final May 21 validation pass was run after the local Poetry environment was
+repaired and after the current infrastructure topology was clarified.
+
+Operational context:
+
+- Active host for Redis, PostgreSQL, Phoenix, and other DBMS services:
+  `skz-data-lv` (`192.168.107.187`).
+- `skz-dev-lv` and `skz-cloud-lv` were not used in this working session.
+- `OPENROUTER_API_KEY` was loaded from
+  `/Users/skazo4nick/research-code/iaims26-mas-consensus-scm/.env`.
+- PostgreSQL credentials were loaded from
+  `/Users/skazo4nick/datascience-homelab/skz-data-lv/.env`.
+- `REDIS_URL` was forced to `redis://192.168.107.187:6379`.
+- `POSTGRES_URL` was constructed for `192.168.107.187`.
+- Phoenix endpoint was forced to
+  `http://192.168.107.187:6006/v1/traces`.
+
+The first live attempt with the historical default model failed as useful
+operational evidence:
+
+```text
+x-ai/grok-4.1-fast: rejected by OpenRouter as deprecated
+recommended replacement: x-ai/grok-4.3
+```
+
+That failed attempt produced fallback-heavy artifacts and should not be used as
+CIAR policy evidence:
+
+```text
+logs/ciar_challenge/ciar-exp-live-20260519-130532
+```
+
+The valid full live run used Grok 4.3:
+
+```text
+logs/ciar_challenge/ciar-exp-live-full-grok43-20260521-191451
+Phoenix project: ciar-challenge-20260521-161452
+model: x-ai/grok-4.3
+promotion_policy_mode: hybrid_gate
+contradiction_policy_mode: off
+events.jsonl: 187 events
+ciar_calls.jsonl: 16 scorer calls
+```
+
+Scenario outcomes:
+
+| Scenario | Expected | Segments Promoted | Facts Promoted | Notable Result |
+|---|---:|---:|---:|---|
+| `clear_constraint` | promote | 1 | 1 | Correctly promoted a hard customs paperwork rule at CIAR `0.9` |
+| `speculative_claim` | needs_review | 1 | 1 | Over-promoted uncertainty at CIAR `0.63`, just above threshold |
+| `small_talk` | ignore | 0 | 0 | Correctly ignored |
+| `urgent_event` | promote | 1 | 3 | Correctly promoted urgent reefer/temperature facts |
+| `contradiction_update` | should_conflict | 1 | 2 | Stored correction evidence but did not resolve truth because contradiction policy was `off` |
+| `segment_mismatch` | should_not_floor | 1 | 2 | No floor flags, but assistant-action residue still promoted at CIAR `0.7` |
+| `assistant_inferred` | needs_review | 1 | 1 | Promoted the concrete delivery requirement; kept inferred air-freight preference below threshold/review path |
+| `stale_preference` | should_conflict | 0 | 0 | No promoted facts; not enough evidence to assess suppression |
+| `explicit_reversal` | should_conflict | 1 | 3 | Stored current rule and stale prior rule; contradiction policy still needed |
+| `repeated_correction` | should_conflict | 0 | 0 | Segmentation did not promote; scenario remains unreliable for suppression testing |
+| `assistant_acknowledgement_noise` | ignore | 0 | 0 | Correctly ignored |
+| `urgent_with_chatter` | should_not_floor | 1 | 2 | Promoted urgent operational fact and escalation fact |
+
+Key findings from the Grok 4.3 run:
+
+- `hybrid_gate` removed the earlier segment-floor failure: `floor_applied` was
+  `0` across the valid full live run.
+- CIAR still over-promotes some uncertainty. The speculative supplier deadline
+  claim stored at `raw_fact_ciar=0.63`, which is above the current threshold
+  even though the scenario expectation is `needs_review`.
+- CIAR still does not perform truth resolution. `contradiction_update` and
+  `explicit_reversal` stored correction/stale evidence while contradiction
+  policy was `off`.
+- Conversational residue is reduced but not gone. In `segment_mismatch`, the
+  urgent fact scored `0.9`, but the assistant commitment to record the exception
+  also stored at `0.7`.
+- The age/recency formula probe remains a design concern: a fact with
+  `certainty=0.6`, `impact=0.5`, and `access_count=20` scored approximately
+  `0.9` because recency/access boost reached `3.0`. Access reinforcement can
+  dominate weak certainty and impact.
+- Cleanup succeeded for L1 across all sessions. L2 cleanup succeeded where
+  facts existed; sessions with no promoted facts reported `l2_deleted=false`.
+
+Operational findings:
+
+- Phoenix UI and OTLP endpoint on `skz-data-lv` were reachable and Phoenix
+  registered the Grok 4.3 project successfully.
+- Optional Google/OpenAI SDK auto-instrumentors emitted compatibility warnings,
+  but the harness still produced local JSONL traces and Phoenix tracer-provider
+  registration output.
+- A rate-paced full run with `--scenario-delay-s 20` completed cleanly and kept
+  provider traffic conservative.
+
 ## Interpretation
 
 The dry and live runs validate that the isolated harness is structurally useful
@@ -616,57 +826,40 @@ artifacts for provider behavior.
 
 ## Required Follow-Up
 
-The initial policy implementation and CIAR-DEF-1 live default-policy evaluation
-are complete. Follow-up should now focus on converting the evidence into a
-controlled default change, improving live supersession behavior, and reducing
-operational ambiguity in future live runs.
+CIAR-DEF-2, CIAR-SUP-2, and CIAR-EVAL-2 are complete as of 2026-05-21.
+Follow-up should focus on operational classification, suppression safety, and
+scenario reliability.
 
-1. CIAR-DEF-2: implement the approved experimental promotion default switch to
-   `hybrid_gate`.
-   - Evidence: the 12-run matrix kept `small_talk` at zero promoted facts, and
-     `hybrid_gate` retained urgent `segment_mismatch` facts while producing
-     review-only evidence for weak facts.
-   - Constraint: keep `segment_gate` and `fact_gate` as explicit override modes
-     and do not change contradiction policy default in this step.
-   - Acceptance: default-path dry and focused live smoke runs show
-     `hybrid_gate` behavior without passing `--promotion-policy-mode`.
-
-2. CIAR-SUP-2: improve live supersession matching before defaulting
-   `suppress_superseded`.
-   - Evidence: dry CIAR-SUP-1 produced `facts_suppressed=1`, but all 12 live
-     CIAR-DEF-1 runs produced `facts_suppressed=0`.
-   - Likely gap: live LLM wording creates paraphrased old/new facts that are
-     filtered or review-only before the deterministic policy can prove a
-     supersession pair.
-   - Acceptance: focused live `contradiction_update` reruns emit auditable
-     `fact_suppressed` events, or the report documents why suppression should
-     remain opt-in.
-
-3. CIAR-EVAL-2: broaden scenario coverage before treating `hybrid_gate` as a
-   production-grade default.
-   - Evidence: CIAR-DEF-1 is strong enough for an experimental default
-     candidate, but it still covers only `small_talk`, `segment_mismatch`, and
-     `contradiction_update`.
-   - Add scenarios for stale preferences, explicit reversals, repeated
-     corrections, low-value assistant acknowledgements, and urgent facts inside
-     longer chatter.
-   - Acceptance: `analyze_ciar_policy_runs.py` aggregates the expanded matrix
-     and the report records scenario-level regressions or improvements.
-
-4. CIAR-OPS-1: improve live-run operational classification.
+1. CIAR-OPS-1: improve live-run operational classification.
    - Evidence: one Phoenix preflight attempt was blocked by sandbox networking,
-     and one OpenRouter provider failure recovered through rule fallback.
+     and multiple OpenRouter failures or invalid/empty responses recovered
+     through rule fallback during the 2026-05-21 matrix.
    - Add or document manifest fields that distinguish provider fallback,
      Phoenix preflight status, cleanup status, and policy evidence quality.
    - Acceptance: future analysis can classify operational noise from artifacts
      without relying on console logs.
 
-5. Keep CIAR conformance tests as non-negotiable regression gates.
-   - Evidence: today’s full suite passed with `624 passed, 140 skipped`.
+2. Keep `suppress_superseded` opt-in until broader correction scenarios are
+   reliable.
+   - Evidence: SUP-2 and EVAL-2 produced live `fact_suppressed` events for
+     `contradiction_update`, but not for `stale_preference`,
+     `explicit_reversal`, or `repeated_correction`.
+   - Acceptance: expanded live reruns either produce auditable suppression
+     across paraphrased correction scenarios or document why suppression should
+     remain an explicit operator-selected policy.
+
+3. Improve `repeated_correction` scenario reliability.
+   - Evidence: the scenario frequently produced zero promoted segments in live
+     runs, preventing suppression assessment.
+   - Acceptance: focused dry/live runs make the latest-correction behavior
+     observable without depending on provider fallback.
+
+4. Keep CIAR conformance tests as non-negotiable regression gates.
+   - Evidence: today’s full suite passed with `627 passed, 140 skipped`.
    - Continue running scorer, validator, tool, API, promotion policy, and
      analyzer tests before changing defaults.
 
-6. Keep CIAR-DB-1 separate from policy work.
+5. Keep CIAR-DB-1 separate from policy work.
    - Evidence: the current policy improvements stayed above storage, while the
      PostgreSQL migration issue remains a fresh-database readiness risk.
    - Do not edit migrations or schema files without explicit authorization.

@@ -75,6 +75,41 @@ def test_instead_of_phrase_marks_superseded_fact():
     assert assessments["new"].replacement_terms == ["los angeles"]
 
 
+def test_paraphrased_route_correction_marks_superseded_fact():
+    policy = ContradictionPolicy("suppress_superseded")
+
+    assessments = policy.assess(
+        [
+            _fact("old", "The shipment destination was Oakland."),
+            _fact("new", "Updated destination is Los Angeles."),
+        ]
+    )
+
+    assert assessments["old"].decision == "SUPPRESS"
+    assert assessments["old"].reason == "superseded_by_paraphrased_update"
+    assert assessments["new"].decision == "STORE"
+    assert assessments["new"].reason == "paraphrased_update_supersedes_prior_fact"
+    assert assessments["new"].supersedes_fact_ids == ["old"]
+    assert assessments["new"].replacement_terms == ["los angeles"]
+
+
+def test_repeated_paraphrased_correction_supersedes_previous_routes():
+    policy = ContradictionPolicy("suppress_superseded")
+
+    assessments = policy.assess(
+        [
+            _fact("old", "Shipment ALFA-4421 was scheduled for Oakland."),
+            _fact("middle", "Update: shipment ALFA-4421 is now routed to Los Angeles."),
+            _fact("new", "Latest correction: shipment ALFA-4421 is now routed to Long Beach."),
+        ]
+    )
+
+    assert assessments["old"].decision == "SUPPRESS"
+    assert assessments["middle"].decision == "SUPPRESS"
+    assert assessments["middle"].superseded_by_fact_id == "new"
+    assert assessments["new"].supersedes_fact_ids == ["old", "middle"]
+
+
 def test_ambiguous_update_is_not_suppressed_without_prior_match():
     policy = ContradictionPolicy("suppress_superseded")
 

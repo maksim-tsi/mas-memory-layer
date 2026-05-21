@@ -55,10 +55,20 @@ class ContradictionPolicy:
         "corrected",
         "changed",
         "instead",
+        "latest",
         "no longer",
+        "revised",
         "updated",
         "reroute",
         "rerouted",
+    }
+    TEMPORAL_UPDATE_TERMS: ClassVar[set[str]] = {
+        "current",
+        "currently",
+        "latest",
+        "now",
+        "revised",
+        "updated",
     }
     NEGATED_TERM_PATTERNS: ClassVar[tuple[re.Pattern[str], ...]] = (
         re.compile(r"\bnot\s+([a-z0-9][a-z0-9 -]*?)(?:[.,;]|$)"),
@@ -68,7 +78,29 @@ class ContradictionPolicy:
     REPLACEMENT_TERM_PATTERNS: ClassVar[tuple[re.Pattern[str], ...]] = (
         re.compile(r"\b(?:rerouted|routed|changed|updated)\s+to\s+([a-z0-9][a-z0-9 -]*?)(?:[.,;]|\s+not\b|\s+instead\b|$)"),
         re.compile(r"\binstead\s+to\s+([a-z0-9][a-z0-9 -]*?)(?:[.,;]|$)"),
+        re.compile(r"\b(?:current|updated|corrected|latest|revised)\s+(?:route|destination|port|terminal|delivery location)\s+(?:is|to|for|=)\s+([a-z0-9][a-z0-9 -]*?)(?:[.,;]|$)"),
+        re.compile(r"\b(?:now|currently)\s+(?:routed|scheduled|bound|headed|going|goes|sent|shipping|delivered)\s+(?:to|for)\s+([a-z0-9][a-z0-9 -]*?)(?:[.,;]|$)"),
+        re.compile(r"\b(?:use|using)\s+([a-z0-9][a-z0-9 -]*?)\s+as\s+(?:the\s+)?(?:current|updated|corrected|latest|revised)\s+(?:route|destination|port|terminal)(?:[.,;]|$)"),
     )
+    ROUTE_TERM_PATTERNS: ClassVar[tuple[re.Pattern[str], ...]] = (
+        re.compile(r"\b(?:scheduled|routed|rerouted|bound|headed|going|goes|sent|shipping|delivered)\s+(?:to|for)\s+([a-z0-9][a-z0-9 -]*?)(?:[.,;]|$)"),
+        re.compile(r"\b(?:route|destination|port|terminal|delivery location)\s+(?:is|was|to|for|=)\s+([a-z0-9][a-z0-9 -]*?)(?:[.,;]|$)"),
+    )
+    ANCHOR_TERMS: ClassVar[set[str]] = {
+        "booking",
+        "cargo",
+        "container",
+        "customer",
+        "delivery",
+        "destination",
+        "order",
+        "port",
+        "route",
+        "shipment",
+        "supplier",
+        "terminal",
+        "vessel",
+    }
     STOPWORDS: ClassVar[set[str]] = {
         "a",
         "an",
@@ -113,9 +145,12 @@ class ContradictionPolicy:
         for fact in facts:
             assessment = assessments[fact.fact_id]
             content = self._normalize(fact.content)
-            update_candidate = any(term in content for term in self.UPDATE_TERMS)
             negated_terms = self._extract_terms(content, self.NEGATED_TERM_PATTERNS)
             replacement_terms = self._extract_terms(content, self.REPLACEMENT_TERM_PATTERNS)
+            update_candidate = any(term in content for term in self.UPDATE_TERMS) or (
+                bool(replacement_terms)
+                and any(term in content for term in self.TEMPORAL_UPDATE_TERMS)
+            )
 
             if update_candidate:
                 assessment.contradiction_candidate = True
@@ -124,17 +159,33 @@ class ContradictionPolicy:
                 assessment.detector_confidence = 0.55
                 assessment.reason = "explicit_update_no_match"
 
-            superseded = [
+            explicit_superseded = [
                 prior
                 for prior in all_prior
                 if negated_terms and self._matches_any_term(prior.content, negated_terms)
             ]
+            paraphrased_superseded = []
+            if not explicit_superseded and update_candidate and replacement_terms:
+                paraphrased_superseded = [
+                    prior
+                    for prior in all_prior
+                    if self._has_shared_anchor(fact.content, prior.content)
+                    and self._has_different_route_term(
+                        prior.content,
+                        replacement_terms,
+                    )
+                ]
+            superseded = explicit_superseded or paraphrased_superseded
             if superseded:
                 group_id = self._group_id(fact, negated_terms, replacement_terms)
                 assessment.conflict_group_id = group_id
                 assessment.supersedes_fact_ids = [prior.fact_id for prior in superseded]
                 assessment.detector_confidence = 0.9
-                assessment.reason = "explicit_update_supersedes_prior_fact"
+                assessment.reason = (
+                    "explicit_update_supersedes_prior_fact"
+                    if explicit_superseded
+                    else "paraphrased_update_supersedes_prior_fact"
+                )
 
                 for prior in superseded:
                     if prior.fact_id in assessments:
@@ -146,7 +197,11 @@ class ContradictionPolicy:
                         prior_assessment.conflict_group_id = group_id
                         prior_assessment.superseded_by_fact_id = fact.fact_id
                         prior_assessment.detector_confidence = 0.9
-                        prior_assessment.reason = "superseded_by_explicit_update"
+                        prior_assessment.reason = (
+                            "superseded_by_explicit_update"
+                            if explicit_superseded
+                            else "superseded_by_paraphrased_update"
+                        )
                         prior_assessment.negated_terms = negated_terms
                         prior_assessment.replacement_terms = replacement_terms
 
@@ -213,6 +268,44 @@ class ContradictionPolicy:
     def _matches_any_term(cls, content: str, terms: list[str]) -> bool:
         normalized = cls._normalize(content)
         return any(cls._term_in_content(term, normalized) for term in terms)
+
+    @classmethod
+    def _has_different_route_term(cls, prior_content: str, replacement_terms: list[str]) -> bool:
+        prior_terms = cls._extract_terms(
+            cls._normalize(prior_content),
+            cls.ROUTE_TERM_PATTERNS,
+        )
+        return any(
+            not cls._terms_overlap(prior_term, replacement_term)
+            for prior_term in prior_terms
+            for replacement_term in replacement_terms
+        )
+
+    @classmethod
+    def _has_shared_anchor(cls, new_content: str, prior_content: str) -> bool:
+        new_normalized = cls._normalize(new_content)
+        prior_normalized = cls._normalize(prior_content)
+        new_entities = cls._entity_tokens(new_normalized)
+        prior_entities = cls._entity_tokens(prior_normalized)
+        if new_entities & prior_entities:
+            return True
+        return any(
+            cls._term_in_content(anchor, new_normalized)
+            and cls._term_in_content(anchor, prior_normalized)
+            for anchor in cls.ANCHOR_TERMS
+        )
+
+    @staticmethod
+    def _terms_overlap(left: str, right: str) -> bool:
+        left_tokens = set(left.split())
+        right_tokens = set(right.split())
+        if not left_tokens or not right_tokens:
+            return False
+        return bool(left_tokens & right_tokens)
+
+    @staticmethod
+    def _entity_tokens(content: str) -> set[str]:
+        return set(re.findall(r"\b[a-z]{2,6}\d{3,}\b|\b\d{4,}\b", content))
 
     @classmethod
     def _term_in_content(cls, term: str, normalized_content: str) -> bool:

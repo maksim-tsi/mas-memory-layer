@@ -146,8 +146,9 @@ class ExperimentConfig:
     provider_health_skip_reason: str = "operator requested skip"
     provider_health_timeout_s: float = 60.0
     require_provider_health: bool = False
-    promotion_policy_mode: str = "segment_gate"
+    promotion_policy_mode: str = "hybrid_gate"
     contradiction_policy_mode: str = "off"
+    scenario_delay_s: float = 0.0
 
 
 @dataclass
@@ -635,6 +636,97 @@ def build_default_scenarios() -> list[Scenario]:
                 ]
             ),
         ),
+        Scenario(
+            scenario_id="stale_preference",
+            title="Stale routing preference replaced by current preference",
+            expectation="should_conflict",
+            turns=pad(
+                [
+                    {
+                        "role": "user",
+                        "content": "For West Coast overflow, prefer Oakland as the backup port.",
+                    },
+                    {
+                        "role": "user",
+                        "content": "Updated routing preference: use Los Angeles as the current backup port.",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "I will treat Los Angeles as the current backup preference.",
+                    },
+                ]
+            ),
+        ),
+        Scenario(
+            scenario_id="explicit_reversal",
+            title="Explicit operational rule reversal",
+            expectation="should_conflict",
+            turns=pad(
+                [
+                    {
+                        "role": "user",
+                        "content": "For customer Helios, hold releases until finance approves.",
+                    },
+                    {
+                        "role": "user",
+                        "content": "Correction: Helios is now cleared for automatic release after customs approval.",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "I will use the automatic release rule for Helios going forward.",
+                    },
+                ]
+            ),
+        ),
+        Scenario(
+            scenario_id="repeated_correction",
+            title="Repeated route correction",
+            expectation="should_conflict",
+            turns=pad(
+                [
+                    {"role": "user", "content": "Shipment ALFA-4421 was scheduled for Oakland."},
+                    {
+                        "role": "user",
+                        "content": "Update: shipment ALFA-4421 is now routed to Los Angeles.",
+                    },
+                    {
+                        "role": "user",
+                        "content": "Latest correction: shipment ALFA-4421 is now routed to Long Beach.",
+                    },
+                ]
+            ),
+        ),
+        Scenario(
+            scenario_id="assistant_acknowledgement_noise",
+            title="Assistant acknowledgement noise",
+            expectation="ignore",
+            turns=pad(
+                [
+                    {"role": "user", "content": "Thanks for checking that."},
+                    {"role": "assistant", "content": "You are welcome."},
+                    {"role": "user", "content": "No further action from me right now."},
+                ]
+            ),
+        ),
+        Scenario(
+            scenario_id="urgent_with_chatter",
+            title="Urgent operational fact with surrounding chatter",
+            expectation="should_not_floor",
+            turns=pad(
+                [
+                    {"role": "user", "content": "Morning, thanks again for yesterday."},
+                    {
+                        "role": "user",
+                        "content": "Urgent: container MEDU7711009 missed its customs hold release window.",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "I will record the missed release window and escalation need.",
+                    },
+                    {"role": "user", "content": "Also, nice work on the earlier note."},
+                ]
+            ),
+        ),
     ]
 
 
@@ -990,10 +1082,12 @@ class CIARChallengeExperiment:
             await self._setup_dry_run_runtime(state)
 
         engine = state.manifest["_promotion_engine"]
-        for scenario in state.scenarios:
+        for idx, scenario in enumerate(state.scenarios):
             session_id = state.session_by_scenario[scenario.scenario_id]
             stats = await engine.process_session(session_id)
             state.promotion_stats[scenario.scenario_id] = stats
+            if self.config.scenario_delay_s > 0 and idx < len(state.scenarios) - 1:
+                await asyncio.sleep(self.config.scenario_delay_s)
         write_json(self.output_dir / "promotion_results.json", state.promotion_stats)
         return state
 
@@ -1044,6 +1138,12 @@ class CIARChallengeExperiment:
         state.resources.l1_tier = l1
         state.resources.l2_tier = l2
         scorer = ObservedCIARScorer(CIARScorer(), self.output_dir, state)
+        state.manifest["runtime"] = {
+            "mode": "dry_l1_l2",
+            "provider_order": [],
+            "promotion_policy_mode": self.config.promotion_policy_mode,
+            "contradiction_policy_mode": self.config.contradiction_policy_mode,
+        }
         state.manifest["_promotion_engine"] = PromotionEngine(
             l1_tier=l1,
             l2_tier=l2,
@@ -1421,7 +1521,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--promotion-policy-mode",
         choices=("segment_gate", "fact_gate", "hybrid_gate"),
-        default=os.environ.get("MAS_PROMOTION_POLICY_MODE", "segment_gate"),
+        default=os.environ.get("MAS_PROMOTION_POLICY_MODE", "hybrid_gate"),
         help="Promotion policy mode used by the L1->L2 promotion engine.",
     )
     parser.add_argument(
@@ -1429,6 +1529,12 @@ def parse_args() -> argparse.Namespace:
         choices=("off", "metadata_only", "suppress_superseded"),
         default=os.environ.get("MAS_CONTRADICTION_POLICY_MODE", "off"),
         help="Contradiction/supersession policy applied above CIAR.",
+    )
+    parser.add_argument(
+        "--scenario-delay-s",
+        type=float,
+        default=float(os.environ.get("MAS_CIAR_SCENARIO_DELAY_S", "0.0")),
+        help="Seconds to wait between scenario promotion runs for live provider pacing.",
     )
     return parser.parse_args()
 
@@ -1460,6 +1566,7 @@ async def async_main() -> int:
         require_provider_health=bool(args.require_provider_health),
         promotion_policy_mode=args.promotion_policy_mode,
         contradiction_policy_mode=args.contradiction_policy_mode,
+        scenario_delay_s=float(args.scenario_delay_s),
     )
     experiment = CIARChallengeExperiment(config)
     state = await experiment.run()
