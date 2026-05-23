@@ -139,9 +139,29 @@ class EvidenceRanker:
         "seem to prefer",
     )
 
-    def assess(self, fact: Fact, *, raw_fact_ciar: float, threshold: float) -> EvidenceAssessment:
+    def assess(
+        self,
+        fact: Fact,
+        *,
+        raw_fact_ciar: float,
+        threshold: float,
+        ciar_components: dict[str, float] | None = None,
+    ) -> EvidenceAssessment:
         content = " ".join(fact.content.lower().split())
         words = content.split()
+        ciar_components = ciar_components or {}
+        base_score = float(
+            ciar_components.get("base_score", fact.certainty * fact.impact)
+        )
+        final_score = float(ciar_components.get("final_score", raw_fact_ciar))
+        recency_boost = float(ciar_components.get("recency_boost", fact.recency_boost))
+        base_evidence_below_threshold = base_score + 1e-6 < threshold
+        access_boosted_over_threshold = (
+            base_evidence_below_threshold
+            and final_score + 1e-6 >= threshold
+            and recency_boost > 1.0 + 1e-6
+        )
+        recency_access_guardrail = access_boosted_over_threshold
         has_domain_term = any(term in content for term in self.DOMAIN_TERMS)
         residue_phrase = content in self.RESIDUE_PHRASES or any(
             content.startswith(f"{phrase}.") for phrase in self.RESIDUE_PHRASES
@@ -168,7 +188,12 @@ class EvidenceRanker:
             or low_value_chatter
             or assistant_action_residue
         )
-        needs_review = conversational_residue or speculative_claim or assistant_inference
+        needs_review = (
+            conversational_residue
+            or speculative_claim
+            or assistant_inference
+            or recency_access_guardrail
+        )
         score = max(0.0, min(1.0, raw_fact_ciar))
         if needs_review:
             score = min(score, 0.2)
@@ -184,6 +209,9 @@ class EvidenceRanker:
                 "assistant_action_residue": assistant_action_residue,
                 "speculative_claim": speculative_claim,
                 "assistant_inference": assistant_inference,
+                "base_evidence_below_threshold": base_evidence_below_threshold,
+                "access_boosted_over_threshold": access_boosted_over_threshold,
+                "recency_access_guardrail": recency_access_guardrail,
                 "domain_signal": has_domain_term,
                 "contradiction_candidate": contradiction_candidate,
             },
@@ -688,6 +716,7 @@ class PromotionEngine(BaseEngine):
             fact,
             raw_fact_ciar=raw_fact_ciar,
             threshold=gate_threshold,
+            ciar_components=raw_components,
         )
 
         if self.promotion_policy_mode == "segment_gate":

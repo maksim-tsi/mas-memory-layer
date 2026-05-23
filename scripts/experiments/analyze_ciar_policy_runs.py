@@ -26,6 +26,7 @@ RESIDUE_SCENARIOS = (
     "urgent_with_chatter",
 )
 SPECULATIVE_SCENARIOS = ("speculative_claim", "assistant_inferred")
+RECENCY_ACCESS_SCENARIOS = ("access_reinforced_low_signal",)
 
 
 @dataclass
@@ -46,6 +47,8 @@ class ScenarioAggregate:
     speculative_review_only: int = 0
     assistant_inference_promoted: int = 0
     assistant_inference_review_only: int = 0
+    recency_access_guardrail_promoted: int = 0
+    recency_access_guardrail_review_only: int = 0
     promoted_contents: list[str] = field(default_factory=list)
     review_only_contents: list[str] = field(default_factory=list)
     suppressed_contents: list[str] = field(default_factory=list)
@@ -93,6 +96,17 @@ class ScenarioAggregate:
             else:
                 self.assistant_inference_promoted += 1
 
+    def add_recency_access_signal(self, row: dict[str, Any]) -> None:
+        flags = row.get("evidence_quality_flags") or {}
+        if not isinstance(flags, dict) or row.get("suppressed"):
+            return
+        if not flags.get("recency_access_guardrail"):
+            return
+        if row.get("review_only"):
+            self.recency_access_guardrail_review_only += 1
+        else:
+            self.recency_access_guardrail_promoted += 1
+
     def to_dict(self) -> dict[str, Any]:
         avg_delta = None
         if self.raw_stored_delta_count:
@@ -113,6 +127,8 @@ class ScenarioAggregate:
             "speculative_review_only": self.speculative_review_only,
             "assistant_inference_promoted": self.assistant_inference_promoted,
             "assistant_inference_review_only": self.assistant_inference_review_only,
+            "recency_access_guardrail_promoted": self.recency_access_guardrail_promoted,
+            "recency_access_guardrail_review_only": self.recency_access_guardrail_review_only,
             "promoted_contents": self.promoted_contents,
             "review_only_contents": self.review_only_contents,
             "suppressed_contents": self.suppressed_contents,
@@ -208,6 +224,7 @@ def analyze_run(run_dir: Path) -> dict[str, Any]:
             aggregate.promoted_contents.append(content)
         aggregate.add_residue_signal(row)
         aggregate.add_speculative_signal(row)
+        aggregate.add_recency_access_signal(row)
 
     for event in events:
         event_type = event.get("event_type")
@@ -281,6 +298,12 @@ def aggregate_runs(run_dirs: list[Path]) -> dict[str, Any]:
             aggregate.assistant_inference_review_only += int(
                 stats.get("assistant_inference_review_only", 0) or 0
             )
+            aggregate.recency_access_guardrail_promoted += int(
+                stats.get("recency_access_guardrail_promoted", 0) or 0
+            )
+            aggregate.recency_access_guardrail_review_only += int(
+                stats.get("recency_access_guardrail_review_only", 0) or 0
+            )
             if stats["avg_stored_minus_raw_ciar"] is not None:
                 count = len(stats["promoted_contents"])
                 aggregate.raw_stored_delta_sum += (
@@ -307,6 +330,7 @@ def aggregate_runs(run_dirs: list[Path]) -> dict[str, Any]:
         "suppression_evaluation": build_suppression_evaluation(summary),
         "residue_evaluation": build_residue_evaluation(summary),
         "speculative_evaluation": build_speculative_evaluation(summary),
+        "recency_access_evaluation": build_recency_access_evaluation(summary),
         "recommendation_inputs": build_recommendation_inputs(summary),
     }
 
@@ -414,6 +438,42 @@ def build_residue_evaluation(by_config: dict[str, Any]) -> dict[str, Any]:
                 "facts_review_only": int(stats.get("facts_review_only", 0) or 0),
                 "residue_promoted": int(stats.get("residue_promoted", 0) or 0),
                 "residue_review_only": int(stats.get("residue_review_only", 0) or 0),
+                "promoted_contents": unique_texts(stats.get("promoted_contents", [])),
+                "review_only_contents": unique_texts(stats.get("review_only_contents", [])),
+            }
+        if focused:
+            evaluation[config_key] = focused
+    return evaluation
+
+
+def build_recency_access_evaluation(by_config: dict[str, Any]) -> dict[str, Any]:
+    def unique_texts(values: list[str]) -> list[str]:
+        seen = set()
+        unique = []
+        for value in values:
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            unique.append(value)
+        return unique
+
+    evaluation: dict[str, Any] = {}
+    for config_key, scenarios in sorted(by_config.items()):
+        focused: dict[str, Any] = {}
+        for scenario_id in RECENCY_ACCESS_SCENARIOS:
+            stats = scenarios.get(scenario_id)
+            if not stats:
+                continue
+            focused[scenario_id] = {
+                "runs": int(stats.get("runs", 0) or 0),
+                "facts_promoted": int(stats.get("facts_promoted", 0) or 0),
+                "facts_review_only": int(stats.get("facts_review_only", 0) or 0),
+                "guardrail_promoted": int(
+                    stats.get("recency_access_guardrail_promoted", 0) or 0
+                ),
+                "guardrail_review_only": int(
+                    stats.get("recency_access_guardrail_review_only", 0) or 0
+                ),
                 "promoted_contents": unique_texts(stats.get("promoted_contents", [])),
                 "review_only_contents": unique_texts(stats.get("review_only_contents", [])),
             }
@@ -575,6 +635,48 @@ def render_markdown(report: dict[str, Any]) -> str:
                 )
         lines.extend(["", "### Residue Contents", ""])
         for config_key, scenarios in sorted(residue_evaluation.items()):
+            for scenario_id, stats in sorted(scenarios.items()):
+                promoted = "; ".join(stats.get("promoted_contents", [])) or "None"
+                review_only = "; ".join(stats.get("review_only_contents", [])) or "None"
+                lines.append(
+                    f"- `{config_key}` / `{scenario_id}` promoted: {promoted}"
+                )
+                lines.append(
+                    f"- `{config_key}` / `{scenario_id}` review-only: {review_only}"
+                )
+    else:
+        lines.append("| n/a | n/a | 0 | 0 | 0 | 0 | 0 |")
+    lines.extend([
+        "",
+        "## Recency/Access Evaluation",
+        "",
+        (
+            "| Config | Scenario | Runs | Promoted | Review-Only | "
+            "Guardrail Promoted | Guardrail Review-Only |"
+        ),
+        "|---|---|---:|---:|---:|---:|---:|",
+    ])
+    recency_access_evaluation = report.get("recency_access_evaluation") or {}
+    if recency_access_evaluation:
+        for config_key, scenarios in sorted(recency_access_evaluation.items()):
+            for scenario_id, stats in sorted(scenarios.items()):
+                lines.append(
+                    "| "
+                    + " | ".join(
+                        [
+                            f"`{config_key}`",
+                            f"`{scenario_id}`",
+                            str(stats["runs"]),
+                            str(stats["facts_promoted"]),
+                            str(stats["facts_review_only"]),
+                            str(stats["guardrail_promoted"]),
+                            str(stats["guardrail_review_only"]),
+                        ]
+                    )
+                    + " |"
+                )
+        lines.extend(["", "### Recency/Access Contents", ""])
+        for config_key, scenarios in sorted(recency_access_evaluation.items()):
             for scenario_id, stats in sorted(scenarios.items()):
                 promoted = "; ".join(stats.get("promoted_contents", [])) or "None"
                 review_only = "; ".join(stats.get("review_only_contents", [])) or "None"

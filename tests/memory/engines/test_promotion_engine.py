@@ -582,6 +582,129 @@ async def test_hybrid_gate_reviews_speculation_and_inference_but_stores_confirme
 
 
 @pytest.mark.asyncio
+async def test_hybrid_gate_reviews_access_reinforced_low_base_evidence(
+    mock_l1, mock_l2, mock_segmenter, mock_extractor, sample_turns
+):
+    """High access cannot be the only reason weak base evidence stores under hybrid_gate."""
+    mock_l1.retrieve.return_value = sample_turns
+    mock_l2.ciar_threshold = 0.6
+    segment = TopicSegment(
+        segment_id="seg-recency-access",
+        topic="Access-reinforced reference note",
+        summary="One weak note has high access, one durable fact has strong base evidence.",
+        key_points=["Low-base high-access note", "Strong operational constraint"],
+        turn_indices=[0, 1, 2],
+        certainty=0.9,
+        impact=0.9,
+    )
+    low_base_fact = Fact(
+        fact_id="fact-low-base-accessed",
+        session_id="123",
+        content="Carrier dashboard reference note was repeatedly opened by the operations team.",
+        certainty=0.5,
+        impact=0.5,
+        access_count=20,
+        fact_type=FactType.MENTION,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    strong_base_fact = Fact(
+        fact_id="fact-strong-base-accessed",
+        session_id="123",
+        content="Customer Acme requires customs paperwork before LA port release.",
+        certainty=0.9,
+        impact=0.8,
+        access_count=20,
+        fact_type=FactType.CONSTRAINT,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    mock_segmenter.segment_turns.return_value = [segment]
+    mock_extractor.extract_facts.return_value = [low_base_fact, strong_base_fact]
+    engine = PromotionEngine(
+        l1_tier=mock_l1,
+        l2_tier=mock_l2,
+        topic_segmenter=mock_segmenter,
+        fact_extractor=mock_extractor,
+        ciar_scorer=CIARScorer(),
+        config={
+            "promotion_threshold": 0.6,
+            "batch_min_turns": 10,
+            "promotion_policy_mode": "hybrid_gate",
+        },
+    )
+
+    stats = await engine.process(session_id="123")
+
+    assert stats["facts_promoted"] == 1
+    assert stats["facts_review_only"] == 1
+    stored_fact = mock_l2.store.call_args.args[0]
+    assert stored_fact.fact_id == "fact-strong-base-accessed"
+    low_provenance = low_base_fact.metadata["ciar_provenance"]
+    low_flags = low_provenance["evidence_quality_flags"]
+    assert low_provenance["raw_fact_ciar"] == 0.75
+    assert low_provenance["review_only"] is True
+    assert low_flags["base_evidence_below_threshold"] is True
+    assert low_flags["access_boosted_over_threshold"] is True
+    assert low_flags["recency_access_guardrail"] is True
+    strong_flags = strong_base_fact.metadata["ciar_provenance"]["evidence_quality_flags"]
+    assert strong_base_fact.metadata["ciar_provenance"]["review_only"] is False
+    assert strong_flags["base_evidence_below_threshold"] is False
+    assert strong_flags["access_boosted_over_threshold"] is False
+    assert strong_flags["recency_access_guardrail"] is False
+
+
+@pytest.mark.asyncio
+async def test_fact_gate_preserves_access_boost_storage_semantics(
+    mock_l1, mock_l2, mock_segmenter, mock_extractor, sample_turns
+):
+    """The recency/access guardrail is diagnostic only outside hybrid_gate."""
+    mock_l1.retrieve.return_value = sample_turns
+    mock_l2.ciar_threshold = 0.6
+    segment = TopicSegment(
+        segment_id="seg-recency-access",
+        topic="Access-reinforced reference note",
+        summary="A weak note has high access.",
+        key_points=["Low-base high-access note"],
+        turn_indices=[0, 1, 2],
+        certainty=0.9,
+        impact=0.9,
+    )
+    fact = Fact(
+        fact_id="fact-low-base-accessed",
+        session_id="123",
+        content="Carrier dashboard reference note was repeatedly opened by the operations team.",
+        certainty=0.5,
+        impact=0.5,
+        access_count=20,
+        fact_type=FactType.MENTION,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    mock_segmenter.segment_turns.return_value = [segment]
+    mock_extractor.extract_facts.return_value = [fact]
+    engine = PromotionEngine(
+        l1_tier=mock_l1,
+        l2_tier=mock_l2,
+        topic_segmenter=mock_segmenter,
+        fact_extractor=mock_extractor,
+        ciar_scorer=CIARScorer(),
+        config={
+            "promotion_threshold": 0.6,
+            "batch_min_turns": 10,
+            "promotion_policy_mode": "fact_gate",
+        },
+    )
+
+    stats = await engine.process(session_id="123")
+
+    assert stats["facts_promoted"] == 1
+    assert stats["facts_review_only"] == 0
+    mock_l2.store.assert_called_once()
+    provenance = fact.metadata["ciar_provenance"]
+    assert provenance["stored_ciar"] == 0.75
+    assert provenance["review_only"] is False
+    assert provenance["evidence_quality_flags"]["recency_access_guardrail"] is True
+
+
+@pytest.mark.asyncio
 async def test_contradiction_policy_suppresses_superseded_batch_fact(
     mock_l1, mock_l2, mock_segmenter, mock_extractor, sample_turns
 ):

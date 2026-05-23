@@ -648,6 +648,8 @@ class CannedTopicSegmenter:
             certainty, impact = 0.9, 0.8
         elif scenario.scenario_id == "assistant_inferred":
             certainty, impact = 0.86, 0.78
+        elif scenario.scenario_id == "access_reinforced_low_signal":
+            certainty, impact = 0.92, 0.8
         else:
             certainty, impact = 0.92, 0.85
 
@@ -684,6 +686,7 @@ class CannedFactExtractor:
             certainty: float,
             impact: float,
             source_type: str = "dry_run",
+            access_count: int = 0,
         ) -> Any:
             return Fact(
                 fact_id=f"{segment_id}-{suffix}",
@@ -693,6 +696,7 @@ class CannedFactExtractor:
                 fact_category=FactCategory.OPERATIONAL,
                 certainty=certainty,
                 impact=impact,
+                access_count=access_count,
                 source_type=source_type,
                 topic_segment_id=segment_id,
                 topic_label=topic,
@@ -827,6 +831,17 @@ class CannedFactExtractor:
                     0.7,
                 )
             ]
+        if "access_reinforced_low_signal" in segment_id:
+            return [
+                make_fact(
+                    "reinforced-note",
+                    "Carrier dashboard reference note was repeatedly opened by the operations team.",
+                    FactType.MENTION,
+                    0.5,
+                    0.5,
+                    access_count=20,
+                )
+            ]
         return [
             make_fact(
                 "main",
@@ -952,6 +967,33 @@ def build_default_scenarios() -> list[Scenario]:
                         "content": "You probably prefer air freight for urgent shipments.",
                     },
                     {"role": "user", "content": "Maybe, but I did not say that as a rule."},
+                ]
+            ),
+        ),
+        Scenario(
+            scenario_id="access_reinforced_low_signal",
+            title="Access-reinforced low-signal note",
+            expectation="needs_review",
+            turns=pad(
+                [
+                    {
+                        "role": "user",
+                        "content": (
+                            "Carrier dashboard reference note: this entry has been opened "
+                            "many times by the operations team."
+                        ),
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "I see it has repeated access history.",
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            "Repeated access alone should not make it a confirmed operational "
+                            "shipment fact."
+                        ),
+                    },
                 ]
             ),
         ),

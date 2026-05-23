@@ -191,6 +191,7 @@ def test_default_scenarios_are_batch_ready() -> None:
         "repeated_correction",
         "assistant_acknowledgement_noise",
         "urgent_with_chatter",
+        "access_reinforced_low_signal",
     }
     assert {scenario.expectation for scenario in scenarios} >= {
         "promote",
@@ -385,6 +386,58 @@ async def test_dry_speculative_claims_are_review_only_with_positive_controls(
     assert review_only["assistant_inferred"]["evidence_quality_flags"][
         "assistant_inference"
     ] is True
+    assert all(
+        not row.get("review_only")
+        for row in state.alternative_scores
+        if row["scenario_id"] in {"clear_constraint", "urgent_event"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_dry_recency_access_guardrail_reviews_low_signal_access_boost(
+    tmp_path: Path,
+) -> None:
+    config = ExperimentConfig(
+        run_id="ciar-test-recency-access-guardrail",
+        output_dir=tmp_path,
+        dry_run=True,
+        keep_data=False,
+        model="test-model",
+        min_ciar=0.6,
+        phoenix_endpoint="http://127.0.0.1:16006/v1/traces",
+        phoenix_project_name="ciar-test",
+        phoenix_access_mode="configured",
+        scenario_ids=[
+            "access_reinforced_low_signal",
+            "clear_constraint",
+            "urgent_event",
+        ],
+        promotion_policy_mode="hybrid_gate",
+        contradiction_policy_mode="off",
+    )
+    experiment = CIARChallengeExperiment(config)
+
+    state = await experiment.run()
+
+    stats = state.promotion_stats["access_reinforced_low_signal"]
+    assert stats["segments_promoted"] == 1
+    assert stats["facts_extracted"] == 1
+    assert stats["facts_promoted"] == 0
+    assert stats["facts_review_only"] == 1
+    assert state.promotion_stats["clear_constraint"]["facts_promoted"] == 1
+    assert state.promotion_stats["urgent_event"]["facts_promoted"] == 1
+
+    review_only = {
+        row["scenario_id"]: row
+        for row in state.alternative_scores
+        if row.get("review_only")
+    }
+    guardrail_row = review_only["access_reinforced_low_signal"]
+    flags = guardrail_row["evidence_quality_flags"]
+    assert guardrail_row["raw_fact_ciar"] == 0.75
+    assert flags["base_evidence_below_threshold"] is True
+    assert flags["access_boosted_over_threshold"] is True
+    assert flags["recency_access_guardrail"] is True
     assert all(
         not row.get("review_only")
         for row in state.alternative_scores

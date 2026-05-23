@@ -109,6 +109,14 @@ def make_run(
                 "facts_review_only": 1,
                 "facts_suppressed": 0,
             },
+            "access_reinforced_low_signal": {
+                "segments_promoted": 1,
+                "facts_extracted": 1,
+                "facts_promoted": 0,
+                "facts_filtered": 0,
+                "facts_review_only": 1,
+                "facts_suppressed": 0,
+            },
             "contradiction_update": {
                 "segments_promoted": 1,
                 "facts_extracted": 2,
@@ -187,6 +195,18 @@ def make_run(
             "evidence_quality_flags": {
                 "speculative_claim": False,
                 "assistant_inference": True,
+            },
+        },
+        {
+            "scenario_id": "access_reinforced_low_signal",
+            "content": "Carrier dashboard reference note was repeatedly opened by the operations team.",
+            "raw_fact_ciar": 0.75,
+            "stored_ciar": None,
+            "review_only": True,
+            "evidence_quality_flags": {
+                "base_evidence_below_threshold": True,
+                "access_boosted_over_threshold": True,
+                "recency_access_guardrail": True,
             },
         },
         {
@@ -324,9 +344,11 @@ def test_render_markdown_includes_recommendation_table(tmp_path: Path) -> None:
     assert "## Suppression Evaluation" in markdown
     assert "## Speculative Evaluation" in markdown
     assert "## Residue Evaluation" in markdown
+    assert "## Recency/Access Evaluation" in markdown
     assert "`contradiction_update`" in markdown
     assert "`speculative_claim`" in markdown
     assert "`urgent_with_chatter`" in markdown
+    assert "`access_reinforced_low_signal`" in markdown
     assert "`policy_evidence_with_warnings`" in markdown
 
 
@@ -489,6 +511,28 @@ def test_speculative_evaluation_reports_review_only_uncertainty_flags(
     )
 
 
+def test_recency_access_evaluation_reports_guardrail_review_only(
+    tmp_path: Path,
+) -> None:
+    run_dir = make_run(
+        tmp_path,
+        run_id="ciar-exp-dry-recency-access-guardrail-20260523-01",
+        promotion_policy="hybrid_gate",
+        contradiction_policy="off",
+    )
+
+    report = aggregate_runs([run_dir])
+    evaluation = report["recency_access_evaluation"]["hybrid_gate+off"]
+
+    assert evaluation["access_reinforced_low_signal"]["facts_promoted"] == 0
+    assert evaluation["access_reinforced_low_signal"]["facts_review_only"] == 1
+    assert evaluation["access_reinforced_low_signal"]["guardrail_promoted"] == 0
+    assert evaluation["access_reinforced_low_signal"]["guardrail_review_only"] == 1
+    assert "Carrier dashboard reference note was repeatedly opened by the operations team." in (
+        evaluation["access_reinforced_low_signal"]["review_only_contents"]
+    )
+
+
 def test_suppression_evaluation_omits_runs_without_focused_scenarios(
     tmp_path: Path,
 ) -> None:
@@ -518,6 +562,8 @@ def test_suppression_evaluation_omits_runs_without_focused_scenarios(
     assert report["suppression_evaluation"] == {}
     assert report["residue_evaluation"]["hybrid_gate+off"]["small_talk"]["facts_promoted"] == 0
     assert report["speculative_evaluation"] == {}
+    assert report["recency_access_evaluation"] == {}
     assert "## Suppression Evaluation" in render_markdown(report)
     assert "## Residue Evaluation" in render_markdown(report)
     assert "## Speculative Evaluation" in render_markdown(report)
+    assert "## Recency/Access Evaluation" in render_markdown(report)
