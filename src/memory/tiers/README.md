@@ -51,6 +51,9 @@ The L3/L4 tiers support environment-driven collection isolation for embedding mi
     - L3 default: `episodes` -> `episodes_v2`
     - L4 default: `knowledge_base` -> `knowledge_base_v2`
 - `EMBEDDING_DIMENSIONS` controls the effective vector size used by L3/Qdrant operations.
+- Explicit tier config wins over the environment. For example,
+  `EpisodicMemoryTier(..., config={"vector_size": 1536})` uses 1536 even when
+  `EMBEDDING_DIMENSIONS=4096`.
 
 This configuration prevents dimensionality collisions when changing embedding providers
 (for example, migrating from 768-dimension embeddings to 4096-dimension embeddings).

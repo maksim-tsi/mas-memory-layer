@@ -7,6 +7,9 @@ import pytest
 import pytest_asyncio
 import httpx
 from dotenv import load_dotenv
+from qdrant_client import AsyncQdrantClient
+
+pytestmark = pytest.mark.integration
 
 # MUST load environment before importing src.server or else missing REDIS_URL will fail initialization
 load_dotenv(override=True)
@@ -63,6 +66,35 @@ for key, value in _ORIGINAL_SCOPED_ENV.items():
 
 
 SCENARIOS_DIR = Path(__file__).parent.parent / "data" / "scm_scenarios"
+QDRANT_E2E_COLLECTION = "test_v2"
+
+
+async def _assert_qdrant_collection_dimension(
+    qdrant_url: str, collection_name: str, expected_dimension: int
+) -> None:
+    """Fail clearly when the live E2E collection exists with a stale dimension."""
+    client = AsyncQdrantClient(url=qdrant_url)
+    try:
+        try:
+            info = await client.get_collection(collection_name)
+        except Exception as exc:
+            message = str(exc).lower()
+            if "not found" in message or "doesn't exist" in message:
+                return
+            raise RuntimeError(
+                f"Qdrant preflight failed for collection {collection_name}: "
+                f"{type(exc).__name__}: {exc}"
+            ) from exc
+
+        actual_dimension = int(info.config.params.vectors.size)
+        if actual_dimension != expected_dimension:
+            raise RuntimeError(
+                f"Qdrant collection {collection_name} has vector size "
+                f"{actual_dimension}, expected {expected_dimension}. Recreate the "
+                "YAAM v2 test collection before running live E2E tests."
+            )
+    finally:
+        await client.close()
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -103,11 +135,16 @@ async def client():
     l3 = None
     l4 = None
     try:
+        e2e_vector_size = int(os.environ.get("EMBEDDING_DIMENSIONS", 1024))
+        await _assert_qdrant_collection_dimension(
+            qdrant_url, QDRANT_E2E_COLLECTION, e2e_vector_size
+        )
+
         qdrant_adapter = QdrantAdapter(
             {
                 "url": qdrant_url,
-                "vector_size": int(os.environ.get("EMBEDDING_DIMENSIONS", 1024)),
-                "collection_name": "test_v2",
+                "vector_size": e2e_vector_size,
+                "collection_name": QDRANT_E2E_COLLECTION,
             }
         )
         neo4j_adapter = Neo4jAdapter(
@@ -119,8 +156,8 @@ async def client():
             qdrant_adapter,
             neo4j_adapter,
             config={
-                "collection_name": "test_v2",
-                "vector_size": int(os.environ.get("EMBEDDING_DIMENSIONS", 1024)),
+                "collection_name": QDRANT_E2E_COLLECTION,
+                "vector_size": e2e_vector_size,
             },
         )
         l4 = SemanticMemoryTier(typesense_adapter)

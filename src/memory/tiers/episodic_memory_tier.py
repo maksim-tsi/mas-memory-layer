@@ -66,10 +66,12 @@ class EpisodicMemoryTier(BaseTier[Episode]):
         self.config_vector_size = config.get("vector_size") if config else None
 
         env_vector_size = os.getenv("EMBEDDING_DIMENSIONS")
-        if env_vector_size and env_vector_size.isdigit():
+        if self.config_vector_size is not None:
+            self.vector_size = self.config_vector_size
+        elif env_vector_size and env_vector_size.isdigit():
             self.vector_size = int(env_vector_size)
         else:
-            self.vector_size = self.config_vector_size or adapter_vector_size
+            self.vector_size = adapter_vector_size
 
         # Ensure adapter uses the episodic collection name and vector size for all operations
         self.qdrant.collection_name = self.collection_name

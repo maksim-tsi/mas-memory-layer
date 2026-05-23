@@ -97,6 +97,22 @@ class TestEpisodicMemoryTierStore:
     """Test episode storage with dual indexing."""
 
     @pytest.mark.asyncio
+    async def test_explicit_vector_size_overrides_embedding_dimensions_env(
+        self, mock_qdrant_adapter, mock_neo4j_adapter, monkeypatch
+    ):
+        """Explicit tier config should keep unit tests independent from ambient env."""
+        monkeypatch.setenv("EMBEDDING_DIMENSIONS", "4096")
+
+        tier = EpisodicMemoryTier(
+            qdrant_adapter=mock_qdrant_adapter,
+            neo4j_adapter=mock_neo4j_adapter,
+            config={"collection_name": "episodes_test", "vector_size": 1536},
+        )
+
+        assert tier.vector_size == 1536
+        assert mock_qdrant_adapter.vector_size == 1536
+
+    @pytest.mark.asyncio
     async def test_store_episode_with_dual_indexing(
         self, episodic_tier, sample_episode, sample_embedding
     ):
