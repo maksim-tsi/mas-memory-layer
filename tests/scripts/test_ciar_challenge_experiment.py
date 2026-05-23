@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -560,3 +561,141 @@ async def test_provider_health_failure_is_recorded_when_not_required(tmp_path: P
     assert result["status"] == "failed"
     assert result["required"] is False
     assert result["error_type"] == "TimeoutError"
+
+
+def live_setup_config(tmp_path: Path) -> ExperimentConfig:
+    return ExperimentConfig(
+        run_id="ciar-live-setup-test",
+        output_dir=tmp_path,
+        dry_run=False,
+        keep_data=False,
+        model="test-model",
+        min_ciar=0.6,
+        phoenix_endpoint="http://phoenix.test:6006/v1/traces",
+        phoenix_project_name="ciar-live-setup-test",
+        phoenix_access_mode="configured",
+    )
+
+
+class FakeRedisAdapter:
+    def __init__(self, config):
+        self.config = config
+
+
+class FakePostgresAdapter:
+    def __init__(self, config):
+        self.config = config
+
+
+class FakeTier:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+    async def initialize(self) -> None:
+        return None
+
+
+class FailingL1Tier(FakeTier):
+    async def initialize(self) -> None:
+        raise TimeoutError("Redis timeout for postgresql://user:secret@postgres.test/db")
+
+
+class FakeLLMClient:
+    @classmethod
+    def from_env(cls):
+        return cls()
+
+    def available_providers(self):
+        return ["fake-provider"]
+
+
+class FakePromotionEngine:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+
+class FakeTopicSegmenter:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+
+class FakeFactExtractor:
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+
+class FakeCIARScorer:
+    threshold = 0.6
+
+    def calculate(self, fact):
+        return 0.6
+
+    def calculate_components(self, fact):
+        return {"final_score": 0.6}
+
+
+def patch_live_setup_dependencies(monkeypatch: pytest.MonkeyPatch, *, l1_tier=FakeTier) -> None:
+    monkeypatch.setenv("REDIS_URL", "redis://redis.test:6379/0")
+    monkeypatch.setenv("POSTGRES_URL", "postgresql://user:secret@postgres.test/db")
+    monkeypatch.setenv("PHOENIX_COLLECTOR_ENDPOINT", "http://phoenix.test:6006/v1/traces")
+    monkeypatch.setenv("MAS_REDIS_TIMEOUT", "12.5")
+    monkeypatch.setattr("src.llm.client.ensure_phoenix_instrumentation", lambda: None)
+    monkeypatch.setattr("src.llm.client.LLMClient", FakeLLMClient)
+    monkeypatch.setattr("src.storage.redis_adapter.RedisAdapter", FakeRedisAdapter)
+    monkeypatch.setattr("src.storage.postgres_adapter.PostgresAdapter", FakePostgresAdapter)
+    monkeypatch.setattr("src.memory.tiers.ActiveContextTier", l1_tier)
+    monkeypatch.setattr("src.memory.tiers.WorkingMemoryTier", FakeTier)
+    monkeypatch.setattr("src.memory.engines.promotion_engine.PromotionEngine", FakePromotionEngine)
+    monkeypatch.setattr("src.memory.engines.topic_segmenter.TopicSegmenter", FakeTopicSegmenter)
+    monkeypatch.setattr("src.memory.engines.fact_extractor.FactExtractor", FakeFactExtractor)
+    monkeypatch.setattr("src.memory.ciar_scorer.CIARScorer", FakeCIARScorer)
+
+
+@pytest.mark.asyncio
+async def test_setup_runtime_failure_writes_run_error_and_incomplete_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_live_setup_dependencies(monkeypatch, l1_tier=FailingL1Tier)
+    config = live_setup_config(tmp_path)
+    experiment = CIARChallengeExperiment(config)
+    state = ExperimentState(config=config)
+
+    with pytest.raises(TimeoutError):
+        await experiment.setup_runtime(state)
+
+    manifest = json.loads((experiment.output_dir / "run_manifest.json").read_text())
+    run_error = json.loads((experiment.output_dir / "run_error.json").read_text())
+
+    assert manifest["runtime_setup"]["status"] == "failed"
+    assert manifest["runtime_setup"]["failure_phase"] == "l1_initialize_started"
+    assert manifest["runtime_setup"]["error_type"] == "TimeoutError"
+    assert manifest["operational_classification"]["run_quality"] == "incomplete"
+    assert run_error["failure_phase"] == "l1_initialize_started"
+    assert run_error["error_type"] == "TimeoutError"
+    assert "secret" not in run_error["error"]
+    assert manifest["runtime_setup"]["service_endpoints"]["postgres"]["password_present"] is True
+
+
+@pytest.mark.asyncio
+async def test_setup_runtime_success_records_runtime_setup_phases(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    patch_live_setup_dependencies(monkeypatch)
+    config = live_setup_config(tmp_path)
+    experiment = CIARChallengeExperiment(config)
+    state = ExperimentState(config=config)
+
+    await experiment.setup_runtime(state)
+
+    manifest = json.loads((experiment.output_dir / "run_manifest.json").read_text())
+    phase_names = [phase["name"] for phase in manifest["runtime_setup"]["phases"]]
+    assert manifest["runtime_setup"]["status"] == "ok"
+    assert manifest["runtime_setup"]["redis_timeout_s"] == 12.5
+    assert "redis_adapter_created" in phase_names
+    assert "l1_initialize_started" in phase_names
+    assert "l1_initialize_ok" in phase_names
+    assert "l2_initialize_started" in phase_names
+    assert "l2_initialize_ok" in phase_names
+    assert manifest["runtime"]["provider_order"] == ["fake-provider"]

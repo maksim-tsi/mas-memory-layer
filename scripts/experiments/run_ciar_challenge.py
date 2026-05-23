@@ -11,6 +11,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -83,6 +84,41 @@ def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
 
 def safe_env_presence(keys: list[str]) -> dict[str, bool]:
     return {key: bool(os.environ.get(key)) for key in keys}
+
+
+def safe_endpoint_summary(value: str | None, default_port: int | None = None) -> dict[str, Any]:
+    """Summarize a service endpoint without exposing credentials."""
+    if not value:
+        return {"present": False}
+    parsed = urlparse(value)
+    port = parsed.port or default_port
+    return {
+        "present": True,
+        "scheme": parsed.scheme,
+        "host": parsed.hostname,
+        "port": port,
+        "path_present": bool(parsed.path and parsed.path != "/"),
+        "user_present": bool(parsed.username),
+        "password_present": bool(parsed.password),
+    }
+
+
+def sanitized_service_endpoints() -> dict[str, dict[str, Any]]:
+    return {
+        "redis": safe_endpoint_summary(os.environ.get("REDIS_URL"), 6379),
+        "postgres": safe_endpoint_summary(os.environ.get("POSTGRES_URL"), 5432),
+        "phoenix": safe_endpoint_summary(os.environ.get("PHOENIX_COLLECTOR_ENDPOINT"), 6006),
+    }
+
+
+def sanitize_error_message(message: str) -> str:
+    """Remove known secret-bearing values from diagnostic error strings."""
+    sanitized = message
+    for key in ["REDIS_URL", "POSTGRES_URL", "PHOENIX_COLLECTOR_ENDPOINT"]:
+        value = os.environ.get(key)
+        if value:
+            sanitized = sanitized.replace(value, f"<{key}>")
+    return re.sub(r"://([^:/@\s]+):([^@/\s]+)@", r"://\1:<redacted>@", sanitized)
 
 
 def artifact_presence(
@@ -1224,79 +1260,161 @@ class CIARChallengeExperiment:
         if self.config.dry_run:
             return state
 
-        from src.llm.client import LLMClient, ensure_phoenix_instrumentation
-        from src.memory.ciar_scorer import CIARScorer
-        from src.memory.engines.fact_extractor import FactExtractor
-        from src.memory.engines.promotion_engine import PromotionEngine
-        from src.memory.engines.topic_segmenter import TopicSegmenter
-        from src.memory.tiers import ActiveContextTier, WorkingMemoryTier
-        from src.storage.postgres_adapter import PostgresAdapter
-        from src.storage.redis_adapter import RedisAdapter
-
-        ensure_phoenix_instrumentation()
         redis_timeout = float(os.environ.get("MAS_REDIS_TIMEOUT", "15.0"))
-        redis_adapter = RedisAdapter(
-            {
-                "url": os.environ["REDIS_URL"],
-                "window_size": 20,
-                "socket_timeout": redis_timeout,
-            }
-        )
-        postgres_l1 = PostgresAdapter({"url": os.environ["POSTGRES_URL"], "table": "active_context"})
-        postgres_l2 = PostgresAdapter({"url": os.environ["POSTGRES_URL"], "table": "working_memory"})
-        l1_tier = ActiveContextTier(
-            redis_adapter=redis_adapter,
-            postgres_adapter=postgres_l1,
-            config={"window_size": 20, "ttl_hours": 24},
-            telemetry_stream=self.telemetry,
-        )
-        l2_tier = WorkingMemoryTier(
-            postgres_adapter=postgres_l2,
-            config={"ciar_threshold": self.config.min_ciar},
-            telemetry_stream=self.telemetry,
-        )
-        await l1_tier.initialize()
-        await l2_tier.initialize()
-
-        llm_client = LLMClient.from_env()
-        scorer = ObservedCIARScorer(CIARScorer(), self.output_dir, state)
-        state.resources = ExperimentResources(
-            l1_tier=l1_tier,
-            l2_tier=l2_tier,
-            redis_adapter=redis_adapter,
-            postgres_l1=postgres_l1,
-            postgres_l2=postgres_l2,
-        )
-        state.manifest["runtime"] = {
-            "mode": "live_l1_l2",
-            "provider_order": llm_client.available_providers(),
-            "promotion_policy_mode": self.config.promotion_policy_mode,
-            "contradiction_policy_mode": self.config.contradiction_policy_mode,
+        state.manifest["runtime_setup"] = {
+            "status": "in_progress",
+            "redis_timeout_s": redis_timeout,
+            "service_endpoints": sanitized_service_endpoints(),
+            "phases": [],
         }
-        state.manifest["_promotion_engine"] = PromotionEngine(
-            l1_tier=l1_tier,
-            l2_tier=l2_tier,
-            topic_segmenter=ObservedTopicSegmenter(
-                TopicSegmenter(llm_client=llm_client, min_turns=10, max_turns=20),
-                state,
-            ),
-            fact_extractor=ObservedFactExtractor(FactExtractor(llm_client=llm_client)),
-            ciar_scorer=scorer,
-            config={
-                "promotion_threshold": self.config.min_ciar,
-                "batch_min_turns": 10,
-                "enable_final_fallback": False,
-                "enable_segment_fallback": False,
-                "promotion_policy_mode": self.config.promotion_policy_mode,
-                "contradiction_policy_mode": self.config.contradiction_policy_mode,
-            },
-            telemetry_stream=self.telemetry,
-        )
         write_json(
             self.output_dir / "run_manifest.json",
             {k: v for k, v in state.manifest.items() if not k.startswith("_")},
         )
-        return state
+
+        setup_started = time.perf_counter()
+        current_phase = "setup_started"
+
+        def record_phase(name: str, status: str = "ok") -> None:
+            state.manifest["runtime_setup"]["phases"].append(
+                {
+                    "name": name,
+                    "status": status,
+                    "elapsed_ms": round((time.perf_counter() - setup_started) * 1000, 3),
+                }
+            )
+
+        try:
+            from src.llm.client import LLMClient, ensure_phoenix_instrumentation
+            from src.memory.ciar_scorer import CIARScorer
+            from src.memory.engines.fact_extractor import FactExtractor
+            from src.memory.engines.promotion_engine import PromotionEngine
+            from src.memory.engines.topic_segmenter import TopicSegmenter
+            from src.memory.tiers import ActiveContextTier, WorkingMemoryTier
+            from src.storage.postgres_adapter import PostgresAdapter
+            from src.storage.redis_adapter import RedisAdapter
+
+            current_phase = "phoenix_instrumentation"
+            ensure_phoenix_instrumentation()
+            record_phase("phoenix_instrumentation")
+
+            current_phase = "redis_adapter_created"
+            redis_adapter = RedisAdapter(
+                {
+                    "url": os.environ["REDIS_URL"],
+                    "window_size": 20,
+                    "socket_timeout": redis_timeout,
+                }
+            )
+            record_phase("redis_adapter_created")
+
+            current_phase = "postgres_adapters_created"
+            postgres_l1 = PostgresAdapter(
+                {"url": os.environ["POSTGRES_URL"], "table": "active_context"}
+            )
+            postgres_l2 = PostgresAdapter(
+                {"url": os.environ["POSTGRES_URL"], "table": "working_memory"}
+            )
+            record_phase("postgres_adapters_created")
+
+            current_phase = "tiers_created"
+            l1_tier = ActiveContextTier(
+                redis_adapter=redis_adapter,
+                postgres_adapter=postgres_l1,
+                config={"window_size": 20, "ttl_hours": 24},
+                telemetry_stream=self.telemetry,
+            )
+            l2_tier = WorkingMemoryTier(
+                postgres_adapter=postgres_l2,
+                config={"ciar_threshold": self.config.min_ciar},
+                telemetry_stream=self.telemetry,
+            )
+            record_phase("tiers_created")
+            write_json(
+                self.output_dir / "run_manifest.json",
+                {k: v for k, v in state.manifest.items() if not k.startswith("_")},
+            )
+
+            current_phase = "l1_initialize_started"
+            record_phase("l1_initialize_started", "started")
+            await l1_tier.initialize()
+            current_phase = "l1_initialize_ok"
+            record_phase("l1_initialize_ok")
+
+            current_phase = "l2_initialize_started"
+            record_phase("l2_initialize_started", "started")
+            await l2_tier.initialize()
+            current_phase = "l2_initialize_ok"
+            record_phase("l2_initialize_ok")
+
+            current_phase = "llm_client_created"
+            llm_client = LLMClient.from_env()
+            record_phase("llm_client_created")
+
+            scorer = ObservedCIARScorer(CIARScorer(), self.output_dir, state)
+            state.resources = ExperimentResources(
+                l1_tier=l1_tier,
+                l2_tier=l2_tier,
+                redis_adapter=redis_adapter,
+                postgres_l1=postgres_l1,
+                postgres_l2=postgres_l2,
+            )
+            state.manifest["runtime"] = {
+                "mode": "live_l1_l2",
+                "provider_order": llm_client.available_providers(),
+                "promotion_policy_mode": self.config.promotion_policy_mode,
+                "contradiction_policy_mode": self.config.contradiction_policy_mode,
+            }
+            state.manifest["_promotion_engine"] = PromotionEngine(
+                l1_tier=l1_tier,
+                l2_tier=l2_tier,
+                topic_segmenter=ObservedTopicSegmenter(
+                    TopicSegmenter(llm_client=llm_client, min_turns=10, max_turns=20),
+                    state,
+                ),
+                fact_extractor=ObservedFactExtractor(FactExtractor(llm_client=llm_client)),
+                ciar_scorer=scorer,
+                config={
+                    "promotion_threshold": self.config.min_ciar,
+                    "batch_min_turns": 10,
+                    "enable_final_fallback": False,
+                    "enable_segment_fallback": False,
+                    "promotion_policy_mode": self.config.promotion_policy_mode,
+                    "contradiction_policy_mode": self.config.contradiction_policy_mode,
+                },
+                telemetry_stream=self.telemetry,
+            )
+            state.manifest["runtime_setup"]["status"] = "ok"
+            write_json(
+                self.output_dir / "run_manifest.json",
+                {k: v for k, v in state.manifest.items() if not k.startswith("_")},
+            )
+            return state
+        except Exception as exc:
+            error = {
+                "run_id": self.config.run_id,
+                "failed_at": utc_now().isoformat(),
+                "failure_phase": current_phase,
+                "error_type": type(exc).__name__,
+                "error": sanitize_error_message(str(exc)),
+            }
+            state.manifest["runtime_setup"]["status"] = "failed"
+            state.manifest["runtime_setup"]["failure_phase"] = current_phase
+            state.manifest["runtime_setup"]["error_type"] = error["error_type"]
+            state.manifest["runtime_setup"]["error"] = error["error"]
+            state.manifest["operational_classification"] = classify_operational_run(
+                manifest=state.manifest,
+                promotion_stats=state.promotion_stats,
+                events=state.events,
+                alternative_scores=state.alternative_scores,
+                artifacts=artifact_presence(self.output_dir),
+            )
+            write_json(self.output_dir / "run_error.json", error)
+            write_json(
+                self.output_dir / "run_manifest.json",
+                {k: v for k, v in state.manifest.items() if not k.startswith("_")},
+            )
+            raise
 
     async def seed_l1(self, state: ExperimentState) -> ExperimentState:
         for scenario in state.scenarios:

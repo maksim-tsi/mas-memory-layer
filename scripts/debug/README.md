@@ -6,6 +6,7 @@ One-off debug and verification scripts for development troubleshooting. These sc
 
 | Script | Purpose |
 |--------|---------|
+| `check_yaam_data_node.py` | Verify local `.env` YAAM data-node endpoints without printing secrets |
 | `check_l2_roundtrip.py` | Verify L2 (WorkingMemory) roundtrip - stores 3 facts and queries them back |
 | `check_tier_collection.py` | Verify EpisodicMemoryTier collection naming and vector size match QdrantAdapter (including V2 mode and embedding dimensions) |
 | `debug_qdrant_dump.py` | Diagnostic tool to dump/inspect Qdrant collection contents |
@@ -18,6 +19,11 @@ These scripts are typically run manually during development:
 ```bash
 # From repository root
 ./.venv/bin/python scripts/debug/<script_name>.py
+
+# Check YAAM data-node endpoints from .env without exposing secret values
+./.venv/bin/python scripts/debug/check_yaam_data_node.py --env-file .env
+./.venv/bin/python scripts/debug/check_yaam_data_node.py --env-file .env --json
+./.venv/bin/python scripts/debug/check_yaam_data_node.py --env-file .env --service redis --service postgres
 
 # For environment-sensitive checks (recommended for V2 validation)
 set -a && . ./.env && set +a && ./.venv/bin/python scripts/debug/check_tier_collection.py
