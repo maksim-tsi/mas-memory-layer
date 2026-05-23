@@ -18,6 +18,7 @@ REQUIRED_ARTIFACTS = (
     "events.jsonl",
     "run_manifest.json",
 )
+SUPPRESSION_SCENARIOS = ("contradiction_update", "repeated_correction")
 
 
 @dataclass
@@ -243,8 +244,48 @@ def aggregate_runs(run_dirs: list[Path]) -> dict[str, Any]:
         "run_quality_counts": dict(sorted(run_quality_counts.items())),
         "artifact_gaps": artifact_gaps,
         "by_config": summary,
+        "suppression_evaluation": build_suppression_evaluation(summary),
         "recommendation_inputs": build_recommendation_inputs(summary),
     }
+
+
+def build_suppression_evaluation(by_config: dict[str, Any]) -> dict[str, Any]:
+    def unique_texts(values: list[str]) -> list[str]:
+        seen = set()
+        unique = []
+        for value in values:
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            unique.append(value)
+        return unique
+
+    evaluation: dict[str, Any] = {}
+    for config_key, scenarios in sorted(by_config.items()):
+        focused: dict[str, Any] = {}
+        for scenario_id in SUPPRESSION_SCENARIOS:
+            stats = scenarios.get(scenario_id)
+            if not stats:
+                continue
+            facts_promoted = int(stats.get("facts_promoted", 0) or 0)
+            facts_suppressed = int(stats.get("facts_suppressed", 0) or 0)
+            denominator = facts_promoted + facts_suppressed
+            suppression_rate = None
+            if denominator:
+                suppression_rate = round(facts_suppressed / denominator, 4)
+            focused[scenario_id] = {
+                "runs": int(stats.get("runs", 0) or 0),
+                "facts_promoted": facts_promoted,
+                "facts_suppressed": facts_suppressed,
+                "suppression_rate": suppression_rate,
+                "promoted_contents": unique_texts(stats.get("promoted_contents", [])),
+                "suppressed_contents": unique_texts(
+                    stats.get("suppressed_contents", [])
+                ),
+            }
+        if focused:
+            evaluation[config_key] = focused
+    return evaluation
 
 
 def build_recommendation_inputs(by_config: dict[str, Any]) -> dict[str, Any]:
@@ -282,6 +323,48 @@ def render_markdown(report: dict[str, Any]) -> str:
     ]
     for quality, count in sorted(report["run_quality_counts"].items()):
         lines.append(f"| `{quality}` | {count} |")
+    lines.extend([
+        "",
+        "## Suppression Evaluation",
+        "",
+        "| Config | Scenario | Runs | Promoted | Suppressed | Suppression Rate |",
+        "|---|---|---:|---:|---:|---:|",
+    ])
+    suppression_evaluation = report.get("suppression_evaluation") or {}
+    if suppression_evaluation:
+        for config_key, scenarios in sorted(suppression_evaluation.items()):
+            for scenario_id, stats in sorted(scenarios.items()):
+                rate = stats.get("suppression_rate")
+                rate_text = "n/a"
+                if isinstance(rate, int | float):
+                    rate_text = f"{rate:.2%}"
+                lines.append(
+                    "| "
+                    + " | ".join(
+                        [
+                            f"`{config_key}`",
+                            f"`{scenario_id}`",
+                            str(stats["runs"]),
+                            str(stats["facts_promoted"]),
+                            str(stats["facts_suppressed"]),
+                            rate_text,
+                        ]
+                    )
+                    + " |"
+                )
+        lines.extend(["", "### Suppression Contents", ""])
+        for config_key, scenarios in sorted(suppression_evaluation.items()):
+            for scenario_id, stats in sorted(scenarios.items()):
+                promoted = "; ".join(stats.get("promoted_contents", [])) or "None"
+                suppressed = "; ".join(stats.get("suppressed_contents", [])) or "None"
+                lines.append(
+                    f"- `{config_key}` / `{scenario_id}` promoted: {promoted}"
+                )
+                lines.append(
+                    f"- `{config_key}` / `{scenario_id}` suppressed: {suppressed}"
+                )
+    else:
+        lines.append("| n/a | n/a | 0 | 0 | 0 | n/a |")
     lines.extend([
         "",
         "## Recommendation Inputs",
