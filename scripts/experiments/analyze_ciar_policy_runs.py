@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from run_ciar_challenge import classify_operational_run
+
 REQUIRED_ARTIFACTS = (
     "summary.md",
     "promotion_results.json",
@@ -128,6 +130,15 @@ def analyze_run(run_dir: Path) -> dict[str, Any]:
 
     artifacts = {name: (run_dir / name).exists() for name in REQUIRED_ARTIFACTS}
     scenarios: dict[str, ScenarioAggregate] = defaultdict(ScenarioAggregate)
+    operational_classification = manifest.get("operational_classification")
+    if not isinstance(operational_classification, dict):
+        operational_classification = classify_operational_run(
+            manifest=manifest,
+            promotion_stats=promotion_results,
+            events=events,
+            alternative_scores=alternative_scores,
+            artifacts=artifacts,
+        )
 
     for scenario_id, stats in promotion_results.items():
         if isinstance(stats, dict):
@@ -175,6 +186,7 @@ def analyze_run(run_dir: Path) -> dict[str, Any]:
         "phoenix_project_name": manifest.get("phoenix_project_name"),
         "provider_health": manifest.get("provider_health"),
         "cleanup": manifest.get("cleanup"),
+        "operational_classification": operational_classification,
         "artifacts": artifacts,
         "scenarios": {key: value.to_dict() for key, value in sorted(scenarios.items())},
     }
@@ -186,11 +198,15 @@ def aggregate_runs(run_dirs: list[Path]) -> dict[str, Any]:
         lambda: defaultdict(ScenarioAggregate)
     )
     artifact_gaps: list[dict[str, Any]] = []
+    run_quality_counts: dict[str, int] = defaultdict(int)
 
     for run in runs:
         config_key = (
             f"{run['promotion_policy_mode']}+{run['contradiction_policy_mode']}"
         )
+        classification = run.get("operational_classification") or {}
+        run_quality = str(classification.get("run_quality") or "unknown")
+        run_quality_counts[run_quality] += 1
         missing = [name for name, present in run["artifacts"].items() if not present]
         if missing:
             artifact_gaps.append({"run_id": run["run_id"], "missing": missing})
@@ -224,6 +240,7 @@ def aggregate_runs(run_dirs: list[Path]) -> dict[str, Any]:
     return {
         "run_count": len(runs),
         "runs": runs,
+        "run_quality_counts": dict(sorted(run_quality_counts.items())),
         "artifact_gaps": artifact_gaps,
         "by_config": summary,
         "recommendation_inputs": build_recommendation_inputs(summary),
@@ -258,6 +275,15 @@ def render_markdown(report: dict[str, Any]) -> str:
         "",
         f"- runs_analyzed: `{report['run_count']}`",
         "",
+        "## Run Quality",
+        "",
+        "| Run Quality | Count |",
+        "|---|---:|",
+    ]
+    for quality, count in sorted(report["run_quality_counts"].items()):
+        lines.append(f"| `{quality}` | {count} |")
+    lines.extend([
+        "",
         "## Recommendation Inputs",
         "",
         (
@@ -266,7 +292,7 @@ def render_markdown(report: dict[str, Any]) -> str:
             "Contradiction Review-Only | Contradiction Suppressed | Errors |"
         ),
         "|---|---:|---:|---:|---:|---:|---:|---:|",
-    ]
+    ])
     for config_key, stats in sorted(report["recommendation_inputs"].items()):
         lines.append(
             "| "

@@ -45,6 +45,120 @@ class DummyState:
         self.ciar_calls = []
 
 
+def complete_artifacts() -> dict[str, bool]:
+    return {name: True for name in ciar_experiment.REQUIRED_OPERATIONAL_ARTIFACTS}
+
+
+def test_operational_classifier_marks_clean_dry_run_policy_evidence() -> None:
+    classification = ciar_experiment.classify_operational_run(
+        manifest={
+            "completed_at": "2026-05-23T00:00:00+00:00",
+            "dry_run": True,
+            "phoenix_ui_check": {"ok": True},
+            "provider_health": {"status": "missing"},
+            "cleanup": "dry_run_noop",
+        },
+        promotion_stats={"small_talk": {"errors": 0}},
+        events=[],
+        alternative_scores=[],
+        artifacts=complete_artifacts(),
+    )
+
+    assert classification["run_quality"] == "policy_evidence"
+    assert classification["policy_evidence"] is True
+
+
+def test_operational_classifier_marks_skipped_provider_health_as_warning() -> None:
+    classification = ciar_experiment.classify_operational_run(
+        manifest={
+            "completed_at": "2026-05-23T00:00:00+00:00",
+            "dry_run": False,
+            "phoenix_ui_check": {"ok": True},
+            "provider_health": {
+                "status": "skipped",
+                "reason": "provider checked separately",
+                "required": False,
+            },
+            "cleanup": {"session": {"l1_deleted": True, "l2_deleted": False}},
+        },
+        promotion_stats={"small_talk": {"errors": 0}},
+        events=[],
+        alternative_scores=[],
+        artifacts=complete_artifacts(),
+    )
+
+    assert classification["run_quality"] == "policy_evidence_with_warnings"
+    assert classification["policy_evidence"] is True
+    assert "provider health skipped" in classification["reasons"][0]
+
+
+def test_operational_classifier_marks_rule_fallback_as_operational_noise() -> None:
+    classification = ciar_experiment.classify_operational_run(
+        manifest={
+            "completed_at": "2026-05-23T00:00:00+00:00",
+            "dry_run": False,
+            "phoenix_ui_check": {"ok": True},
+            "provider_health": {"status": "checked", "required": False},
+            "cleanup": {"session": {"l1_deleted": True, "l2_deleted": True}},
+        },
+        promotion_stats={"small_talk": {"errors": 0}},
+        events=[],
+        alternative_scores=[
+            {"evidence_quality_flags": {"rule_fallback": True}},
+        ],
+        artifacts=complete_artifacts(),
+    )
+
+    assert classification["run_quality"] == "operational_noise"
+    assert classification["policy_evidence"] is False
+    assert classification["signals"]["provider_fallback_detected"] is True
+
+
+def test_operational_classifier_marks_missing_completion_or_artifact_incomplete() -> None:
+    artifacts = complete_artifacts()
+    artifacts["summary.md"] = False
+
+    classification = ciar_experiment.classify_operational_run(
+        manifest={
+            "dry_run": True,
+            "phoenix_ui_check": {"ok": True},
+            "provider_health": {"status": "missing"},
+            "cleanup": "dry_run_noop",
+        },
+        promotion_stats={"small_talk": {"errors": 0}},
+        events=[],
+        alternative_scores=[],
+        artifacts=artifacts,
+    )
+
+    assert classification["run_quality"] == "incomplete"
+    assert classification["policy_evidence"] is False
+    assert classification["signals"]["artifact_complete"] is False
+
+
+def test_operational_classifier_marks_partial_cleanup_as_warning() -> None:
+    classification = ciar_experiment.classify_operational_run(
+        manifest={
+            "completed_at": "2026-05-23T00:00:00+00:00",
+            "dry_run": False,
+            "phoenix_ui_check": {"ok": True},
+            "provider_health": {"status": "checked", "required": False},
+            "cleanup": {
+                "session-a": {"l1_deleted": True, "l2_deleted": True},
+                "session-b": {"l1_error": "timeout", "l2_deleted": False},
+            },
+        },
+        promotion_stats={"small_talk": {"errors": 0}},
+        events=[],
+        alternative_scores=[],
+        artifacts=complete_artifacts(),
+    )
+
+    assert classification["run_quality"] == "policy_evidence_with_warnings"
+    assert classification["policy_evidence"] is True
+    assert classification["signals"]["cleanup_status"] == "partial"
+
+
 def test_resolve_phoenix_rejects_stale_localhost_default() -> None:
     with pytest.raises(ValueError, match="localhost:6006"):
         resolve_phoenix_endpoint(

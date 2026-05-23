@@ -26,6 +26,24 @@ DEFAULT_MODEL = "x-ai/grok-4.1-fast"
 DEFAULT_PHOENIX_DIRECT_ENDPOINT = "http://192.168.107.187:6006/v1/traces"
 DEFAULT_TUNNEL_ENDPOINT = "http://127.0.0.1:16006/v1/traces"
 DEFAULT_MIN_CIAR = 0.6
+REQUIRED_OPERATIONAL_ARTIFACTS = (
+    "summary.md",
+    "promotion_results.json",
+    "alternative_scores.json",
+    "events.jsonl",
+    "run_manifest.json",
+)
+LLM_WARNING_MARKERS = (
+    "rule_fallback",
+    "provider failure",
+    "provider_failure",
+    "provider failed",
+    "provider_failed",
+    "invalid response",
+    "invalid_response",
+    "empty response",
+    "empty_response",
+)
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
@@ -65,6 +83,172 @@ def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
 
 def safe_env_presence(keys: list[str]) -> dict[str, bool]:
     return {key: bool(os.environ.get(key)) for key in keys}
+
+
+def artifact_presence(
+    output_dir: Path,
+    *,
+    assume_summary_present: bool = False,
+) -> dict[str, bool]:
+    presence = {name: (output_dir / name).exists() for name in REQUIRED_OPERATIONAL_ARTIFACTS}
+    if assume_summary_present:
+        presence["summary.md"] = True
+    return presence
+
+
+def cleanup_status(cleanup: Any) -> str:
+    if cleanup is None:
+        return "unknown"
+    if isinstance(cleanup, str):
+        if cleanup == "dry_run_noop":
+            return "dry_run_noop"
+        if cleanup.startswith("skipped"):
+            return "skipped"
+        return cleanup
+    if not isinstance(cleanup, dict):
+        return "unknown"
+    if not cleanup:
+        return "unknown"
+
+    session_count = len(cleanup)
+    error_count = 0
+    for result in cleanup.values():
+        if isinstance(result, dict) and any(key.endswith("_error") for key in result):
+            error_count += 1
+    if error_count == 0:
+        return "ok"
+    if error_count >= session_count:
+        return "failed"
+    return "partial"
+
+
+def _contains_llm_warning(value: Any) -> bool:
+    try:
+        serialized = json.dumps(value, default=json_default).lower()
+    except TypeError:
+        serialized = str(value).lower()
+    return any(marker in serialized for marker in LLM_WARNING_MARKERS)
+
+
+def llm_response_warning_count(
+    events: list[dict[str, Any]],
+    alternative_scores: list[dict[str, Any]],
+) -> int:
+    warnings = sum(1 for event in events if _contains_llm_warning(event))
+    for row in alternative_scores:
+        if not isinstance(row, dict):
+            continue
+        flags = row.get("evidence_quality_flags") or {}
+        if isinstance(flags, dict) and flags.get("rule_fallback"):
+            warnings += 1
+    return warnings
+
+
+def scenario_error_count(promotion_stats: dict[str, Any]) -> int:
+    total = 0
+    for stats in promotion_stats.values():
+        if isinstance(stats, dict):
+            total += int(stats.get("errors", 0) or 0)
+    return total
+
+
+def classify_operational_run(
+    *,
+    manifest: dict[str, Any],
+    promotion_stats: dict[str, Any],
+    events: list[dict[str, Any]],
+    alternative_scores: list[dict[str, Any]],
+    artifacts: dict[str, bool],
+) -> dict[str, Any]:
+    provider_health = manifest.get("provider_health") or {}
+    provider_health_status = (
+        str(provider_health.get("status")) if isinstance(provider_health, dict) else "missing"
+    )
+    if provider_health_status == "None":
+        provider_health_status = "missing"
+
+    cleanup = cleanup_status(manifest.get("cleanup"))
+    warning_count = llm_response_warning_count(events, alternative_scores)
+    errors = scenario_error_count(promotion_stats)
+    dry_run = bool(manifest.get("dry_run", False))
+    phoenix_check = manifest.get("phoenix_ui_check") or {}
+    phoenix_ui_ok = bool(phoenix_check.get("ok")) if isinstance(phoenix_check, dict) else False
+    completed = bool(manifest.get("completed_at"))
+    artifact_complete = all(artifacts.values())
+
+    signals = {
+        "completed": completed,
+        "dry_run": dry_run,
+        "provider_health_status": provider_health_status,
+        "provider_fallback_detected": warning_count > 0,
+        "phoenix_ui_ok": phoenix_ui_ok,
+        "artifact_complete": artifact_complete,
+        "cleanup_status": cleanup,
+        "scenario_errors": errors,
+        "llm_response_warning_count": warning_count,
+    }
+
+    reasons: list[str] = []
+    if not completed:
+        reasons.append("run did not record completed_at")
+    if not artifact_complete:
+        missing = ", ".join(name for name, present in artifacts.items() if not present)
+        reasons.append(f"missing required artifacts: {missing}")
+    if reasons:
+        return {
+            "run_quality": "incomplete",
+            "policy_evidence": False,
+            "reasons": reasons,
+            "signals": signals,
+        }
+
+    if errors:
+        reasons.append(f"promotion scenario errors recorded: {errors}")
+    if warning_count:
+        reasons.append(f"provider fallback or LLM response warnings detected: {warning_count}")
+    if not dry_run and not phoenix_ui_ok:
+        reasons.append("live Phoenix UI check did not succeed")
+    if (
+        isinstance(provider_health, dict)
+        and provider_health_status == "failed"
+        and provider_health.get("required")
+    ):
+        reasons.append("required provider health check failed")
+    if reasons:
+        return {
+            "run_quality": "operational_noise",
+            "policy_evidence": False,
+            "reasons": reasons,
+            "signals": signals,
+        }
+
+    warnings: list[str] = []
+    if isinstance(provider_health, dict) and provider_health_status == "skipped":
+        reason = provider_health.get("reason")
+        warnings.append(
+            f"provider health skipped: {reason}" if reason else "provider health skipped"
+        )
+    if isinstance(provider_health, dict) and provider_health_status == "failed":
+        warnings.append("provider health failed but was not required")
+    if dry_run and not phoenix_ui_ok:
+        warnings.append("Phoenix UI check failed during dry run")
+    if cleanup in {"partial", "failed"}:
+        warnings.append(f"cleanup status is {cleanup}")
+
+    if warnings:
+        return {
+            "run_quality": "policy_evidence_with_warnings",
+            "policy_evidence": True,
+            "reasons": warnings,
+            "signals": signals,
+        }
+
+    return {
+        "run_quality": "policy_evidence",
+        "policy_evidence": True,
+        "reasons": ["clean run"],
+        "signals": signals,
+    }
 
 
 def normalize_fact_content(value: Any) -> str:
@@ -1390,6 +1574,15 @@ class CIARChallengeExperiment:
         return None
 
     async def summarize(self, state: ExperimentState) -> ExperimentState:
+        state.manifest["completed_at"] = utc_now().isoformat()
+        state.manifest["operational_classification"] = classify_operational_run(
+            manifest=state.manifest,
+            promotion_stats=state.promotion_stats,
+            events=state.events,
+            alternative_scores=state.alternative_scores,
+            artifacts=artifact_presence(self.output_dir, assume_summary_present=True),
+        )
+        classification = state.manifest["operational_classification"]
         lines = [
             "# CIAR Challenge Summary",
             "",
@@ -1398,6 +1591,13 @@ class CIARChallengeExperiment:
             f"- model: `{self.config.model}`",
             f"- phoenix_project: `{self.config.phoenix_project_name}`",
             f"- phoenix_access_mode: `{self.config.phoenix_access_mode}`",
+            "",
+            "## Operational Classification",
+            "",
+            f"- run_quality: `{classification['run_quality']}`",
+            f"- policy_evidence: `{classification['policy_evidence']}`",
+            "- reasons:",
+            *[f"  - {reason}" for reason in classification["reasons"]],
             "",
             "## Scenario Outcomes",
             "",
@@ -1433,7 +1633,6 @@ class CIARChallengeExperiment:
             ]
         )
         (self.output_dir / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-        state.manifest["completed_at"] = utc_now().isoformat()
         write_json(
             self.output_dir / "run_manifest.json",
             {k: v for k, v in state.manifest.items() if not k.startswith("_")},
@@ -1443,9 +1642,31 @@ class CIARChallengeExperiment:
     async def cleanup(self, state: ExperimentState) -> ExperimentState:
         if self.config.keep_data:
             state.manifest["cleanup"] = "skipped_keep_data"
+            state.manifest["operational_classification"] = classify_operational_run(
+                manifest=state.manifest,
+                promotion_stats=state.promotion_stats,
+                events=state.events,
+                alternative_scores=state.alternative_scores,
+                artifacts=artifact_presence(self.output_dir),
+            )
+            write_json(
+                self.output_dir / "run_manifest.json",
+                {k: v for k, v in state.manifest.items() if not k.startswith("_")},
+            )
             return state
         if self.config.dry_run:
             state.manifest["cleanup"] = "dry_run_noop"
+            state.manifest["operational_classification"] = classify_operational_run(
+                manifest=state.manifest,
+                promotion_stats=state.promotion_stats,
+                events=state.events,
+                alternative_scores=state.alternative_scores,
+                artifacts=artifact_presence(self.output_dir),
+            )
+            write_json(
+                self.output_dir / "run_manifest.json",
+                {k: v for k, v in state.manifest.items() if not k.startswith("_")},
+            )
             return state
 
         cleanup_results: dict[str, Any] = {}
@@ -1468,6 +1689,13 @@ class CIARChallengeExperiment:
                 result["l2_error"] = str(exc)
             cleanup_results[session_id] = result
         state.manifest["cleanup"] = cleanup_results
+        state.manifest["operational_classification"] = classify_operational_run(
+            manifest=state.manifest,
+            promotion_stats=state.promotion_stats,
+            events=state.events,
+            alternative_scores=state.alternative_scores,
+            artifacts=artifact_presence(self.output_dir),
+        )
         write_json(
             self.output_dir / "run_manifest.json",
             {k: v for k, v in state.manifest.items() if not k.startswith("_")},

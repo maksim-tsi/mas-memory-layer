@@ -29,22 +29,29 @@ def make_run(
     run_id: str,
     promotion_policy: str,
     contradiction_policy: str,
+    operational_classification: dict[str, object] | None = None,
 ) -> Path:
     run_dir = tmp_path / run_id
     run_dir.mkdir()
     (run_dir / "summary.md").write_text("# Summary\n", encoding="utf-8")
+    manifest = {
+        "run_id": run_id,
+        "completed_at": "2026-05-20T00:00:00+00:00",
+        "dry_run": False,
+        "model": "test-model",
+        "runtime": {
+            "promotion_policy_mode": promotion_policy,
+            "contradiction_policy_mode": contradiction_policy,
+        },
+        "phoenix_ui_check": {"ok": True},
+        "provider_health": {"status": "skipped", "reason": "checked separately"},
+        "cleanup": {"session": {"l1_deleted": True, "l2_deleted": False}},
+    }
+    if operational_classification is not None:
+        manifest["operational_classification"] = operational_classification
     write_json(
         run_dir / "run_manifest.json",
-        {
-            "run_id": run_id,
-            "completed_at": "2026-05-20T00:00:00+00:00",
-            "model": "test-model",
-            "runtime": {
-                "promotion_policy_mode": promotion_policy,
-                "contradiction_policy_mode": contradiction_policy,
-            },
-            "provider_health": {"status": "skipped"},
-        },
+        manifest,
     )
     write_json(
         run_dir / "promotion_results.json",
@@ -127,6 +134,11 @@ def test_aggregate_runs_groups_by_policy_configuration(tmp_path: Path) -> None:
     assert config["segment_mismatch"]["facts_review_only"] == 1
     assert config["contradiction_update"]["facts_suppressed"] == 1
     assert (
+        report["runs"][0]["operational_classification"]["run_quality"]
+        == "policy_evidence_with_warnings"
+    )
+    assert report["run_quality_counts"] == {"policy_evidence_with_warnings": 1}
+    assert (
         report["recommendation_inputs"]["hybrid_gate+suppress_superseded"][
             "contradiction_suppressed"
         ]
@@ -147,3 +159,58 @@ def test_render_markdown_includes_recommendation_table(tmp_path: Path) -> None:
     assert "# CIAR Default Policy Analysis" in markdown
     assert "`fact_gate+off`" in markdown
     assert "Small Talk Promoted" in markdown
+    assert "## Run Quality" in markdown
+    assert "`policy_evidence_with_warnings`" in markdown
+
+
+def test_aggregate_runs_preserves_manifest_operational_classification(tmp_path: Path) -> None:
+    run_dir = make_run(
+        tmp_path,
+        run_id="ciar-exp-live-default-hybrid-gate-off-20260520-01",
+        promotion_policy="hybrid_gate",
+        contradiction_policy="off",
+        operational_classification={
+            "run_quality": "operational_noise",
+            "policy_evidence": False,
+            "reasons": ["provider fallback or LLM response warnings detected: 1"],
+            "signals": {
+                "completed": True,
+                "dry_run": False,
+                "provider_health_status": "checked",
+                "provider_fallback_detected": True,
+                "phoenix_ui_ok": True,
+                "artifact_complete": True,
+                "cleanup_status": "ok",
+                "scenario_errors": 0,
+                "llm_response_warning_count": 1,
+            },
+        },
+    )
+
+    report = aggregate_runs([run_dir])
+
+    assert report["runs"][0]["operational_classification"]["run_quality"] == (
+        "operational_noise"
+    )
+    assert report["run_quality_counts"] == {"operational_noise": 1}
+
+
+def test_aggregate_runs_infers_conservative_classification_for_old_manifest(
+    tmp_path: Path,
+) -> None:
+    run_dir = make_run(
+        tmp_path,
+        run_id="ciar-exp-live-default-hybrid-gate-off-20260520-02",
+        promotion_policy="hybrid_gate",
+        contradiction_policy="off",
+    )
+    manifest_path = run_dir / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("operational_classification", None)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    report = aggregate_runs([run_dir])
+
+    assert report["runs"][0]["operational_classification"]["run_quality"] == (
+        "policy_evidence_with_warnings"
+    )
