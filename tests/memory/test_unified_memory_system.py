@@ -39,6 +39,17 @@ def _build_knowledge(knowledge_id: str, title: str, search_score: float) -> Know
     return document
 
 
+def _build_route_fact(fact_id: str, content: str) -> Fact:
+    return Fact(
+        fact_id=fact_id,
+        session_id="session-123",
+        content=content,
+        ciar_score=0.8,
+        certainty=0.9,
+        impact=0.9,
+    )
+
+
 @pytest.mark.asyncio
 async def test_query_memory_uses_query_conditioned_l3_and_l4(mocker):
     """Unified retrieval should use embedding-backed L3 and text-query L4 search paths."""
@@ -256,3 +267,71 @@ async def test_query_memory_emits_retriever_spans(mocker):
 
     l4_span = fake_tracer.started[2]["span"]
     assert json.loads(str(l4_span.attributes["retrieval.documents"]))[0]["document.id"] == "L4:kg-1"
+
+
+@pytest.mark.asyncio
+async def test_query_memory_filters_superseded_l2_facts(mocker):
+    """L2 retrieval should omit facts superseded under suppress_superseded mode."""
+    redis_client = mocker.Mock()
+    redis_client.ping.return_value = True
+    knowledge_manager = mocker.Mock()
+    old_fact = _build_route_fact("fact-old-route", "The shipment was scheduled for Oakland.")
+    new_fact = _build_route_fact(
+        "fact-new-route",
+        "Correction: it is now rerouted to Los Angeles, not Oakland.",
+    )
+    new_fact.metadata["contradiction_policy"] = {
+        "mode": "suppress_superseded",
+        "decision": "STORE",
+        "supersedes_fact_ids": ["fact-old-route"],
+    }
+    l2_tier = mocker.Mock()
+    l2_tier.search_facts = mocker.AsyncMock(return_value=[old_fact, new_fact])
+
+    system = UnifiedMemorySystem(
+        redis_client=redis_client,
+        knowledge_manager=knowledge_manager,
+        l2_tier=l2_tier,
+        contradiction_policy_mode="suppress_superseded",
+    )
+
+    results = await system.query_memory(
+        session_id="session-123",
+        query="shipment route",
+        limit=5,
+        weights=SearchWeights(l2_weight=1.0, l3_weight=0.0, l4_weight=0.0),
+    )
+
+    assert [result["metadata"]["fact_id"] for result in results] == ["fact-new-route"]
+
+
+@pytest.mark.asyncio
+async def test_get_context_block_filters_superseded_l2_facts(mocker):
+    """Prompt context should not inject facts superseded by current corrections."""
+    redis_client = mocker.Mock()
+    redis_client.ping.return_value = True
+    knowledge_manager = mocker.Mock()
+    old_fact = _build_route_fact("fact-old-route", "The shipment was scheduled for Oakland.")
+    new_fact = _build_route_fact(
+        "fact-new-route",
+        "Correction: it is now rerouted to Los Angeles, not Oakland.",
+    )
+    new_fact.metadata["contradiction_policy"] = {
+        "mode": "suppress_superseded",
+        "decision": "STORE",
+        "supersedes_fact_ids": ["fact-old-route"],
+    }
+    l2_tier = mocker.Mock()
+    l2_tier.query_by_session = mocker.AsyncMock(return_value=[old_fact, new_fact])
+
+    system = UnifiedMemorySystem(
+        redis_client=redis_client,
+        knowledge_manager=knowledge_manager,
+        l2_tier=l2_tier,
+        contradiction_policy_mode="suppress_superseded",
+    )
+
+    context = await system.get_context_block(session_id="session-123")
+
+    assert [fact.fact_id for fact in context.significant_facts] == ["fact-new-route"]
+    assert context.fact_count == 1

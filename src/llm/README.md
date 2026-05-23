@@ -91,9 +91,9 @@ Focused unit tests for provider normalization and Gemini tool-calling behavior l
 For V2 runtime validation of collection naming and embedding vector sizing, use:
 - `scripts/debug/check_tier_collection.py`
 
-For 4096 migration safety with immutable Qdrant schemas, route V2 writes to a distinct
-collection lineage (for example `episodes_qwen_v2`) instead of reusing an existing
-`episodes_v2` collection created at 768 dimensions.
+For 4096 migration safety with immutable Qdrant schemas, use a clean collection lineage whose
+configured vector size matches the active embedding model. Current YAAM test/live collections use
+the `episodes_v2` lineage with 4096-dimensional OpenRouter embeddings.
 
 To run tests for a specific provider:
 

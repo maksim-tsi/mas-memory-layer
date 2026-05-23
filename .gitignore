@@ -8,6 +8,7 @@
 .env.*.local
 
 # External Benchmarks
+benchmarks/goodai-ltm-benchmark/
 benchmarks/.venv-benchmark/
 
 # Byte-compiled / optimized / DLL files
@@ -151,7 +152,6 @@ celerybeat.pid
 
 # Environments
 .env
-.env.example
 .env.local
 .env.*.local
 .env.old
@@ -234,38 +234,21 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Tree
-tree.txt
-
-# Personal env backups
-.env.old
-
 # Local virtual environments used for tests/benchmarks
 .venv_test/
 benchmarks/.venv-benchmark/
 
-# Benchmark Results
-benchmarks/results/
-
-# Frontend build artifacts and node modules for benchmark web UI
-benchmarks/goodai-ltm-benchmark/webui/frontend/node_modules/
-benchmarks/goodai-ltm-benchmark/webui/frontend/dist/
-
-# Application logs and generated JSONL outputs
-logs/
-logs/*.jsonl
+# Generated benchmark run state and reports
+benchmarks/results/**
+!benchmarks/results/
+!benchmarks/results/raw/
+!benchmarks/results/raw/.gitkeep
+!benchmarks/results/processed/
+!benchmarks/results/processed/.gitkeep
 
 # Test report outputs
 tests/reports/
+tests/integration/perf_results.json
 
-# Benchmark Test & Persistence Artifacts
-# Generated runtime artifacts from benchmark runs (have timestamps in paths)
-# These are transient data that should never be committed
-# NOTE: We keep config files and example sessions in data/ but exclude generated runs
-benchmarks/goodai-ltm-benchmark/data/tests/goodai__*
-benchmarks/goodai-ltm-benchmark/data/tests/goodai-*
-benchmarks/goodai-ltm-benchmark/data/tests/VariantA*
-benchmarks/goodai-ltm-benchmark/data/persistence/goodai__*
-benchmarks/goodai-ltm-benchmark/data/persistence/goodai-*
-benchmarks/goodai-ltm-benchmark/data/persistence/VariantA*
-benchmarks/goodai-ltm-benchmark/data/reports/
+# Tree
+tree.txt

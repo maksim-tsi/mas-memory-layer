@@ -1,9 +1,0 @@
-config:
-  debug: true
-  run_name: MAS Single Test - 2026-02-07
-datasets:
-  args:
-    dataset_examples: 1
-    memory_span: 32000
-  datasets:
-  - name: prospective_memory

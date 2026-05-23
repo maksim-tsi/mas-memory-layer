@@ -40,13 +40,21 @@ class FactExtractor:
         model_name: Name of the LLM model to use.
     """
 
-    def __init__(self, llm_client: LLMClient | None = None, model_name: str | None = None):
+    def __init__(
+        self,
+        llm_client: LLMClient | None = None,
+        model_name: str | None = None,
+        max_output_tokens: int | None = None,
+    ):
         self.llm_client: LLMClient = llm_client or LLMClient.from_env()
         self.model_name = (
             model_name
             or os.environ.get("MAS_FACT_EXTRACTOR_MODEL")
             or os.environ.get("MAS_MODEL")
             or "gemini-3-flash-preview"
+        )
+        self.max_output_tokens = max_output_tokens or int(
+            os.environ.get("MAS_MAX_OUTPUT_TOKENS", "8192")
         )
 
     async def extract_facts(self, text: str, metadata: dict[str, Any] | None = None) -> list[Fact]:
@@ -81,7 +89,7 @@ class FactExtractor:
             system_instruction=FACT_EXTRACTION_SYSTEM_INSTRUCTION,
             response_schema=FACT_EXTRACTION_SCHEMA,
             temperature=0.0,
-            max_output_tokens=8192,
+            max_output_tokens=self.max_output_tokens,
         )
 
         # Temporary Debug Log

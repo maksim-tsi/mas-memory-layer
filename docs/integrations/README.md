@@ -5,10 +5,10 @@ This directory contains documentation for Large Language Model (LLM) integration
 ## GoodAI LTM Benchmark Integration (Phase 5)
 
 The Phase 5 evaluation pipeline integrates the GoodAI LTM Benchmark with the MAS Memory Layer via
-FastAPI wrapper services. The wrapper exposes `/run_turn`, `/sessions`, `/memory_state`, and `/health`
-endpoints and is configured per agent type (full, rag, full_context). Benchmark-facing model
-interfaces are implemented in `benchmarks/goodai-ltm-benchmark/model_interfaces/mas_agents.py` and
-apply session prefixing (`full:`, `rag:`, `full_context:`) for database isolation.
+the YAAM API Wall. YAAM exposes OpenAI-compatible `/v1/chat/completions` plus operational health
+endpoints. Benchmark-facing model interfaces now live in the external
+`goodai-ltm-benchmark-yaam` repository and apply session IDs through HTTP headers for database
+isolation.
 
 For installation, configuration, and execution guidance, see
 [docs/integrations/goodai-benchmark-setup.md](goodai-benchmark-setup.md).

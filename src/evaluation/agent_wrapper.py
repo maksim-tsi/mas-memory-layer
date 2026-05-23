@@ -152,6 +152,8 @@ class WrapperConfig:
     window_size: int = 20
     ttl_hours: int = 24
     min_ciar: float = 0.6
+    promotion_policy_mode: str = "hybrid_gate"
+    contradiction_policy_mode: str = "off"
 
 
 @dataclass
@@ -202,7 +204,15 @@ def _read_env_or_raise(key: str) -> str:
     value = os.environ.get(key)
     if not value:
         raise RuntimeError(f"Required environment variable '{key}' is not set.")
-    return value
+    return os.path.expandvars(value)
+
+
+def _read_env_with_fallback(*keys: str, default: str) -> str:
+    for key in keys:
+        value = os.environ.get(key)
+        if value:
+            return os.path.expandvars(value)
+    return default
 
 
 async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
@@ -253,16 +263,16 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
     qdrant_adapter = QdrantAdapter(
         {
             "url": _read_env_or_raise("QDRANT_URL"),
-            "collection_name": "episodes_qwen",
-            "vector_size": 768,
+            "collection_name": "episodes",
+            "vector_size": int(os.environ.get("EMBEDDING_DIMENSIONS", "4096")),
         }
     )
     neo4j_adapter = Neo4jAdapter(
         {
             "uri": _read_env_or_raise("NEO4J_URI"),
-            "user": os.environ.get("NEO4J_USER", "neo4j"),
-            "password": os.environ.get("NEO4J_PASSWORD", "mas-password"),
-            "database": os.environ.get("NEO4J_DATABASE", "neo4j"),
+            "user": _read_env_with_fallback("NEO4J_USER", "NEO4J_USERNAME", default="neo4j"),
+            "password": _read_env_with_fallback("NEO4J_PASSWORD", default="mas-password"),
+            "database": _read_env_with_fallback("NEO4J_DATABASE", default="neo4j"),
             "lock_redis_url": config.redis_url,
         }
     )
@@ -277,7 +287,6 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
     episodic_tier = EpisodicMemoryTier(
         qdrant_adapter=qdrant_adapter,
         neo4j_adapter=neo4j_adapter,
-        config={"collection_name": "episodes_qwen"},
     )
     semantic_tier = SemanticMemoryTier(typesense_adapter=typesense_adapter)
 
@@ -297,7 +306,11 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
         topic_segmenter=topic_segmenter,
         fact_extractor=fact_extractor,
         ciar_scorer=ciar_scorer,
-        config={"promotion_threshold": config.min_ciar},
+        config={
+            "promotion_threshold": config.min_ciar,
+            "promotion_policy_mode": config.promotion_policy_mode,
+            "contradiction_policy_mode": config.contradiction_policy_mode,
+        },
     )
 
     memory_system = UnifiedMemorySystem(
@@ -584,6 +597,8 @@ def build_config(args: argparse.Namespace) -> WrapperConfig:
     window_size = int(os.environ.get("MAS_L1_WINDOW", "20"))
     ttl_hours = int(os.environ.get("MAS_L1_TTL_HOURS", "24"))
     min_ciar = float(os.environ.get("MAS_MIN_CIAR", "0.6"))
+    promotion_policy_mode = os.environ.get("MAS_PROMOTION_POLICY_MODE", "hybrid_gate")
+    contradiction_policy_mode = os.environ.get("MAS_CONTRADICTION_POLICY_MODE", "off")
 
     return WrapperConfig(
         agent_type=args.agent_type,
@@ -596,6 +611,8 @@ def build_config(args: argparse.Namespace) -> WrapperConfig:
         window_size=window_size,
         ttl_hours=ttl_hours,
         min_ciar=min_ciar,
+        promotion_policy_mode=promotion_policy_mode,
+        contradiction_policy_mode=contradiction_policy_mode,
     )
 
 

@@ -32,17 +32,6 @@ services:
     networks:
       - mas_network
 
-  benchmark-runner:
-    build:
-      context: ./benchmarks/goodai-ltm-benchmark
-      dockerfile: Dockerfile
-    depends_on:
-      - mas-agent
-    environment:
-      AGENT_URL: ${AGENT_URL:-http://mas-agent:8080/v1/chat/completions}
-    networks:
-      - mas_network
-
   postgres:
     image: postgres:15
     profiles: ["local-db"]

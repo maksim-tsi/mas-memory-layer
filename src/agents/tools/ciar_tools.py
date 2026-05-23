@@ -109,7 +109,7 @@ async def ciar_calculate(
 
     Formula: clamp((Certainty x Impact) x Age_Decay x Recency_Boost, 0..1)
 
-    Returns JSON with final_score, all components, and promotion eligibility.
+    Returns JSON with the clamped final_score, all components, and promotion eligibility.
     """
     try:
         mas_runtime = MASToolRuntime(runtime)
@@ -304,7 +304,7 @@ async def ciar_explain(
             f"Temporal Score = AD x RB = {components['age_decay']:.4f} x {components['recency_boost']:.4f} = {components['temporal_score']:.4f}"
         )
         explanation.append(
-            f"Final CIAR Score = Base x Temporal = {components['base_score']:.4f} x {components['temporal_score']:.4f} = {components['final_score']:.4f}"
+            f"Final CIAR Score = clamp(Base x Temporal, 0..1) = {components['base_score']:.4f} x {components['temporal_score']:.4f} = {components['final_score']:.4f}"
         )
         explanation.append("")
 

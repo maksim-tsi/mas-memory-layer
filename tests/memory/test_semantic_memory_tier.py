@@ -35,8 +35,9 @@ def mock_typesense_adapter():
 
 
 @pytest_asyncio.fixture
-async def semantic_tier(mock_typesense_adapter):
+async def semantic_tier(mock_typesense_adapter, monkeypatch):
     """Fixture providing configured L4 tier."""
+    monkeypatch.setenv("MAS_V2_MODE", "false")
     tier = SemanticMemoryTier(
         typesense_adapter=mock_typesense_adapter, config={"collection_name": "knowledge_test"}
     )

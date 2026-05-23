@@ -121,9 +121,15 @@ async def semantic_l2_fact(request: Request, payload: L2SemanticFactRequest) -> 
                 content=payload.content,
                 fact_type="event",
                 ciar_score=1.0,
-                certainty=0.8,
-                impact=0.5,
-                metadata={},
+                certainty=1.0,
+                impact=1.0,
+                age_decay=1.0,
+                recency_boost=1.0,
+                metadata={
+                    "agent_id": payload.agent_id,
+                    "task_id": payload.task_id,
+                    "ciar_score_source": "v2_semantic_store",
+                },
             )
             await state.l2_tier.store(fact)
             return {"status": "success", "fact_id": fact_id}

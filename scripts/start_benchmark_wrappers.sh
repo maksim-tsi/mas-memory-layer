@@ -29,7 +29,7 @@ if [ -f "$ENV_FILE" ]; then
     set +a
 fi
 
-PYTHONPATH="$PROJECT_ROOT:$PROJECT_ROOT/benchmarks/goodai-ltm-benchmark${PYTHONPATH:+:$PYTHONPATH}"
+PYTHONPATH="$PROJECT_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
 
 WRAPPER_PIDS=""

@@ -127,9 +127,9 @@ The GoodAI benchmark integration currently preserves YAAM tracing metadata rathe
 
 The relevant behavior is implemented in:
 
-1. [benchmarks/goodai-ltm-benchmark/model_interfaces/remote_agent.py](../../benchmarks/goodai-ltm-benchmark/model_interfaces/remote_agent.py),
-2. [benchmarks/goodai-ltm-benchmark/runner/scheduler.py](../../benchmarks/goodai-ltm-benchmark/runner/scheduler.py),
-3. and [benchmarks/goodai-ltm-benchmark/runner/master_log.py](../../benchmarks/goodai-ltm-benchmark/runner/master_log.py).
+1. `model_interfaces/remote_agent.py` in the external `goodai-ltm-benchmark-yaam` repository,
+2. `runner/scheduler.py` in the external benchmark repository,
+3. and `runner/master_log.py` in the external benchmark repository.
 
 The benchmark currently propagates and persists (sanitized) YAAM response metadata that may include:
 
