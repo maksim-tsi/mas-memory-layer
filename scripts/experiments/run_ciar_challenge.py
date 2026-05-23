@@ -593,6 +593,20 @@ class CannedTopicSegmenter:
                     message_count=len(turns),
                 )
             ]
+        if scenario.scenario_id == "assistant_acknowledgement_noise":
+            return [
+                TopicSegment(
+                    segment_id=f"{scenario.scenario_id}-seg",
+                    topic="Assistant acknowledgement noise",
+                    summary="The conversation contains only thanks and acknowledgements.",
+                    key_points=["Thanks", "Acknowledgement", "No durable operational fact"],
+                    turn_indices=list(range(min(len(turns), 10))),
+                    certainty=0.95,
+                    impact=0.12,
+                    participant_count=2,
+                    message_count=len(turns),
+                )
+            ]
         if scenario.scenario_id == "segment_mismatch":
             return [
                 TopicSegment(
@@ -629,11 +643,11 @@ class CannedTopicSegmenter:
                 )
             ]
         if scenario.scenario_id == "speculative_claim":
-            certainty, impact = 0.45, 0.55
+            certainty, impact = 0.85, 0.8
         elif scenario.scenario_id == "contradiction_update":
             certainty, impact = 0.9, 0.8
         elif scenario.scenario_id == "assistant_inferred":
-            certainty, impact = 0.55, 0.65
+            certainty, impact = 0.86, 0.78
         else:
             certainty, impact = 0.92, 0.85
 
@@ -695,6 +709,23 @@ class CannedFactExtractor:
                     0.1,
                 )
             ]
+        if "assistant_acknowledgement_noise" in segment_id:
+            return [
+                make_fact(
+                    "thanks",
+                    "The user thanked the assistant.",
+                    FactType.MENTION,
+                    0.95,
+                    0.1,
+                ),
+                make_fact(
+                    "acknowledgement",
+                    "The assistant acknowledged the user's thanks.",
+                    FactType.MENTION,
+                    0.95,
+                    0.1,
+                ),
+            ]
         if "segment_mismatch" in segment_id:
             return [
                 make_fact(
@@ -710,6 +741,26 @@ class CannedFactExtractor:
                     FactType.MENTION,
                     0.9,
                     0.15,
+                ),
+            ]
+        if "urgent_with_chatter" in segment_id:
+            return [
+                make_fact(
+                    "urgent",
+                    "Container MEDU7711009 missed its customs hold release window.",
+                    FactType.EVENT,
+                    0.94,
+                    0.9,
+                ),
+                make_fact(
+                    "assistant-recording",
+                    (
+                        "The assistant will record that container MEDU7711009 missed "
+                        "its customs hold release window."
+                    ),
+                    FactType.MENTION,
+                    0.92,
+                    0.72,
                 ),
             ]
         if "speculative_claim" in segment_id:

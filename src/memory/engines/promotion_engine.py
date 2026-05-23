@@ -86,6 +86,58 @@ class EvidenceRanker:
         "reroute",
         "rerouted",
     }
+    ASSISTANT_ACTION_SUBJECTS: ClassVar[tuple[str, ...]] = (
+        "assistant ",
+        "the assistant ",
+        "i ",
+        "i'll ",
+        "i will ",
+        "we will ",
+    )
+    ASSISTANT_ACTION_TERMS: ClassVar[tuple[str, ...]] = (
+        "acknowledged",
+        "acknowledges",
+        "confirmed",
+        "confirms",
+        "said",
+        "says",
+        "will record",
+        "will mark",
+        "will check",
+        "will use",
+        "will treat",
+        "recorded",
+        "marked",
+        "noted",
+        "logged",
+    )
+    CHATTER_TERMS: ClassVar[tuple[str, ...]] = (
+        "thanks",
+        "thanked",
+        "thank you",
+        "continue later",
+        "nice work",
+        "no further action",
+    )
+    SPECULATIVE_TERMS: ClassVar[tuple[str, ...]] = (
+        "might",
+        "maybe",
+        "possibly",
+        "could",
+        "not sure",
+        "unconfirmed",
+        "suspected",
+    )
+    ASSISTANT_INFERENCE_TERMS: ClassVar[tuple[str, ...]] = (
+        "likely prefers",
+        "likely prefer",
+        "probably prefers",
+        "probably prefer",
+        "appears to prefer",
+        "appear to prefer",
+        "seems to prefer",
+        "seem to prefer",
+    )
 
     def assess(self, fact: Fact, *, raw_fact_ciar: float, threshold: float) -> EvidenceAssessment:
         content = " ".join(fact.content.lower().split())
@@ -100,22 +152,54 @@ class EvidenceRanker:
             and len(words) <= 8
             and not has_domain_term
         )
+        low_value_chatter = (
+            fact.fact_type == FactType.MENTION
+            and fact.impact < 0.4
+            and not has_domain_term
+            and any(term in content for term in self.CHATTER_TERMS)
+        )
+        assistant_action_residue = self._is_assistant_action_residue(content)
+        speculative_claim = self._contains_speculative_claim(content)
+        assistant_inference = self._contains_assistant_inference(content)
         contradiction_candidate = any(term in content for term in self.CONTRADICTION_TERMS)
-        conversational_residue = residue_phrase or low_value_mention
+        conversational_residue = (
+            residue_phrase
+            or low_value_mention
+            or low_value_chatter
+            or assistant_action_residue
+        )
+        needs_review = conversational_residue or speculative_claim or assistant_inference
         score = max(0.0, min(1.0, raw_fact_ciar))
-        if conversational_residue:
+        if needs_review:
             score = min(score, 0.2)
 
-        decision = "REVIEW_ONLY" if conversational_residue or score + 1e-6 < threshold else "STORE"
+        decision = "REVIEW_ONLY" if needs_review or score + 1e-6 < threshold else "STORE"
         return EvidenceAssessment(
             score=round(score, 4),
             flags={
                 "conversational_residue": conversational_residue,
+                "residue_phrase": residue_phrase,
+                "low_value_mention": low_value_mention,
+                "low_value_chatter": low_value_chatter,
+                "assistant_action_residue": assistant_action_residue,
+                "speculative_claim": speculative_claim,
+                "assistant_inference": assistant_inference,
                 "domain_signal": has_domain_term,
                 "contradiction_candidate": contradiction_candidate,
             },
             decision=decision,
         )
+
+    def _is_assistant_action_residue(self, content: str) -> bool:
+        if not content.startswith(self.ASSISTANT_ACTION_SUBJECTS):
+            return False
+        return any(term in content for term in self.ASSISTANT_ACTION_TERMS)
+
+    def _contains_speculative_claim(self, content: str) -> bool:
+        return any(term in content for term in self.SPECULATIVE_TERMS)
+
+    def _contains_assistant_inference(self, content: str) -> bool:
+        return any(term in content for term in self.ASSISTANT_INFERENCE_TERMS)
 
 
 class PromotionEngine(BaseEngine):

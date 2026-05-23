@@ -432,6 +432,156 @@ async def test_hybrid_gate_marks_conversational_residue_review_only(
 
 
 @pytest.mark.asyncio
+async def test_hybrid_gate_reviews_assistant_action_but_stores_operational_state(
+    mock_l1, mock_l2, mock_segmenter, mock_extractor, sample_turns
+):
+    """Assistant commitments with domain terms are residue; durable state still stores."""
+    mock_l1.retrieve.return_value = sample_turns
+    mock_l2.ciar_threshold = 0.5
+    segment = TopicSegment(
+        segment_id="seg-policy",
+        topic="Customs hold release miss",
+        summary="Container missed its customs hold release window.",
+        key_points=["Missed customs hold release", "Assistant recording note"],
+        turn_indices=[0, 1, 2],
+        certainty=0.9,
+        impact=0.9,
+    )
+    operational_fact = Fact(
+        fact_id="fact-operational",
+        session_id="123",
+        content="Container MEDU7711009 missed its customs hold release window.",
+        certainty=0.94,
+        impact=0.9,
+        fact_type=FactType.EVENT,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    assistant_fact = Fact(
+        fact_id="fact-assistant-action",
+        session_id="123",
+        content=(
+            "The assistant will record that container MEDU7711009 missed its customs "
+            "hold release window."
+        ),
+        certainty=0.92,
+        impact=0.72,
+        fact_type=FactType.MENTION,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    mock_segmenter.segment_turns.return_value = [segment]
+    mock_extractor.extract_facts.return_value = [operational_fact, assistant_fact]
+    engine = PromotionEngine(
+        l1_tier=mock_l1,
+        l2_tier=mock_l2,
+        topic_segmenter=mock_segmenter,
+        fact_extractor=mock_extractor,
+        ciar_scorer=CIARScorer(),
+        config={
+            "promotion_threshold": 0.5,
+            "batch_min_turns": 10,
+            "promotion_policy_mode": "hybrid_gate",
+        },
+    )
+
+    stats = await engine.process(session_id="123")
+
+    assert stats["facts_promoted"] == 1
+    assert stats["facts_review_only"] == 1
+    stored_fact = mock_l2.store.call_args.args[0]
+    assert stored_fact.fact_id == "fact-operational"
+    stored_flags = operational_fact.metadata["ciar_provenance"]["evidence_quality_flags"]
+    assert stored_flags["domain_signal"] is True
+    assert stored_flags["assistant_action_residue"] is False
+    assistant_provenance = assistant_fact.metadata["ciar_provenance"]
+    assert assistant_provenance["review_only"] is True
+    assert assistant_provenance["evidence_quality_flags"]["domain_signal"] is True
+    assert assistant_provenance["evidence_quality_flags"]["assistant_action_residue"] is True
+    assert assistant_provenance["evidence_quality_flags"]["conversational_residue"] is True
+
+
+@pytest.mark.asyncio
+async def test_hybrid_gate_reviews_speculation_and_inference_but_stores_confirmed_fact(
+    mock_l1, mock_l2, mock_segmenter, mock_extractor, sample_turns
+):
+    """Speculation and assistant inference are review-only, confirmed facts can store."""
+    mock_l1.retrieve.return_value = sample_turns
+    mock_l2.ciar_threshold = 0.5
+    segment = TopicSegment(
+        segment_id="seg-speculation",
+        topic="Supplier risk and freight preference",
+        summary="One speculative supplier risk and one inferred user preference.",
+        key_points=["Speculative risk", "Inferred preference", "Confirmed preference"],
+        turn_indices=[0, 1, 2],
+        certainty=0.9,
+        impact=0.9,
+    )
+    speculative_fact = Fact(
+        fact_id="fact-speculative",
+        session_id="123",
+        content="The supplier might miss the customs document deadline.",
+        certainty=0.9,
+        impact=0.8,
+        fact_type=FactType.EVENT,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    inferred_fact = Fact(
+        fact_id="fact-inferred",
+        session_id="123",
+        content="The user likely prefers air freight for urgent shipments.",
+        certainty=0.9,
+        impact=0.8,
+        fact_type=FactType.PREFERENCE,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    confirmed_fact = Fact(
+        fact_id="fact-confirmed",
+        session_id="123",
+        content="The user prefers air freight for urgent shipments.",
+        certainty=0.9,
+        impact=0.8,
+        fact_type=FactType.PREFERENCE,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    mock_segmenter.segment_turns.return_value = [segment]
+    mock_extractor.extract_facts.return_value = [
+        speculative_fact,
+        inferred_fact,
+        confirmed_fact,
+    ]
+    engine = PromotionEngine(
+        l1_tier=mock_l1,
+        l2_tier=mock_l2,
+        topic_segmenter=mock_segmenter,
+        fact_extractor=mock_extractor,
+        ciar_scorer=CIARScorer(),
+        config={
+            "promotion_threshold": 0.5,
+            "batch_min_turns": 10,
+            "promotion_policy_mode": "hybrid_gate",
+        },
+    )
+
+    stats = await engine.process(session_id="123")
+
+    assert stats["facts_promoted"] == 1
+    assert stats["facts_review_only"] == 2
+    stored_fact = mock_l2.store.call_args.args[0]
+    assert stored_fact.fact_id == "fact-confirmed"
+    speculative_flags = speculative_fact.metadata["ciar_provenance"]["evidence_quality_flags"]
+    inferred_flags = inferred_fact.metadata["ciar_provenance"]["evidence_quality_flags"]
+    confirmed_flags = confirmed_fact.metadata["ciar_provenance"]["evidence_quality_flags"]
+    assert speculative_fact.metadata["ciar_provenance"]["review_only"] is True
+    assert speculative_flags["speculative_claim"] is True
+    assert speculative_flags["assistant_inference"] is False
+    assert inferred_fact.metadata["ciar_provenance"]["review_only"] is True
+    assert inferred_flags["assistant_inference"] is True
+    assert inferred_flags["speculative_claim"] is False
+    assert confirmed_fact.metadata["ciar_provenance"]["review_only"] is False
+    assert confirmed_flags["speculative_claim"] is False
+    assert confirmed_flags["assistant_inference"] is False
+
+
+@pytest.mark.asyncio
 async def test_contradiction_policy_suppresses_superseded_batch_fact(
     mock_l1, mock_l2, mock_segmenter, mock_extractor, sample_turns
 ):

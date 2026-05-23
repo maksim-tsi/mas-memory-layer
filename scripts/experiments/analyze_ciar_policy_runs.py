@@ -19,6 +19,13 @@ REQUIRED_ARTIFACTS = (
     "run_manifest.json",
 )
 SUPPRESSION_SCENARIOS = ("contradiction_update", "repeated_correction")
+RESIDUE_SCENARIOS = (
+    "small_talk",
+    "segment_mismatch",
+    "assistant_acknowledgement_noise",
+    "urgent_with_chatter",
+)
+SPECULATIVE_SCENARIOS = ("speculative_claim", "assistant_inferred")
 
 
 @dataclass
@@ -33,6 +40,12 @@ class ScenarioAggregate:
     errors: int = 0
     raw_stored_delta_sum: float = 0.0
     raw_stored_delta_count: int = 0
+    residue_promoted: int = 0
+    residue_review_only: int = 0
+    speculative_promoted: int = 0
+    speculative_review_only: int = 0
+    assistant_inference_promoted: int = 0
+    assistant_inference_review_only: int = 0
     promoted_contents: list[str] = field(default_factory=list)
     review_only_contents: list[str] = field(default_factory=list)
     suppressed_contents: list[str] = field(default_factory=list)
@@ -53,6 +66,33 @@ class ScenarioAggregate:
         self.raw_stored_delta_sum += float(stored) - float(raw)
         self.raw_stored_delta_count += 1
 
+    def add_residue_signal(self, row: dict[str, Any]) -> None:
+        flags = row.get("evidence_quality_flags") or {}
+        if not isinstance(flags, dict) or not flags.get("conversational_residue"):
+            return
+        if row.get("suppressed"):
+            return
+        if row.get("review_only"):
+            self.residue_review_only += 1
+        else:
+            self.residue_promoted += 1
+
+    def add_speculative_signal(self, row: dict[str, Any]) -> None:
+        flags = row.get("evidence_quality_flags") or {}
+        if not isinstance(flags, dict) or row.get("suppressed"):
+            return
+        review_only = bool(row.get("review_only"))
+        if flags.get("speculative_claim"):
+            if review_only:
+                self.speculative_review_only += 1
+            else:
+                self.speculative_promoted += 1
+        if flags.get("assistant_inference"):
+            if review_only:
+                self.assistant_inference_review_only += 1
+            else:
+                self.assistant_inference_promoted += 1
+
     def to_dict(self) -> dict[str, Any]:
         avg_delta = None
         if self.raw_stored_delta_count:
@@ -67,6 +107,12 @@ class ScenarioAggregate:
             "facts_suppressed": self.facts_suppressed,
             "errors": self.errors,
             "avg_stored_minus_raw_ciar": avg_delta,
+            "residue_promoted": self.residue_promoted,
+            "residue_review_only": self.residue_review_only,
+            "speculative_promoted": self.speculative_promoted,
+            "speculative_review_only": self.speculative_review_only,
+            "assistant_inference_promoted": self.assistant_inference_promoted,
+            "assistant_inference_review_only": self.assistant_inference_review_only,
             "promoted_contents": self.promoted_contents,
             "review_only_contents": self.review_only_contents,
             "suppressed_contents": self.suppressed_contents,
@@ -160,6 +206,8 @@ def analyze_run(run_dir: Path) -> dict[str, Any]:
             aggregate.review_only_contents.append(content)
         else:
             aggregate.promoted_contents.append(content)
+        aggregate.add_residue_signal(row)
+        aggregate.add_speculative_signal(row)
 
     for event in events:
         event_type = event.get("event_type")
@@ -221,6 +269,18 @@ def aggregate_runs(run_dirs: list[Path]) -> dict[str, Any]:
             aggregate.facts_review_only += int(stats["facts_review_only"])
             aggregate.facts_suppressed += int(stats["facts_suppressed"])
             aggregate.errors += int(stats["errors"])
+            aggregate.residue_promoted += int(stats.get("residue_promoted", 0) or 0)
+            aggregate.residue_review_only += int(stats.get("residue_review_only", 0) or 0)
+            aggregate.speculative_promoted += int(stats.get("speculative_promoted", 0) or 0)
+            aggregate.speculative_review_only += int(
+                stats.get("speculative_review_only", 0) or 0
+            )
+            aggregate.assistant_inference_promoted += int(
+                stats.get("assistant_inference_promoted", 0) or 0
+            )
+            aggregate.assistant_inference_review_only += int(
+                stats.get("assistant_inference_review_only", 0) or 0
+            )
             if stats["avg_stored_minus_raw_ciar"] is not None:
                 count = len(stats["promoted_contents"])
                 aggregate.raw_stored_delta_sum += (
@@ -245,6 +305,8 @@ def aggregate_runs(run_dirs: list[Path]) -> dict[str, Any]:
         "artifact_gaps": artifact_gaps,
         "by_config": summary,
         "suppression_evaluation": build_suppression_evaluation(summary),
+        "residue_evaluation": build_residue_evaluation(summary),
+        "speculative_evaluation": build_speculative_evaluation(summary),
         "recommendation_inputs": build_recommendation_inputs(summary),
     }
 
@@ -282,6 +344,78 @@ def build_suppression_evaluation(by_config: dict[str, Any]) -> dict[str, Any]:
                 "suppressed_contents": unique_texts(
                     stats.get("suppressed_contents", [])
                 ),
+            }
+        if focused:
+            evaluation[config_key] = focused
+    return evaluation
+
+
+def build_speculative_evaluation(by_config: dict[str, Any]) -> dict[str, Any]:
+    def unique_texts(values: list[str]) -> list[str]:
+        seen = set()
+        unique = []
+        for value in values:
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            unique.append(value)
+        return unique
+
+    evaluation: dict[str, Any] = {}
+    for config_key, scenarios in sorted(by_config.items()):
+        focused: dict[str, Any] = {}
+        for scenario_id in SPECULATIVE_SCENARIOS:
+            stats = scenarios.get(scenario_id)
+            if not stats:
+                continue
+            focused[scenario_id] = {
+                "runs": int(stats.get("runs", 0) or 0),
+                "facts_promoted": int(stats.get("facts_promoted", 0) or 0),
+                "facts_review_only": int(stats.get("facts_review_only", 0) or 0),
+                "speculative_promoted": int(stats.get("speculative_promoted", 0) or 0),
+                "speculative_review_only": int(
+                    stats.get("speculative_review_only", 0) or 0
+                ),
+                "assistant_inference_promoted": int(
+                    stats.get("assistant_inference_promoted", 0) or 0
+                ),
+                "assistant_inference_review_only": int(
+                    stats.get("assistant_inference_review_only", 0) or 0
+                ),
+                "promoted_contents": unique_texts(stats.get("promoted_contents", [])),
+                "review_only_contents": unique_texts(stats.get("review_only_contents", [])),
+            }
+        if focused:
+            evaluation[config_key] = focused
+    return evaluation
+
+
+def build_residue_evaluation(by_config: dict[str, Any]) -> dict[str, Any]:
+    def unique_texts(values: list[str]) -> list[str]:
+        seen = set()
+        unique = []
+        for value in values:
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            unique.append(value)
+        return unique
+
+    evaluation: dict[str, Any] = {}
+    for config_key, scenarios in sorted(by_config.items()):
+        focused: dict[str, Any] = {}
+        for scenario_id in RESIDUE_SCENARIOS:
+            stats = scenarios.get(scenario_id)
+            if not stats:
+                continue
+            focused[scenario_id] = {
+                "runs": int(stats.get("runs", 0) or 0),
+                "facts_promoted": int(stats.get("facts_promoted", 0) or 0),
+                "facts_review_only": int(stats.get("facts_review_only", 0) or 0),
+                "residue_promoted": int(stats.get("residue_promoted", 0) or 0),
+                "residue_review_only": int(stats.get("residue_review_only", 0) or 0),
+                "promoted_contents": unique_texts(stats.get("promoted_contents", [])),
+                "review_only_contents": unique_texts(stats.get("review_only_contents", [])),
             }
         if focused:
             evaluation[config_key] = focused
@@ -365,6 +499,93 @@ def render_markdown(report: dict[str, Any]) -> str:
                 )
     else:
         lines.append("| n/a | n/a | 0 | 0 | 0 | n/a |")
+    lines.extend([
+        "",
+        "## Speculative Evaluation",
+        "",
+        (
+            "| Config | Scenario | Runs | Promoted | Review-Only | "
+            "Speculative Promoted | Speculative Review-Only | "
+            "Inference Promoted | Inference Review-Only |"
+        ),
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|",
+    ])
+    speculative_evaluation = report.get("speculative_evaluation") or {}
+    if speculative_evaluation:
+        for config_key, scenarios in sorted(speculative_evaluation.items()):
+            for scenario_id, stats in sorted(scenarios.items()):
+                lines.append(
+                    "| "
+                    + " | ".join(
+                        [
+                            f"`{config_key}`",
+                            f"`{scenario_id}`",
+                            str(stats["runs"]),
+                            str(stats["facts_promoted"]),
+                            str(stats["facts_review_only"]),
+                            str(stats["speculative_promoted"]),
+                            str(stats["speculative_review_only"]),
+                            str(stats["assistant_inference_promoted"]),
+                            str(stats["assistant_inference_review_only"]),
+                        ]
+                    )
+                    + " |"
+                )
+        lines.extend(["", "### Speculative Contents", ""])
+        for config_key, scenarios in sorted(speculative_evaluation.items()):
+            for scenario_id, stats in sorted(scenarios.items()):
+                promoted = "; ".join(stats.get("promoted_contents", [])) or "None"
+                review_only = "; ".join(stats.get("review_only_contents", [])) or "None"
+                lines.append(
+                    f"- `{config_key}` / `{scenario_id}` promoted: {promoted}"
+                )
+                lines.append(
+                    f"- `{config_key}` / `{scenario_id}` review-only: {review_only}"
+                )
+    else:
+        lines.append("| n/a | n/a | 0 | 0 | 0 | 0 | 0 | 0 | 0 |")
+    lines.extend([
+        "",
+        "## Residue Evaluation",
+        "",
+        (
+            "| Config | Scenario | Runs | Promoted | Review-Only | "
+            "Residue Promoted | Residue Review-Only |"
+        ),
+        "|---|---|---:|---:|---:|---:|---:|",
+    ])
+    residue_evaluation = report.get("residue_evaluation") or {}
+    if residue_evaluation:
+        for config_key, scenarios in sorted(residue_evaluation.items()):
+            for scenario_id, stats in sorted(scenarios.items()):
+                lines.append(
+                    "| "
+                    + " | ".join(
+                        [
+                            f"`{config_key}`",
+                            f"`{scenario_id}`",
+                            str(stats["runs"]),
+                            str(stats["facts_promoted"]),
+                            str(stats["facts_review_only"]),
+                            str(stats["residue_promoted"]),
+                            str(stats["residue_review_only"]),
+                        ]
+                    )
+                    + " |"
+                )
+        lines.extend(["", "### Residue Contents", ""])
+        for config_key, scenarios in sorted(residue_evaluation.items()):
+            for scenario_id, stats in sorted(scenarios.items()):
+                promoted = "; ".join(stats.get("promoted_contents", [])) or "None"
+                review_only = "; ".join(stats.get("review_only_contents", [])) or "None"
+                lines.append(
+                    f"- `{config_key}` / `{scenario_id}` promoted: {promoted}"
+                )
+                lines.append(
+                    f"- `{config_key}` / `{scenario_id}` review-only: {review_only}"
+                )
+    else:
+        lines.append("| n/a | n/a | 0 | 0 | 0 | 0 | 0 |")
     lines.extend([
         "",
         "## Recommendation Inputs",

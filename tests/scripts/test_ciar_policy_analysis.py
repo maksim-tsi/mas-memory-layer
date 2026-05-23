@@ -77,6 +77,38 @@ def make_run(
                 "facts_review_only": 1,
                 "facts_suppressed": 0,
             },
+            "assistant_acknowledgement_noise": {
+                "segments_promoted": 0,
+                "facts_extracted": 0,
+                "facts_promoted": 0,
+                "facts_filtered": 0,
+                "facts_review_only": 0,
+                "facts_suppressed": 0,
+            },
+            "urgent_with_chatter": {
+                "segments_promoted": 1,
+                "facts_extracted": 2,
+                "facts_promoted": 1,
+                "facts_filtered": 0,
+                "facts_review_only": 1,
+                "facts_suppressed": 0,
+            },
+            "speculative_claim": {
+                "segments_promoted": 1,
+                "facts_extracted": 1,
+                "facts_promoted": 0,
+                "facts_filtered": 0,
+                "facts_review_only": 1,
+                "facts_suppressed": 0,
+            },
+            "assistant_inferred": {
+                "segments_promoted": 1,
+                "facts_extracted": 1,
+                "facts_promoted": 0,
+                "facts_filtered": 0,
+                "facts_review_only": 1,
+                "facts_suppressed": 0,
+            },
             "contradiction_update": {
                 "segments_promoted": 1,
                 "facts_extracted": 2,
@@ -101,6 +133,61 @@ def make_run(
             "content": "Urgent container temperature excursion.",
             "raw_fact_ciar": 0.9,
             "stored_ciar": 0.9,
+        },
+        {
+            "scenario_id": "segment_mismatch",
+            "content": "The user said thanks and asked to continue later.",
+            "raw_fact_ciar": 0.135,
+            "stored_ciar": None,
+            "review_only": True,
+            "evidence_quality_flags": {
+                "conversational_residue": True,
+                "low_value_chatter": True,
+            },
+        },
+        {
+            "scenario_id": "urgent_with_chatter",
+            "content": "Container MEDU7711009 missed its customs hold release window.",
+            "raw_fact_ciar": 0.846,
+            "stored_ciar": 0.846,
+            "evidence_quality_flags": {"domain_signal": True},
+        },
+        {
+            "scenario_id": "urgent_with_chatter",
+            "content": (
+                "The assistant will record that container MEDU7711009 missed its "
+                "customs hold release window."
+            ),
+            "raw_fact_ciar": 0.6624,
+            "stored_ciar": None,
+            "review_only": True,
+            "evidence_quality_flags": {
+                "conversational_residue": True,
+                "assistant_action_residue": True,
+                "domain_signal": True,
+            },
+        },
+        {
+            "scenario_id": "speculative_claim",
+            "content": "The supplier might miss the customs document deadline.",
+            "raw_fact_ciar": 0.231,
+            "stored_ciar": None,
+            "review_only": True,
+            "evidence_quality_flags": {
+                "speculative_claim": True,
+                "assistant_inference": False,
+            },
+        },
+        {
+            "scenario_id": "assistant_inferred",
+            "content": "The user likely prefers air freight for urgent shipments.",
+            "raw_fact_ciar": 0.336,
+            "stored_ciar": None,
+            "review_only": True,
+            "evidence_quality_flags": {
+                "speculative_claim": False,
+                "assistant_inference": True,
+            },
         },
         {
             "scenario_id": "contradiction_update",
@@ -235,7 +322,11 @@ def test_render_markdown_includes_recommendation_table(tmp_path: Path) -> None:
     assert "Small Talk Promoted" in markdown
     assert "## Run Quality" in markdown
     assert "## Suppression Evaluation" in markdown
+    assert "## Speculative Evaluation" in markdown
+    assert "## Residue Evaluation" in markdown
     assert "`contradiction_update`" in markdown
+    assert "`speculative_claim`" in markdown
+    assert "`urgent_with_chatter`" in markdown
     assert "`policy_evidence_with_warnings`" in markdown
 
 
@@ -341,6 +432,63 @@ def test_suppression_evaluation_compares_focused_policy_modes(tmp_path: Path) ->
     ]
 
 
+def test_residue_evaluation_reports_review_only_residue_without_promoted_residue(
+    tmp_path: Path,
+) -> None:
+    run_dir = make_run(
+        tmp_path,
+        run_id="ciar-exp-dry-residue-tightening-20260523-01",
+        promotion_policy="hybrid_gate",
+        contradiction_policy="off",
+    )
+
+    report = aggregate_runs([run_dir])
+    evaluation = report["residue_evaluation"]["hybrid_gate+off"]
+
+    assert evaluation["small_talk"]["facts_promoted"] == 0
+    assert evaluation["assistant_acknowledgement_noise"]["facts_promoted"] == 0
+    assert evaluation["segment_mismatch"]["facts_promoted"] == 1
+    assert evaluation["segment_mismatch"]["facts_review_only"] == 1
+    assert evaluation["segment_mismatch"]["residue_promoted"] == 0
+    assert evaluation["segment_mismatch"]["residue_review_only"] == 1
+    assert evaluation["urgent_with_chatter"]["facts_promoted"] == 1
+    assert evaluation["urgent_with_chatter"]["facts_review_only"] == 1
+    assert evaluation["urgent_with_chatter"]["residue_promoted"] == 0
+    assert evaluation["urgent_with_chatter"]["residue_review_only"] == 1
+    assert "The user said thanks and asked to continue later." in (
+        evaluation["segment_mismatch"]["review_only_contents"]
+    )
+
+
+def test_speculative_evaluation_reports_review_only_uncertainty_flags(
+    tmp_path: Path,
+) -> None:
+    run_dir = make_run(
+        tmp_path,
+        run_id="ciar-exp-dry-speculative-review-only-20260523-01",
+        promotion_policy="hybrid_gate",
+        contradiction_policy="off",
+    )
+
+    report = aggregate_runs([run_dir])
+    evaluation = report["speculative_evaluation"]["hybrid_gate+off"]
+
+    assert evaluation["speculative_claim"]["facts_promoted"] == 0
+    assert evaluation["speculative_claim"]["facts_review_only"] == 1
+    assert evaluation["speculative_claim"]["speculative_promoted"] == 0
+    assert evaluation["speculative_claim"]["speculative_review_only"] == 1
+    assert evaluation["assistant_inferred"]["facts_promoted"] == 0
+    assert evaluation["assistant_inferred"]["facts_review_only"] == 1
+    assert evaluation["assistant_inferred"]["assistant_inference_promoted"] == 0
+    assert evaluation["assistant_inferred"]["assistant_inference_review_only"] == 1
+    assert "The supplier might miss the customs document deadline." in (
+        evaluation["speculative_claim"]["review_only_contents"]
+    )
+    assert "The user likely prefers air freight for urgent shipments." in (
+        evaluation["assistant_inferred"]["review_only_contents"]
+    )
+
+
 def test_suppression_evaluation_omits_runs_without_focused_scenarios(
     tmp_path: Path,
 ) -> None:
@@ -368,4 +516,8 @@ def test_suppression_evaluation_omits_runs_without_focused_scenarios(
     report = aggregate_runs([run_dir])
 
     assert report["suppression_evaluation"] == {}
+    assert report["residue_evaluation"]["hybrid_gate+off"]["small_talk"]["facts_promoted"] == 0
+    assert report["speculative_evaluation"] == {}
     assert "## Suppression Evaluation" in render_markdown(report)
+    assert "## Residue Evaluation" in render_markdown(report)
+    assert "## Speculative Evaluation" in render_markdown(report)

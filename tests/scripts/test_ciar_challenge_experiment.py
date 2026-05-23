@@ -241,6 +241,158 @@ async def test_canned_fact_extractor_returns_repeated_correction_route_facts() -
 
 
 @pytest.mark.asyncio
+async def test_canned_fact_extractor_returns_residue_tightening_facts() -> None:
+    extractor = CannedFactExtractor()
+
+    acknowledgement_facts = await extractor.extract_facts(
+        "acknowledgement only",
+        {
+            "topic_segment_id": "assistant_acknowledgement_noise-seg",
+            "session_id": "session-ack",
+            "topic_label": "Assistant acknowledgement noise",
+        },
+    )
+    urgent_facts = await extractor.extract_facts(
+        "urgent chatter",
+        {
+            "topic_segment_id": "urgent_with_chatter-seg",
+            "session_id": "session-urgent",
+            "topic_label": "Urgent with chatter",
+        },
+    )
+
+    assert [fact.content for fact in acknowledgement_facts] == [
+        "The user thanked the assistant.",
+        "The assistant acknowledged the user's thanks.",
+    ]
+    assert [fact.content for fact in urgent_facts] == [
+        "Container MEDU7711009 missed its customs hold release window.",
+        (
+            "The assistant will record that container MEDU7711009 missed its "
+            "customs hold release window."
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dry_residue_tightening_reviews_chatter_without_losing_operational_facts(
+    tmp_path: Path,
+) -> None:
+    config = ExperimentConfig(
+        run_id="ciar-test-residue-tightening",
+        output_dir=tmp_path,
+        dry_run=True,
+        keep_data=False,
+        model="test-model",
+        min_ciar=0.6,
+        phoenix_endpoint="http://127.0.0.1:16006/v1/traces",
+        phoenix_project_name="ciar-test",
+        phoenix_access_mode="configured",
+        scenario_ids=[
+            "small_talk",
+            "segment_mismatch",
+            "assistant_acknowledgement_noise",
+            "urgent_with_chatter",
+        ],
+        promotion_policy_mode="hybrid_gate",
+        contradiction_policy_mode="off",
+    )
+    experiment = CIARChallengeExperiment(config)
+
+    state = await experiment.run()
+
+    assert state.promotion_stats["small_talk"]["facts_promoted"] == 0
+    assert state.promotion_stats["assistant_acknowledgement_noise"]["facts_promoted"] == 0
+    assert state.promotion_stats["segment_mismatch"]["facts_promoted"] == 1
+    assert state.promotion_stats["segment_mismatch"]["facts_review_only"] == 1
+    assert state.promotion_stats["urgent_with_chatter"]["facts_promoted"] == 1
+    assert state.promotion_stats["urgent_with_chatter"]["facts_review_only"] == 1
+
+    promoted = {
+        row["content"]
+        for row in state.alternative_scores
+        if not row.get("review_only") and row.get("suppressed") is not True
+    }
+    review_only = {
+        row["content"]: row["evidence_quality_flags"]
+        for row in state.alternative_scores
+        if row.get("review_only")
+    }
+    assert "Container MAEU9182736 had a temperature excursion above threshold." in promoted
+    assert "Container MEDU7711009 missed its customs hold release window." in promoted
+    assert (
+        "The user said thanks and asked to continue later."
+        in review_only
+    )
+    assert review_only[
+        "The user said thanks and asked to continue later."
+    ]["conversational_residue"] is True
+    assistant_row = (
+        "The assistant will record that container MEDU7711009 missed its "
+        "customs hold release window."
+    )
+    assert assistant_row in review_only
+    assert review_only[assistant_row]["assistant_action_residue"] is True
+    assert review_only[assistant_row]["conversational_residue"] is True
+
+
+@pytest.mark.asyncio
+async def test_dry_speculative_claims_are_review_only_with_positive_controls(
+    tmp_path: Path,
+) -> None:
+    config = ExperimentConfig(
+        run_id="ciar-test-speculative-review-only",
+        output_dir=tmp_path,
+        dry_run=True,
+        keep_data=False,
+        model="test-model",
+        min_ciar=0.6,
+        phoenix_endpoint="http://127.0.0.1:16006/v1/traces",
+        phoenix_project_name="ciar-test",
+        phoenix_access_mode="configured",
+        scenario_ids=[
+            "speculative_claim",
+            "assistant_inferred",
+            "clear_constraint",
+            "urgent_event",
+        ],
+        promotion_policy_mode="hybrid_gate",
+        contradiction_policy_mode="off",
+    )
+    experiment = CIARChallengeExperiment(config)
+
+    state = await experiment.run()
+
+    assert state.promotion_stats["speculative_claim"]["segments_promoted"] == 1
+    assert state.promotion_stats["speculative_claim"]["facts_extracted"] == 1
+    assert state.promotion_stats["speculative_claim"]["facts_promoted"] == 0
+    assert state.promotion_stats["speculative_claim"]["facts_review_only"] == 1
+    assert state.promotion_stats["assistant_inferred"]["segments_promoted"] == 1
+    assert state.promotion_stats["assistant_inferred"]["facts_extracted"] == 1
+    assert state.promotion_stats["assistant_inferred"]["facts_promoted"] == 0
+    assert state.promotion_stats["assistant_inferred"]["facts_review_only"] == 1
+    assert state.promotion_stats["clear_constraint"]["facts_promoted"] == 1
+    assert state.promotion_stats["urgent_event"]["facts_promoted"] == 1
+
+    review_only = {
+        row["scenario_id"]: row
+        for row in state.alternative_scores
+        if row.get("review_only")
+    }
+    assert review_only["speculative_claim"]["evidence_quality_flags"][
+        "speculative_claim"
+    ] is True
+    assert review_only["assistant_inferred"]["evidence_quality_flags"][
+        "assistant_inference"
+    ] is True
+    assert all(
+        not row.get("review_only")
+        for row in state.alternative_scores
+        if row["scenario_id"] in {"clear_constraint", "urgent_event"}
+    )
+
+
+@pytest.mark.asyncio
 async def test_dry_repeated_correction_suppresses_old_and_middle_routes(
     tmp_path: Path,
 ) -> None:
