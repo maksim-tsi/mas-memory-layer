@@ -1204,6 +1204,32 @@ class CIARChallengeExperiment:
 
         if not self.config.dry_run and not self.config.skip_provider_health:
             state.manifest["provider_health"] = await self._run_provider_health_check()
+            if self.config.require_provider_health:
+                if state.manifest["provider_health"].get("status") == "failed":
+                    state.manifest["operational_classification"] = classify_operational_run(
+                        manifest=state.manifest,
+                        promotion_stats=state.promotion_stats,
+                        events=state.events,
+                        alternative_scores=state.alternative_scores,
+                        artifacts=artifact_presence(self.output_dir),
+                    )
+                    write_json(self.output_dir / "run_manifest.json", state.manifest)
+                    raise RuntimeError(
+                        f"Provider health check failed: {state.manifest['provider_health']}"
+                    )
+
+                redis_probe = await self._run_post_health_redis_probe()
+                state.manifest["provider_health"]["post_health_redis_probe"] = redis_probe
+                if not redis_probe["ok"]:
+                    state.manifest["operational_classification"] = classify_operational_run(
+                        manifest=state.manifest,
+                        promotion_stats=state.promotion_stats,
+                        events=state.events,
+                        alternative_scores=state.alternative_scores,
+                        artifacts=artifact_presence(self.output_dir),
+                    )
+                    write_json(self.output_dir / "run_manifest.json", state.manifest)
+                    raise RuntimeError(f"Post-health Redis probe failed: {redis_probe}")
         elif self.config.skip_provider_health:
             state.manifest["provider_health"] = {
                 "status": "skipped",
@@ -1219,9 +1245,12 @@ class CIARChallengeExperiment:
 
         started = time.perf_counter()
         timeout_s = self.config.provider_health_timeout_s
+        client: Any | None = None
+        cleanup = {"status": "skipped", "errors": []}
         try:
-            health = await asyncio.wait_for(LLMClient.from_env().health_check(), timeout=timeout_s)
-            return {
+            client = LLMClient.from_env()
+            health = await asyncio.wait_for(client.health_check(), timeout=timeout_s)
+            result = {
                 "status": "checked",
                 "required": self.config.require_provider_health,
                 "timeout_s": timeout_s,
@@ -1240,9 +1269,61 @@ class CIARChallengeExperiment:
                 "error_type": type(exc).__name__,
                 "error": str(exc),
             }
-            if self.config.require_provider_health:
-                raise RuntimeError(f"Provider health check failed: {result}") from exc
-            return result
+        finally:
+            if client is not None:
+                try:
+                    cleanup = await client.close()
+                except Exception as exc:  # pragma: no cover - defensive cleanup fallback
+                    cleanup = {
+                        "status": "warning",
+                        "errors": [
+                            {
+                                "error_type": type(exc).__name__,
+                                "error": sanitize_error_message(str(exc)),
+                            }
+                        ],
+                    }
+
+        result["cleanup"] = cleanup
+        return result
+
+    async def _run_post_health_redis_probe(self) -> dict[str, Any]:
+        from src.storage.redis_adapter import RedisAdapter
+
+        started = time.perf_counter()
+        redis_timeout = float(os.environ.get("MAS_REDIS_TIMEOUT", "15.0"))
+        adapter = RedisAdapter(
+            {
+                "url": os.environ["REDIS_URL"],
+                "window_size": 1,
+                "socket_timeout": redis_timeout,
+            }
+        )
+        result: dict[str, Any] = {
+            "ok": False,
+            "redis_timeout_s": redis_timeout,
+            "endpoint": sanitized_service_endpoints()["redis"],
+        }
+        try:
+            await adapter.connect()
+            result["ok"] = True
+        except Exception as exc:
+            result.update(
+                {
+                    "error_type": type(exc).__name__,
+                    "error": sanitize_error_message(str(exc)),
+                }
+            )
+        finally:
+            try:
+                await adapter.disconnect()
+            except Exception as exc:
+                result["disconnect_warning"] = {
+                    "error_type": type(exc).__name__,
+                    "error": sanitize_error_message(str(exc)),
+                }
+            result["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 3)
+        return result
 
     async def build_scenarios(self, state: ExperimentState) -> ExperimentState:
         scenarios = build_default_scenarios()

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import inspect
 import logging
 import os
 from collections.abc import Iterable, Sequence
@@ -232,6 +233,59 @@ class LLMClient:
     def available_providers(self) -> Sequence[str]:
         """Return the currently registered provider names."""
         return list(self._providers.keys())
+
+    async def close(self) -> dict[str, Any]:
+        """Best-effort cleanup for registered provider SDK clients.
+
+        Provider SDKs differ in lifecycle support. This method intentionally
+        reports cleanup errors instead of raising so callers can preserve the
+        original operation result.
+        """
+        errors: list[dict[str, str]] = []
+        for provider_name, provider in self._providers.items():
+            errors.extend(await self._close_provider(provider_name, provider))
+        return {
+            "status": "warning" if errors else "ok",
+            "errors": errors,
+        }
+
+    async def aclose(self) -> dict[str, Any]:
+        """Alias for async context-manager style callers."""
+        return await self.close()
+
+    async def _close_provider(self, provider_name: str, provider: BaseProvider) -> list[dict[str, str]]:
+        errors: list[dict[str, str]] = []
+        targets = [provider]
+        provider_client = getattr(provider, "client", None)
+        if provider_client is not None and provider_client is not provider:
+            targets.append(provider_client)
+
+        seen: set[int] = set()
+        for target in targets:
+            if id(target) in seen:
+                continue
+            seen.add(id(target))
+            close_method = getattr(target, "aclose", None) or getattr(target, "close", None)
+            if close_method is None:
+                continue
+            try:
+                if inspect.iscoroutinefunction(close_method):
+                    await close_method()
+                else:
+                    result = await asyncio.to_thread(close_method)
+                    if inspect.isawaitable(result):
+                        await result
+            except Exception as exc:  # pragma: no cover - defensive diagnostics
+                logger.warning("Failed to close provider '%s': %s", provider_name, exc)
+                errors.append(
+                    {
+                        "provider": provider_name,
+                        "target": type(target).__name__,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    }
+                )
+        return errors
 
     async def generate(
         self,

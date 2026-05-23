@@ -545,11 +545,17 @@ async def test_provider_health_failure_is_recorded_when_not_required(tmp_path: P
         raise TimeoutError("provider health timed out")
 
     class FakeLLMClient:
+        closed = False
+
         @classmethod
         def from_env(cls):
             client = cls()
             client.health_check = failing_health_check
             return client
+
+        async def close(self):
+            FakeLLMClient.closed = True
+            return {"status": "ok", "errors": []}
 
     monkeypatch = pytest.MonkeyPatch()
     try:
@@ -561,6 +567,109 @@ async def test_provider_health_failure_is_recorded_when_not_required(tmp_path: P
     assert result["status"] == "failed"
     assert result["required"] is False
     assert result["error_type"] == "TimeoutError"
+    assert result["cleanup"] == {"status": "ok", "errors": []}
+    assert FakeLLMClient.closed is True
+
+
+@pytest.mark.asyncio
+async def test_preflight_records_provider_health_cleanup_and_post_redis_probe(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "present")
+    monkeypatch.setenv("REDIS_URL", "redis://example.test:6379/0")
+    monkeypatch.setenv("POSTGRES_URL", "postgresql://user:secret@example.test/db")
+    monkeypatch.setattr(
+        ciar_experiment,
+        "check_http_reachable",
+        lambda url: {"ok": True, "status": 200, "url": url},
+    )
+    config = ExperimentConfig(
+        run_id="ciar-test",
+        output_dir=tmp_path,
+        dry_run=False,
+        keep_data=False,
+        model="test-model",
+        min_ciar=0.6,
+        phoenix_endpoint="http://phoenix.test:6006/v1/traces",
+        phoenix_project_name="ciar-test",
+        phoenix_access_mode="configured",
+        require_provider_health=True,
+    )
+    experiment = CIARChallengeExperiment(config)
+    state = ExperimentState(config=config)
+
+    async def fake_provider_health() -> dict[str, object]:
+        return {
+            "status": "checked",
+            "required": True,
+            "cleanup": {"status": "ok", "errors": []},
+            "reports": {},
+        }
+
+    async def fake_redis_probe() -> dict[str, object]:
+        return {"ok": True, "elapsed_ms": 1.0}
+
+    experiment._run_provider_health_check = fake_provider_health
+    experiment._run_post_health_redis_probe = fake_redis_probe
+
+    await experiment.preflight(state)
+
+    assert state.manifest["provider_health"]["cleanup"] == {"status": "ok", "errors": []}
+    assert state.manifest["provider_health"]["post_health_redis_probe"] == {
+        "ok": True,
+        "elapsed_ms": 1.0,
+    }
+
+
+@pytest.mark.asyncio
+async def test_preflight_blocks_required_health_when_post_redis_probe_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "present")
+    monkeypatch.setenv("REDIS_URL", "redis://example.test:6379/0")
+    monkeypatch.setenv("POSTGRES_URL", "postgresql://user:secret@example.test/db")
+    monkeypatch.setattr(
+        ciar_experiment,
+        "check_http_reachable",
+        lambda url: {"ok": True, "status": 200, "url": url},
+    )
+    config = ExperimentConfig(
+        run_id="ciar-test",
+        output_dir=tmp_path,
+        dry_run=False,
+        keep_data=False,
+        model="test-model",
+        min_ciar=0.6,
+        phoenix_endpoint="http://phoenix.test:6006/v1/traces",
+        phoenix_project_name="ciar-test",
+        phoenix_access_mode="configured",
+        require_provider_health=True,
+    )
+    experiment = CIARChallengeExperiment(config)
+    state = ExperimentState(config=config)
+
+    async def fake_provider_health() -> dict[str, object]:
+        return {
+            "status": "checked",
+            "required": True,
+            "cleanup": {"status": "ok", "errors": []},
+            "reports": {},
+        }
+
+    async def failing_redis_probe() -> dict[str, object]:
+        return {"ok": False, "error_type": "StorageTimeoutError", "error": "timeout"}
+
+    experiment._run_provider_health_check = fake_provider_health
+    experiment._run_post_health_redis_probe = failing_redis_probe
+
+    with pytest.raises(RuntimeError, match="Post-health Redis probe failed"):
+        await experiment.preflight(state)
+
+    manifest = json.loads((experiment.output_dir / "run_manifest.json").read_text())
+    assert manifest["provider_health"]["post_health_redis_probe"]["ok"] is False
+    assert manifest["operational_classification"]["run_quality"] == "incomplete"
 
 
 def live_setup_config(tmp_path: Path) -> ExperimentConfig:
