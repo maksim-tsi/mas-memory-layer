@@ -321,6 +321,10 @@ class PromotionEngine(BaseEngine):
                             data={
                                 "segment_id": segment.segment_id,
                                 "topic": segment.topic,
+                                "topic_excerpt": self._excerpt(segment.topic),
+                                "summary_excerpt": self._excerpt(segment.summary),
+                                "certainty": segment.certainty,
+                                "impact": segment.impact,
                                 "ciar_score": segment_score,
                                 "threshold": self.promotion_threshold,
                                 "decision": "PROMOTE"
@@ -508,6 +512,13 @@ class PromotionEngine(BaseEngine):
             pass
 
         return round(ciar_score, 4)
+
+    @staticmethod
+    def _excerpt(value: str | None, *, limit: int = 240) -> str:
+        text = " ".join(str(value or "").split())
+        if len(text) <= limit:
+            return text
+        return f"{text[: limit - 3].rstrip()}..."
 
     def _format_segment_for_extraction(
         self, segment: TopicSegment, turns: list[TurnData | dict[str, Any]]

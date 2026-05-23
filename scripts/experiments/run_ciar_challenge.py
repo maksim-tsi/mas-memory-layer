@@ -948,30 +948,38 @@ def build_default_scenarios() -> list[Scenario]:
         ),
         Scenario(
             scenario_id="repeated_correction",
-            title="Repeated route correction",
+            title="Critical repeated route correction",
             expectation="should_conflict",
             turns=pad(
                 [
                     {
                         "role": "user",
                         "content": (
-                            "Shipment ALFA-4421 was scheduled for Oakland as its "
-                            "current destination."
+                            "Critical route-change log for shipment ALFA-4421: "
+                            "Oakland was the active destination used for dispatch, "
+                            "carrier booking, port appointment, customs destination, "
+                            "and delivery planning."
                         ),
                     },
                     {
                         "role": "user",
                         "content": (
-                            "Update: shipment ALFA-4421 is now routed to Los Angeles; "
-                            "Los Angeles supersedes Oakland."
+                            "Operational update for ALFA-4421: the shipment is now "
+                            "routed to Los Angeles. Los Angeles supersedes Oakland "
+                            "for dispatch, carrier booking, port appointment, customs "
+                            "destination, and delivery planning."
                         ),
                     },
                     {
                         "role": "user",
                         "content": (
-                            "Latest correction: shipment ALFA-4421 is now routed to "
-                            "Long Beach instead of Los Angeles or Oakland. Long Beach "
-                            "is the current route; the previous routes are superseded."
+                            "Latest critical correction for shipment ALFA-4421: the "
+                            "shipment is now routed to Long Beach instead of Los "
+                            "Angeles or Oakland. Long Beach is the current route and "
+                            "current customs destination; update dispatch, carrier "
+                            "booking, port appointment, and delivery planning to Long "
+                            "Beach. The previous routes, Oakland and Los Angeles, are "
+                            "superseded."
                         ),
                     },
                 ]

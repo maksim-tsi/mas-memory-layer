@@ -201,8 +201,18 @@ def test_default_scenarios_are_batch_ready() -> None:
     }
     assert all(len(scenario.turns) >= 10 for scenario in scenarios)
     assert repeated.expectation == "should_conflict"
+    repeated_text = " ".join(turn["content"] for turn in repeated.turns[:3])
+    assert "ALFA-4421" in repeated_text
+    assert "Oakland" in repeated_text
+    assert "Los Angeles" in repeated_text
+    assert "Long Beach" in repeated_text
+    assert "dispatch" in repeated_text
+    assert "carrier booking" in repeated_text
+    assert "port appointment" in repeated_text
+    assert "customs destination" in repeated_text
+    assert "delivery planning" in repeated_text
     assert "Long Beach is the current route" in repeated.turns[2]["content"]
-    assert "previous routes are superseded" in repeated.turns[2]["content"]
+    assert "superseded" in repeated.turns[2]["content"]
 
 
 @pytest.mark.asyncio
@@ -257,6 +267,21 @@ async def test_dry_repeated_correction_suppresses_old_and_middle_routes(
     assert stats["facts_extracted"] == 3
     assert stats["facts_promoted"] == 1
     assert stats["facts_suppressed"] == 2
+
+    significance_events = [
+        event
+        for event in state.events
+        if event.get("event_type") == "significance_scored"
+        and event.get("session_id", "").endswith("__repeated_correction")
+    ]
+    assert len(significance_events) == 1
+    significance = significance_events[0]["data"]
+    assert significance["ciar_score"] >= 0.6
+    assert significance["certainty"] == pytest.approx(0.95)
+    assert significance["impact"] == pytest.approx(0.9)
+    assert "topic_excerpt" in significance
+    assert "summary_excerpt" in significance
+    assert "ALFA-4421" in significance["summary_excerpt"]
 
     suppressed_rows = [
         row for row in state.alternative_scores if row.get("suppressed") is True
