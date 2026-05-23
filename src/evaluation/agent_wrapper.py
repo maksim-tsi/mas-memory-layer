@@ -264,7 +264,7 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
         {
             "url": _read_env_or_raise("QDRANT_URL"),
             "collection_name": "episodes",
-            "vector_size": 768,
+            "vector_size": int(os.environ.get("EMBEDDING_DIMENSIONS", "4096")),
         }
     )
     neo4j_adapter = Neo4jAdapter(

@@ -32,8 +32,8 @@ set -a && . ./.env && set +a && ./.venv/bin/python scripts/debug/check_tier_coll
 Expected V2 output pattern when OpenRouter embeddings are configured:
 
 ```text
-Adapter collection: episodes_v2 vector_size: 1024
-Tier collection: episodes_v2 vector_size: 1024
+Adapter collection: episodes_v2 vector_size: 4096
+Tier collection: episodes_v2 vector_size: 4096
 ```
 
 ## Note
