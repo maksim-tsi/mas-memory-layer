@@ -571,6 +571,27 @@ class CannedTopicSegmenter:
                     message_count=len(turns),
                 )
             ]
+        if scenario.scenario_id == "repeated_correction":
+            return [
+                TopicSegment(
+                    segment_id=f"{scenario.scenario_id}-seg",
+                    topic="Repeated route correction for shipment ALFA-4421",
+                    summary=(
+                        "Shipment ALFA-4421 route changed from Oakland to Los Angeles "
+                        "and then to Long Beach, with Long Beach explicitly current."
+                    ),
+                    key_points=[
+                        "ALFA-4421 originally scheduled for Oakland",
+                        "ALFA-4421 updated to Los Angeles",
+                        "ALFA-4421 latest current route is Long Beach",
+                    ],
+                    turn_indices=list(range(min(len(turns), 10))),
+                    certainty=0.95,
+                    impact=0.9,
+                    participant_count=2,
+                    message_count=len(turns),
+                )
+            ]
         if scenario.scenario_id == "speculative_claim":
             certainty, impact = 0.45, 0.55
         elif scenario.scenario_id == "contradiction_update":
@@ -680,6 +701,33 @@ class CannedFactExtractor:
                     FactType.EVENT,
                     0.92,
                     0.85,
+                ),
+            ]
+        if "repeated_correction" in segment_id:
+            return [
+                make_fact(
+                    "old-oakland",
+                    "Shipment ALFA-4421 was scheduled for Oakland.",
+                    FactType.EVENT,
+                    0.9,
+                    0.8,
+                ),
+                make_fact(
+                    "middle-los-angeles",
+                    "Update: shipment ALFA-4421 is now routed to Los Angeles.",
+                    FactType.EVENT,
+                    0.92,
+                    0.82,
+                ),
+                make_fact(
+                    "latest-long-beach",
+                    (
+                        "Latest correction: shipment ALFA-4421 is now routed to "
+                        "Long Beach instead of Los Angeles or Oakland."
+                    ),
+                    FactType.EVENT,
+                    0.95,
+                    0.9,
                 ),
             ]
         if "assistant_inferred" in segment_id:
@@ -868,14 +916,27 @@ def build_default_scenarios() -> list[Scenario]:
             expectation="should_conflict",
             turns=pad(
                 [
-                    {"role": "user", "content": "Shipment ALFA-4421 was scheduled for Oakland."},
                     {
                         "role": "user",
-                        "content": "Update: shipment ALFA-4421 is now routed to Los Angeles.",
+                        "content": (
+                            "Shipment ALFA-4421 was scheduled for Oakland as its "
+                            "current destination."
+                        ),
                     },
                     {
                         "role": "user",
-                        "content": "Latest correction: shipment ALFA-4421 is now routed to Long Beach.",
+                        "content": (
+                            "Update: shipment ALFA-4421 is now routed to Los Angeles; "
+                            "Los Angeles supersedes Oakland."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            "Latest correction: shipment ALFA-4421 is now routed to "
+                            "Long Beach instead of Los Angeles or Oakland. Long Beach "
+                            "is the current route; the previous routes are superseded."
+                        ),
                     },
                 ]
             ),

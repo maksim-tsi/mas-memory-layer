@@ -12,6 +12,7 @@ sys.path.insert(0, str(_EXPERIMENTS_DIR))
 
 import run_ciar_challenge as ciar_experiment  # noqa: E402
 from run_ciar_challenge import (  # noqa: E402
+    CannedFactExtractor,
     CIARChallengeExperiment,
     ExperimentConfig,
     ExperimentState,
@@ -180,6 +181,7 @@ def test_resolve_phoenix_allows_explicit_tunnel_port() -> None:
 def test_default_scenarios_are_batch_ready() -> None:
     scenarios = build_default_scenarios()
     scenario_ids = {scenario.scenario_id for scenario in scenarios}
+    repeated = next(scenario for scenario in scenarios if scenario.scenario_id == "repeated_correction")
 
     assert len(scenarios) >= 12
     assert scenario_ids >= {
@@ -197,6 +199,77 @@ def test_default_scenarios_are_batch_ready() -> None:
         "needs_review",
     }
     assert all(len(scenario.turns) >= 10 for scenario in scenarios)
+    assert repeated.expectation == "should_conflict"
+    assert "Long Beach is the current route" in repeated.turns[2]["content"]
+    assert "previous routes are superseded" in repeated.turns[2]["content"]
+
+
+@pytest.mark.asyncio
+async def test_canned_fact_extractor_returns_repeated_correction_route_facts() -> None:
+    extractor = CannedFactExtractor()
+
+    facts = await extractor.extract_facts(
+        "repeated route correction",
+        {
+            "topic_segment_id": "repeated_correction-seg",
+            "session_id": "session-1",
+            "topic_label": "Repeated correction",
+        },
+    )
+
+    assert len(facts) == 3
+    contents = [fact.content for fact in facts]
+    assert contents == [
+        "Shipment ALFA-4421 was scheduled for Oakland.",
+        "Update: shipment ALFA-4421 is now routed to Los Angeles.",
+        (
+            "Latest correction: shipment ALFA-4421 is now routed to Long Beach "
+            "instead of Los Angeles or Oakland."
+        ),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dry_repeated_correction_suppresses_old_and_middle_routes(
+    tmp_path: Path,
+) -> None:
+    config = ExperimentConfig(
+        run_id="ciar-test-repeated-correction",
+        output_dir=tmp_path,
+        dry_run=True,
+        keep_data=False,
+        model="test-model",
+        min_ciar=0.6,
+        phoenix_endpoint="http://127.0.0.1:16006/v1/traces",
+        phoenix_project_name="ciar-test",
+        phoenix_access_mode="configured",
+        scenario_ids=["repeated_correction"],
+        promotion_policy_mode="hybrid_gate",
+        contradiction_policy_mode="suppress_superseded",
+    )
+    experiment = CIARChallengeExperiment(config)
+
+    state = await experiment.run()
+
+    stats = state.promotion_stats["repeated_correction"]
+    assert stats["segments_promoted"] == 1
+    assert stats["facts_extracted"] == 3
+    assert stats["facts_promoted"] == 1
+    assert stats["facts_suppressed"] == 2
+
+    suppressed_rows = [
+        row for row in state.alternative_scores if row.get("suppressed") is True
+    ]
+    stored_rows = [
+        row for row in state.alternative_scores if row.get("suppressed") is not True
+    ]
+    assert len(suppressed_rows) == 2
+    assert len(stored_rows) == 1
+    assert "Long Beach" in stored_rows[0]["content"]
+    assert {row["content"] for row in suppressed_rows} == {
+        "Shipment ALFA-4421 was scheduled for Oakland.",
+        "Update: shipment ALFA-4421 is now routed to Los Angeles.",
+    }
 
 
 def test_observed_ciar_scorer_delegates_without_changing_score(tmp_path: Path) -> None:
