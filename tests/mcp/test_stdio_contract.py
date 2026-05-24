@@ -1,6 +1,8 @@
 import json
+import os
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -10,18 +12,22 @@ from mcp import ClientSession
 from src.mcp.server import MCP_PROMPT_NAMES, MCP_TOOL_NAMES
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+PRODUCTION_SERVER_PARAMS = StdioServerParameters(
+    command=sys.executable,
+    args=["-m", "src.mcp.server", "--agent-type", "full", "--agent-variant", "mcp"],
+    cwd=REPO_ROOT,
+)
+FIXTURE_SERVER_PARAMS = StdioServerParameters(
+    command=sys.executable,
+    args=["-m", "tests.mcp.stdio_fixture_server"],
+    cwd=REPO_ROOT,
+)
 
 
 @pytest.mark.asyncio
 async def test_mcp_stdio_discovery_smoke() -> None:
-    server_params = StdioServerParameters(
-        command=sys.executable,
-        args=["-m", "src.mcp.server", "--agent-type", "full", "--agent-variant", "mcp"],
-        cwd=REPO_ROOT,
-    )
-
     async with (
-        stdio_client(server_params) as (read_stream, write_stream),
+        stdio_client(PRODUCTION_SERVER_PARAMS) as (read_stream, write_stream),
         ClientSession(read_stream, write_stream) as session,
     ):
         await session.initialize()
@@ -51,14 +57,8 @@ async def test_mcp_stdio_discovery_smoke() -> None:
 
 @pytest.mark.asyncio
 async def test_mcp_stdio_static_resource_reads_and_prompt_gets() -> None:
-    server_params = StdioServerParameters(
-        command=sys.executable,
-        args=["-m", "src.mcp.server", "--agent-type", "full", "--agent-variant", "mcp"],
-        cwd=REPO_ROOT,
-    )
-
     async with (
-        stdio_client(server_params) as (read_stream, write_stream),
+        stdio_client(PRODUCTION_SERVER_PARAMS) as (read_stream, write_stream),
         ClientSession(read_stream, write_stream) as session,
     ):
         await session.initialize()
@@ -92,3 +92,175 @@ async def test_mcp_stdio_static_resource_reads_and_prompt_gets() -> None:
     assert "without mutation" in prompts["yaam.prompt.memory_inspection"].messages[0].content.text
     assert "Claim one" in prompts["yaam.prompt.ciar_explanation"].messages[0].content.text
     assert "partial-result" in prompts["yaam.prompt.retrieval_strategy"].messages[0].content.text
+
+
+@pytest.mark.asyncio
+async def test_mcp_stdio_fixture_read_tools_return_structured_contracts() -> None:
+    async with (
+        stdio_client(FIXTURE_SERVER_PARAMS) as (read_stream, write_stream),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        await session.initialize()
+
+        health = _decode_tool_result(await session.call_tool("yaam.health.check", {}))
+        memory_query = _decode_tool_result(
+            await session.call_tool(
+                "yaam.memory.query",
+                {
+                    "session_id": "session-a",
+                    "agent_id": "agent-a",
+                    "task_id": "task-a",
+                    "tenant_id": "tenant-a",
+                    "run_id": "run-a",
+                    "query": "dock status",
+                    "limit": 2,
+                },
+            )
+        )
+        context = _decode_tool_result(
+            await session.call_tool(
+                "yaam.memory.get_context",
+                {"session_id": "session-a", "agent_id": "agent-a", "task_id": "task-a"},
+            )
+        )
+        l2 = _decode_tool_result(
+            await session.call_tool(
+                "yaam.l2.search_facts",
+                {"session_id": "session-a", "agent_id": "agent-a", "query": "dock"},
+            )
+        )
+        ciar = _decode_tool_result(
+            await session.call_tool(
+                "yaam.ciar.explain",
+                {"session_id": "session-a", "agent_id": "agent-a", "certainty": 0.7},
+            )
+        )
+        evidence = _decode_tool_result(
+            await session.call_tool(
+                "yaam.evidence.table",
+                {"session_id": "session-a", "agent_id": "agent-a", "query": "dock"},
+            )
+        )
+
+    assert health["summary"] == "Health checked."
+    assert health["health"]["status"] == "ok"
+
+    result = memory_query["results"][0]
+    assert memory_query["summary"] == "Memory query complete."
+    assert result["tier"] == "L2"
+    assert result["source_id"] == "fact-1"
+    assert result["provenance"]["session_id"] == "session-a"
+    assert result["provenance"]["agent_id"] == "agent-a"
+    assert result["provenance"]["task_id"] == "task-a"
+    assert result["provenance"]["tenant_id"] == "tenant-a"
+    assert result["provenance"]["run_id"] == "run-a"
+
+    assert context["summary"] == "Context assembled."
+    assert context["context"]["session_id"] == "session-a"
+    assert context["context"]["items"][0]["source_id"] == "fact-context"
+    assert context["context"]["items"][0]["provenance"]["task_id"] == "task-a"
+
+    assert l2["summary"] == "L2 facts retrieved."
+    assert l2["results"][0]["tier"] == "L2"
+    assert l2["results"][0]["source_id"] == "fact-search"
+
+    assert ciar["summary"] == "CIAR explained."
+    assert ciar["explanation"]["score"] == 0.42
+    assert ciar["explanation"]["components"]["certainty"] == 0.7
+    assert ciar["explanation"]["scope"]["session_id"] == "session-a"
+
+    assert evidence["summary"] == "Evidence table assembled."
+    assert evidence["evidence_table"]["rows"][0]["source_id"] == "fact-evidence"
+    assert evidence["evidence_table"]["rows"][0]["provenance"]["agent_id"] == "agent-a"
+
+
+@pytest.mark.asyncio
+async def test_mcp_stdio_fixture_templated_resource_is_read_only_json() -> None:
+    async with (
+        stdio_client(FIXTURE_SERVER_PARAMS) as (read_stream, write_stream),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        await session.initialize()
+
+        context = await session.read_resource(AnyUrl("yaam://sessions/session-a/context"))
+
+    payload = json.loads(context.contents[0].text)
+    assert payload["session_id"] == "session-a"
+    assert payload["items"][0]["source_id"] == "fact-context"
+    assert payload["items"][0]["provenance"]["agent_id"] == "resource-reader"
+    serialized = json.dumps(payload).lower()
+    assert "api_key" not in serialized
+    assert "password" not in serialized
+    assert "secret" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_mcp_stdio_fixture_write_denial_returns_structured_error() -> None:
+    async with (
+        stdio_client(FIXTURE_SERVER_PARAMS) as (read_stream, write_stream),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        await session.initialize()
+
+        result = await session.call_tool(
+            "yaam.l2.store_fact",
+            {"session_id": "session-a", "agent_id": "agent-a", "content": "Fact."},
+        )
+
+    payload = _decode_error_payload(result)
+    assert payload["code"] == "permission.writes_disabled"
+    assert payload["operation"] == "yaam.l2.store_fact"
+    assert payload["retryable"] is False
+    assert payload["affected_tier"] == "SYSTEM"
+
+
+@pytest.mark.asyncio
+async def test_mcp_stdio_live_read_contract_is_env_gated() -> None:
+    if os.environ.get("YAAM_MCP_RUN_LIVE_CONTRACT") != "1":
+        pytest.skip("Set YAAM_MCP_RUN_LIVE_CONTRACT=1 to run live MCP read contract checks.")
+
+    async with (
+        stdio_client(PRODUCTION_SERVER_PARAMS) as (read_stream, write_stream),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        await session.initialize()
+
+        tools = await session.list_tools()
+        health = await session.call_tool("yaam.health.check", {})
+        ciar = await session.read_resource(AnyUrl("yaam://config/ciar"))
+        prompt = await session.get_prompt(
+            "yaam.prompt.memory_inspection", {"session_id": "session-a"}
+        )
+
+    assert "yaam.health.check" in {tool.name for tool in tools.tools}
+    assert _decode_tool_result(health)["health"]["status"] in {"ok", "degraded", "unavailable"}
+    assert json.loads(ciar.contents[0].text)["formula"]
+    assert "without mutation" in prompt.messages[0].content.text
+
+
+def _decode_tool_result(result: Any) -> dict[str, Any]:
+    assert not result.isError
+    structured = getattr(result, "structuredContent", None)
+    if structured is not None:
+        return structured
+    return _decode_first_text_json(result)
+
+
+def _decode_error_payload(result: Any) -> dict[str, Any]:
+    assert result.isError
+    return _extract_error_payload(_first_text(result))
+
+
+def _decode_first_text_json(result: Any) -> dict[str, Any]:
+    return json.loads(_first_text(result))
+
+
+def _first_text(result: Any) -> str:
+    assert result.content
+    content = result.content[0]
+    assert hasattr(content, "text")
+    return content.text
+
+
+def _extract_error_payload(message: str) -> dict[str, Any]:
+    return json.loads(message[message.index("{") :])["error"]
