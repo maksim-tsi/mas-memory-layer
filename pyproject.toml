@@ -57,6 +57,7 @@ fakeredis = "2.23.1"
 python-dotenv = "1.2.1"
 opentelemetry-instrumentation-fastapi = "^0.62b0"
 openinference-instrumentation-openai = "^0.1.44"
+mcp = ">=1.12.4,<1.27.1"
 
 [tool.poetry.group.test]
 optional = true
