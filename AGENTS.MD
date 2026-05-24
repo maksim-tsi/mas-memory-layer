@@ -36,6 +36,7 @@ agents or other CLIs.
 - Architecture: `docs/ADR/003-four-layers-memory.md`, `docs/ADR/007-agent-integration-layer.md`
 - Benchmark isolation (“API Wall”): `docs/ADR/009-decoupling-benchmark-api-wall.md`
 - Environment expectations: `docs/environment-guide.md`
+- Requirements registry: `docs/requirements/README.md`
 - Coding patterns (src): `.github/instructions/source.instructions.md`
 - Testing patterns (tests): `.github/instructions/testing.instructions.md`
 - Documentation patterns (docs): `.github/instructions/documentation.instructions.md`
@@ -91,6 +92,14 @@ Use `pytest-mock` (`mocker` fixture). Do not import `unittest.mock` directly in 
 ### 7) Secrets boundary
 
 Do not read, write, print, or request the contents of `.env` (or any secret files/keys).
+
+### 8) Requirements traceability
+
+Before implementation planning for customer-facing behavior, public interfaces, MCP/REST tools,
+memory policy, CIAR, Evidence Table, lifecycle behavior, or customer-specific integrations, check
+`docs/requirements/README.md` and cite the relevant `YAAM-REQ-*` IDs in plans, reports, and PR
+summaries. If a new customer requirement is discovered, add or link it in the requirements registry
+before implementing against it.
 
 ## Environment Verification Sequence (Required before lint/tests)
 

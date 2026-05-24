@@ -53,6 +53,21 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 - [Phase 3 Implementation Plan](docs/plan/phase2_3_engineering_plans_version-0.9.md) for 6-week roadmap (Week 3 complete)
 - [Research Validation](docs/research/README.md) for RT1-RT5 findings
 - [ADR-003 Architecture Review](docs/reports/adr-003-architecture-review.md) for gap analysis
+- [Requirements Registry](docs/requirements/README.md) for customer requirements, interface planning inputs, and traceability to implementation plans
+
+### Requirements Registry And Interface Planning
+
+YAAM customer requirements are tracked under
+[docs/requirements/](docs/requirements/README.md). External customer submissions
+are preserved in [docs/requirements/external_requirements/](docs/requirements/external_requirements/),
+while normalized requirements are tracked in the Markdown and CSV registry:
+
+- [YAAM requirements registry](docs/requirements/yaam-requirements-registry.md)
+- [Customer requirements analysis](docs/requirements/2026-05-24-customer-requirements-analysis.md)
+
+New implementation plans should cite relevant `YAAM-REQ-*` IDs so interface,
+MCP, REST v2, CIAR, evidence, and lifecycle work remains traceable to customer
+needs.
 
 ### 2025-12-29 — Changelog (Phase 3 Week 3 BONUS: Gemini Structured Output)
 
