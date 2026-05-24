@@ -4,7 +4,7 @@
 **Date:** 2026-05-24
 **Related RFC:** [YAAM MCP v1 Planning Freeze](../RFC/2026-05-24-yaam-mcp-v1-planning-freeze.md)
 **Runbook:** [MCP v1 Stdio Server](../runbooks/mcp-v1-stdio-server.md)
-**Requirement coverage:** `YAAM-REQ-0001`, `YAAM-REQ-0002`, `YAAM-REQ-0003`, `YAAM-REQ-0004`, `YAAM-REQ-0005`, `YAAM-REQ-0006`, `YAAM-REQ-0007`, `YAAM-REQ-0008`, `YAAM-REQ-0009`, `YAAM-REQ-0010`, `YAAM-REQ-0011`, `YAAM-REQ-0012`, `YAAM-REQ-0013`, `YAAM-REQ-0014`, `YAAM-REQ-0015`, `YAAM-REQ-0016`, `YAAM-REQ-0017`, `YAAM-REQ-0018`, `YAAM-REQ-0026`, `YAAM-REQ-0027`, `YAAM-REQ-0031`, `YAAM-REQ-0033`, `YAAM-REQ-0034`, `YAAM-REQ-0035`
+**Requirement coverage:** `YAAM-REQ-0001`, `YAAM-REQ-0002`, `YAAM-REQ-0003`, `YAAM-REQ-0004`, `YAAM-REQ-0005`, `YAAM-REQ-0006`, `YAAM-REQ-0007`, `YAAM-REQ-0008`, `YAAM-REQ-0009`, `YAAM-REQ-0010`, `YAAM-REQ-0011`, `YAAM-REQ-0012`, `YAAM-REQ-0013`, `YAAM-REQ-0014`, `YAAM-REQ-0015`, `YAAM-REQ-0016`, `YAAM-REQ-0017`, `YAAM-REQ-0018`, `YAAM-REQ-0026`, `YAAM-REQ-0027`, `YAAM-REQ-0029`, `YAAM-REQ-0031`, `YAAM-REQ-0033`, `YAAM-REQ-0034`, `YAAM-REQ-0035`, `YAAM-REQ-0036`, `YAAM-REQ-0037`, `YAAM-REQ-0038`
 
 ## 1. Objective
 
@@ -53,10 +53,18 @@ Conditionally required fields:
 
 Optional fields:
 
+- `caller_role`
+- `visibility_scope`
 - `user_id`
 - `domain_ids`
 - `metadata`
 - `traceparent`
+
+`caller_role=benchmark_runtime_agent` or
+`visibility_scope=benchmark_runtime` activates the benchmark leakage guard for
+runtime context retrieval. Maintainer-only curation and trace-correlation
+operations require `caller_role=benchmark_maintainer` or
+`caller_role=post_run_ingestion_service`.
 
 The envelope must be validated with Pydantic v2. Pydantic `ValidationError`
 instances must be converted into the standard YAAM error shape rather than
@@ -96,7 +104,12 @@ MCP v1 must expose these tools:
 | `yaam.l4.finalize_artifact` | Write/lifecycle | Allowlisted |
 | `yaam.ciar.explain` | Read | Enabled |
 | `yaam.evidence.table` | Read/agentic | Enabled as deterministic read assembly |
+| `yaam.contradiction.review` | Read | Enabled |
 | `yaam.health.check` | Read | Enabled |
+| `yaam.curation.record_decision` | Write | Allowlisted plus maintainer/ingestion role |
+| `yaam.curation.list_decisions` | Read | Maintainer/ingestion role |
+| `yaam.trace.record_correlation` | Write | Allowlisted plus maintainer/ingestion role |
+| `yaam.trace.lookup` | Read | Maintainer/ingestion role |
 
 Each tool must return structured content and a compact text summary. Write tools
 must return `WriteAck` only after persistence is confirmed.
@@ -145,9 +158,17 @@ Shared response models must include:
 - `PartialResponseMixin`: `partial` plus `warnings`.
 - `MemoryResult`: content, tier, score, source id, metadata, provenance.
 - `ContextResponse`: context items, source ids, token or size metadata,
-  provenance, partial state, and warnings.
+  provenance, partial state, warnings, and benchmark leakage-guard metadata.
+- `LeakageGuardResult`: checked item count, filtered item count, forbidden
+  fields, visibility scope, and warnings.
 - `EvidenceTableResponse`: deterministic rows with claim, source tier/source
   id, evidence text, policy metadata, provenance, partial state, and warnings.
+- `ContradictionReviewResponse`: deterministic supporting/conflicting evidence
+  split, infeasibility reason, and safe-refusal rationale.
+- `CurationDecisionRecord`: maintainer-only Gold task curation decision with
+  source-triad links.
+- `TraceCorrelationRecord`: external trace, provider call, run/task, artifact,
+  error, and linked memory identifiers.
 - `HealthResponse`: overall status and tier statuses without secrets.
 - `WriteAck`: status, created or updated id, operation, provenance, audit id.
 
@@ -167,6 +188,17 @@ Configuration:
 
 Denied mutating operations must return a structured non-retryable permission
 error. Client capability claims must not override server-side policy.
+
+SCM-Cert-Bench extension policy:
+
+- Runtime benchmark callers can request context with leakage-guard metadata but
+  cannot see maintainer-only, curation-only, audit-only, judge-only, hidden-gold,
+  or forbidden answer-leakage fields.
+- Curation and trace-correlation write tools still require normal write
+  allowlisting, and additionally require a maintainer or post-run ingestion role.
+- SCM-Cert-Bench customer-specific resources remain deferred under
+  `YAAM-REQ-0039`; the generic tools above do not add customer-specific URI
+  templates.
 
 ## 8. Tracing Contract
 

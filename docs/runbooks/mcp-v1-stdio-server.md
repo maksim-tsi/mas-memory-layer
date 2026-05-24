@@ -61,7 +61,12 @@ Tools:
 - `yaam.l4.finalize_artifact`
 - `yaam.ciar.explain`
 - `yaam.evidence.table`
+- `yaam.contradiction.review`
 - `yaam.health.check`
+- `yaam.curation.record_decision`
+- `yaam.curation.list_decisions`
+- `yaam.trace.record_correlation`
+- `yaam.trace.lookup`
 
 Resources:
 
@@ -97,6 +102,13 @@ export YAAM_MCP_ALLOWLISTED_TOOLS=yaam.l2.store_fact,yaam.l3.assimilate_episode,
 Permission flags are evaluated by the server. MCP client capability claims do
 not grant additional access.
 
+SCM-Cert-Bench curation and trace-correlation writes use the same write
+allowlist, and they also require `caller_role=benchmark_maintainer` or
+`caller_role=post_run_ingestion_service` in the tool scope. Runtime benchmark
+callers should use `caller_role=benchmark_runtime_agent` and
+`visibility_scope=benchmark_runtime` when requesting context so the leakage
+guard reports checked and filtered items.
+
 Default-denied writes return a structured MCP-visible YAAM error payload with:
 
 - `code`
@@ -117,8 +129,10 @@ Run deterministic MCP stdio tests without live external services:
 ./.venv/bin/pytest tests/mcp/ -v
 ```
 
-This validates discovery, read tools, resources, prompts, structured errors,
-and test-fixture write acknowledgements over the real MCP stdio transport.
+This validates discovery, read tools, resources, prompts, benchmark
+leakage-guard metadata, contradiction review, maintainer-only curation reads,
+trace-correlation reads, structured errors, and test-fixture write
+acknowledgements over the real MCP stdio transport.
 
 Run the repository verification sequence:
 

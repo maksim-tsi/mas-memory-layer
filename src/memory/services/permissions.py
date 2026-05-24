@@ -15,6 +15,9 @@ READ_TOOLS = frozenset(
     {
         "yaam.memory.query",
         "yaam.memory.get_context",
+        "yaam.contradiction.review",
+        "yaam.curation.list_decisions",
+        "yaam.trace.lookup",
         "yaam.l2.search_facts",
         "yaam.l3.search_episodes",
         "yaam.l4.search_knowledge",
@@ -26,6 +29,8 @@ READ_TOOLS = frozenset(
 
 WRITE_TOOLS = frozenset(
     {
+        "yaam.curation.record_decision",
+        "yaam.trace.record_correlation",
         "yaam.l2.store_fact",
         "yaam.l3.assimilate_episode",
         "yaam.l4.finalize_artifact",

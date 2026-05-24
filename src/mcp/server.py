@@ -41,7 +41,12 @@ MCP_TOOL_NAMES = (
     "yaam.l4.finalize_artifact",
     "yaam.ciar.explain",
     "yaam.evidence.table",
+    "yaam.contradiction.review",
     "yaam.health.check",
+    "yaam.curation.record_decision",
+    "yaam.curation.list_decisions",
+    "yaam.trace.record_correlation",
+    "yaam.trace.lookup",
 )
 
 MCP_RESOURCE_URIS = (
@@ -107,6 +112,11 @@ def create_mcp_server(
         task_id: str | None = None,
         tenant_id: str | None = None,
         run_id: str | None = None,
+        caller_role: str | None = None,
+        visibility_scope: str | None = None,
+        allowed_fields: list[str] | None = None,
+        forbidden_fields: list[str] | None = None,
+        require_leakage_guard: bool = False,
         traceparent: str | None = None,
         l2_weight: float = 0.3,
         l3_weight: float = 0.5,
@@ -122,6 +132,8 @@ def create_mcp_server(
                 task_id=task_id,
                 tenant_id=tenant_id,
                 run_id=run_id,
+                caller_role=caller_role,
+                visibility_scope=visibility_scope,
                 traceparent=traceparent,
             )
             weights = SearchWeights(
@@ -129,10 +141,22 @@ def create_mcp_server(
                 l3_weight=l3_weight,
                 l4_weight=l4_weight,
             )
-            results = await (await get_service()).query_memory(
-                scope, query=query, limit=limit, weights=weights
+            results, leakage_guard = await (await get_service()).query_memory_checked(
+                scope,
+                query=query,
+                limit=limit,
+                weights=weights,
+                allowed_fields=allowed_fields,
+                forbidden_fields=forbidden_fields,
+                require_leakage_guard=require_leakage_guard,
             )
-            return _response("Memory query complete.", {"results": _dump_many(results)})
+            return _response(
+                "Memory query complete.",
+                {
+                    "results": _dump_many(results),
+                    "leakage_guard": leakage_guard.model_dump(mode="json"),
+                },
+            )
 
         return await _run_mcp_async(
             "tool",
@@ -148,6 +172,11 @@ def create_mcp_server(
         session_id: str,
         agent_id: str,
         task_id: str | None = None,
+        caller_role: str | None = None,
+        visibility_scope: str | None = None,
+        allowed_fields: list[str] | None = None,
+        forbidden_fields: list[str] | None = None,
+        require_leakage_guard: bool = False,
         traceparent: str | None = None,
         min_ciar: float = 0.6,
         max_turns: int = 20,
@@ -161,6 +190,8 @@ def create_mcp_server(
                 session_id=session_id,
                 agent_id=agent_id,
                 task_id=task_id,
+                caller_role=caller_role,
+                visibility_scope=visibility_scope,
                 traceparent=traceparent,
             )
             context = await (await get_service()).get_context(
@@ -168,6 +199,9 @@ def create_mcp_server(
                 min_ciar=min_ciar,
                 max_turns=max_turns,
                 max_facts=max_facts,
+                allowed_fields=allowed_fields,
+                forbidden_fields=forbidden_fields,
+                require_leakage_guard=require_leakage_guard,
             )
             return _response("Context assembled.", {"context": context.model_dump(mode="json")})
 
@@ -186,6 +220,8 @@ def create_mcp_server(
         agent_id: str,
         content: str,
         task_id: str | None = None,
+        caller_role: str | None = None,
+        visibility_scope: str | None = None,
         traceparent: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -197,6 +233,8 @@ def create_mcp_server(
                 session_id=session_id,
                 agent_id=agent_id,
                 task_id=task_id,
+                caller_role=caller_role,
+                visibility_scope=visibility_scope,
                 traceparent=traceparent,
             )
             ack = await (await get_service()).store_l2_fact(
@@ -221,12 +259,20 @@ def create_mcp_server(
         min_ciar: float | None = None,
         limit: int = 20,
         traceparent: str | None = None,
+        caller_role: str | None = None,
+        visibility_scope: str | None = None,
     ) -> dict[str, Any]:
         scope: ScopeEnvelope | None = None
 
         async def action() -> dict[str, Any]:
             nonlocal scope
-            scope = _scope(session_id=session_id, agent_id=agent_id, traceparent=traceparent)
+            scope = _scope(
+                session_id=session_id,
+                agent_id=agent_id,
+                caller_role=caller_role,
+                visibility_scope=visibility_scope,
+                traceparent=traceparent,
+            )
             results = await (await get_service()).search_l2_facts(
                 scope,
                 query=query,
@@ -277,6 +323,8 @@ def create_mcp_server(
         agent_id: str,
         text_to_assimilate: str,
         task_id: str | None = None,
+        caller_role: str | None = None,
+        visibility_scope: str | None = None,
         traceparent: str | None = None,
         domain_tags: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
@@ -289,6 +337,8 @@ def create_mcp_server(
                 session_id=session_id,
                 agent_id=agent_id,
                 task_id=task_id,
+                caller_role=caller_role,
+                visibility_scope=visibility_scope,
                 traceparent=traceparent,
             )
             ack = await (await get_service()).assimilate_l3_episode(
@@ -315,12 +365,20 @@ def create_mcp_server(
         query: str,
         limit: int = 10,
         traceparent: str | None = None,
+        caller_role: str | None = None,
+        visibility_scope: str | None = None,
     ) -> dict[str, Any]:
         scope: ScopeEnvelope | None = None
 
         async def action() -> dict[str, Any]:
             nonlocal scope
-            scope = _scope(session_id=session_id, agent_id=agent_id, traceparent=traceparent)
+            scope = _scope(
+                session_id=session_id,
+                agent_id=agent_id,
+                caller_role=caller_role,
+                visibility_scope=visibility_scope,
+                traceparent=traceparent,
+            )
             results = await (await get_service()).search_l4_knowledge(
                 scope, query=query, limit=limit
             )
@@ -342,6 +400,8 @@ def create_mcp_server(
         title: str,
         final_artifact: str,
         task_id: str | None = None,
+        caller_role: str | None = None,
+        visibility_scope: str | None = None,
         traceparent: str | None = None,
         consensus_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -353,6 +413,8 @@ def create_mcp_server(
                 session_id=session_id,
                 agent_id=agent_id,
                 task_id=task_id,
+                caller_role=caller_role,
+                visibility_scope=visibility_scope,
                 traceparent=traceparent,
             )
             ack = await (await get_service()).finalize_l4_artifact(
@@ -380,13 +442,21 @@ def create_mcp_server(
         impact: float = 0.0,
         age_decay: float = 1.0,
         recency_boost: float = 1.0,
+        caller_role: str | None = None,
+        visibility_scope: str | None = None,
         traceparent: str | None = None,
     ) -> dict[str, Any]:
         scope: ScopeEnvelope | None = None
 
         async def action() -> dict[str, Any]:
             nonlocal scope
-            scope = _scope(session_id=session_id, agent_id=agent_id, traceparent=traceparent)
+            scope = _scope(
+                session_id=session_id,
+                agent_id=agent_id,
+                caller_role=caller_role,
+                visibility_scope=visibility_scope,
+                traceparent=traceparent,
+            )
             explanation = await (await get_service()).explain_ciar(
                 scope,
                 components={
@@ -413,13 +483,21 @@ def create_mcp_server(
         agent_id: str,
         query: str,
         limit: int = 10,
+        caller_role: str | None = None,
+        visibility_scope: str | None = None,
         traceparent: str | None = None,
     ) -> dict[str, Any]:
         scope: ScopeEnvelope | None = None
 
         async def action() -> dict[str, Any]:
             nonlocal scope
-            scope = _scope(session_id=session_id, agent_id=agent_id, traceparent=traceparent)
+            scope = _scope(
+                session_id=session_id,
+                agent_id=agent_id,
+                caller_role=caller_role,
+                visibility_scope=visibility_scope,
+                traceparent=traceparent,
+            )
             table = await (await get_service()).evidence_table(scope, query=query, limit=limit)
             return _response(
                 "Evidence table assembled.", {"evidence_table": table.model_dump(mode="json")}
@@ -428,6 +506,50 @@ def create_mcp_server(
         return await _run_mcp_async(
             "tool",
             "yaam.evidence.table",
+            "read",
+            action,
+            scope_provider=lambda: scope,
+            error_cls=ToolError,
+        )
+
+    @mcp.tool(name="yaam.contradiction.review")
+    async def contradiction_review(
+        session_id: str,
+        agent_id: str,
+        claims: list[str],
+        task_id: str | None = None,
+        expected_behavior: str | None = None,
+        caller_role: str | None = None,
+        visibility_scope: str | None = None,
+        traceparent: str | None = None,
+        limit: int = 5,
+    ) -> dict[str, Any]:
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> dict[str, Any]:
+            nonlocal scope
+            scope = _scope(
+                session_id=session_id,
+                agent_id=agent_id,
+                task_id=task_id,
+                caller_role=caller_role,
+                visibility_scope=visibility_scope,
+                traceparent=traceparent,
+            )
+            review = await (await get_service()).review_contradiction(
+                scope,
+                claims=claims,
+                expected_behavior=expected_behavior,
+                limit=limit,
+            )
+            return _response(
+                "Contradiction reviewed.",
+                {"review": review.model_dump(mode="json")},
+            )
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.contradiction.review",
             "read",
             action,
             scope_provider=lambda: scope,
@@ -445,6 +567,184 @@ def create_mcp_server(
             "yaam.health.check",
             "read",
             action,
+            error_cls=ToolError,
+        )
+
+    @mcp.tool(name="yaam.curation.record_decision")
+    async def curation_record_decision(
+        session_id: str,
+        agent_id: str,
+        task_id: str,
+        decision: str,
+        reason: str,
+        source_triad: dict[str, Any],
+        reviewer: str,
+        caller_role: str | None = None,
+        visibility_scope: str | None = None,
+        traceparent: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> dict[str, Any]:
+            nonlocal scope
+            scope = _scope(
+                session_id=session_id,
+                agent_id=agent_id,
+                task_id=task_id,
+                caller_role=caller_role,
+                visibility_scope=visibility_scope,
+                traceparent=traceparent,
+            )
+            ack = await (await get_service()).record_curation_decision(
+                scope,
+                task_id=task_id,
+                decision=decision,
+                reason=reason,
+                source_triad=source_triad,
+                reviewer=reviewer,
+                metadata=metadata,
+            )
+            return _response("Curation decision recorded.", {"ack": ack.model_dump(mode="json")})
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.curation.record_decision",
+            "write",
+            action,
+            scope_provider=lambda: scope,
+            error_cls=ToolError,
+        )
+
+    @mcp.tool(name="yaam.curation.list_decisions")
+    async def curation_list_decisions(
+        session_id: str,
+        agent_id: str,
+        task_id: str | None = None,
+        caller_role: str | None = None,
+        visibility_scope: str | None = None,
+        traceparent: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> dict[str, Any]:
+            nonlocal scope
+            scope = _scope(
+                session_id=session_id,
+                agent_id=agent_id,
+                task_id=task_id,
+                caller_role=caller_role,
+                visibility_scope=visibility_scope,
+                traceparent=traceparent,
+            )
+            decisions = await (await get_service()).list_curation_decisions(
+                scope, task_id=task_id, limit=limit
+            )
+            return _response("Curation decisions listed.", {"decisions": _dump_many(decisions)})
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.curation.list_decisions",
+            "read",
+            action,
+            scope_provider=lambda: scope,
+            error_cls=ToolError,
+        )
+
+    @mcp.tool(name="yaam.trace.record_correlation")
+    async def trace_record_correlation(
+        session_id: str,
+        agent_id: str,
+        task_id: str | None = None,
+        run_id: str | None = None,
+        trace_id: str | None = None,
+        artifact_ref: str | None = None,
+        openrouter_call_id: str | None = None,
+        linked_memory_ids: list[str] | None = None,
+        error_summary: str | None = None,
+        trace_status: str = "unverified",
+        caller_role: str | None = None,
+        visibility_scope: str | None = None,
+        traceparent: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> dict[str, Any]:
+            nonlocal scope
+            scope = _scope(
+                session_id=session_id,
+                agent_id=agent_id,
+                task_id=task_id,
+                run_id=run_id,
+                caller_role=caller_role,
+                visibility_scope=visibility_scope,
+                traceparent=traceparent,
+            )
+            ack = await (await get_service()).record_trace_correlation(
+                scope,
+                trace_id=trace_id,
+                artifact_ref=artifact_ref,
+                openrouter_call_id=openrouter_call_id,
+                linked_memory_ids=linked_memory_ids,
+                error_summary=error_summary,
+                trace_status=trace_status,
+                metadata=metadata,
+            )
+            return _response("Trace correlation recorded.", {"ack": ack.model_dump(mode="json")})
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.trace.record_correlation",
+            "write",
+            action,
+            scope_provider=lambda: scope,
+            error_cls=ToolError,
+        )
+
+    @mcp.tool(name="yaam.trace.lookup")
+    async def trace_lookup(
+        session_id: str,
+        agent_id: str,
+        correlation_id: str | None = None,
+        trace_id: str | None = None,
+        task_id: str | None = None,
+        run_id: str | None = None,
+        caller_role: str | None = None,
+        visibility_scope: str | None = None,
+        traceparent: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> dict[str, Any]:
+            nonlocal scope
+            scope = _scope(
+                session_id=session_id,
+                agent_id=agent_id,
+                task_id=task_id,
+                run_id=run_id,
+                caller_role=caller_role,
+                visibility_scope=visibility_scope,
+                traceparent=traceparent,
+            )
+            correlations = await (await get_service()).lookup_trace_correlation(
+                scope,
+                correlation_id=correlation_id,
+                trace_id=trace_id,
+                task_id=task_id,
+                run_id=run_id,
+                limit=limit,
+            )
+            return _response("Trace correlations listed.", {"correlations": _dump_many(correlations)})
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.trace.lookup",
+            "read",
+            action,
+            scope_provider=lambda: scope,
             error_cls=ToolError,
         )
 
@@ -679,11 +979,15 @@ def _scope(
     task_id: str | None = None,
     tenant_id: str | None = None,
     run_id: str | None = None,
+    caller_role: str | None = None,
+    visibility_scope: str | None = None,
     traceparent: str | None = None,
 ) -> ScopeEnvelope:
     return ScopeEnvelope(
         session_id=session_id,
         agent_id=agent_id,
+        caller_role=caller_role,
+        visibility_scope=visibility_scope,
         task_id=task_id,
         tenant_id=tenant_id,
         run_id=run_id,
@@ -812,6 +1116,8 @@ def _mcp_trace_attributes(
         {
             "session.id": scope.session_id,
             "yaam.agent_id": scope.agent_id,
+            "yaam.caller_role": scope.caller_role or "",
+            "yaam.visibility_scope": scope.visibility_scope or "",
             "yaam.task_id": scope.task_id or "",
             "yaam.tenant_id": scope.tenant_id or "",
             "yaam.run_id": scope.run_id or "",
@@ -850,7 +1156,7 @@ def _payload_for_trace(result: Any) -> Any:
 
 def _extract_partial(payload: Any) -> bool:
     if isinstance(payload, dict):
-        for key in ("context", "evidence_table", "health"):
+        for key in ("context", "evidence_table", "health", "review", "leakage_guard"):
             nested = payload.get(key)
             if isinstance(nested, dict) and bool(nested.get("partial")):
                 return True
@@ -861,7 +1167,7 @@ def _extract_partial(payload: Any) -> bool:
 def _extract_warning_count(payload: Any) -> int:
     if isinstance(payload, dict):
         count = len(payload.get("warnings", [])) if isinstance(payload.get("warnings"), list) else 0
-        for key in ("context", "evidence_table", "health"):
+        for key in ("context", "evidence_table", "health", "review", "leakage_guard"):
             nested = payload.get(key)
             if isinstance(nested, dict) and isinstance(nested.get("warnings"), list):
                 count += len(nested["warnings"])
@@ -878,6 +1184,10 @@ def _extract_result_count(payload: Any) -> int:
         return 1 if payload is not None else 0
     if isinstance(payload.get("results"), list):
         return len(payload["results"])
+    if isinstance(payload.get("decisions"), list):
+        return len(payload["decisions"])
+    if isinstance(payload.get("correlations"), list):
+        return len(payload["correlations"])
     if isinstance(payload.get("items"), list):
         return len(payload["items"])
     if isinstance(payload.get("context"), dict) and isinstance(payload["context"].get("items"), list):
@@ -886,7 +1196,11 @@ def _extract_result_count(payload: Any) -> int:
         payload["evidence_table"].get("rows"), list
     ):
         return len(payload["evidence_table"]["rows"])
-    if "ack" in payload or "explanation" in payload or "health" in payload:
+    if isinstance(payload.get("review"), dict):
+        return len(payload["review"].get("supporting_evidence", [])) + len(
+            payload["review"].get("conflicting_evidence", [])
+        )
+    if "ack" in payload or "explanation" in payload or "health" in payload or "leakage_guard" in payload:
         return 1
     return 1 if payload else 0
 

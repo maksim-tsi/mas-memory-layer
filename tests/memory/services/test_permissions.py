@@ -4,9 +4,16 @@ from src.memory.services.permissions import PermissionPolicy, YAAMPermissionErro
 
 
 def test_read_tools_are_enabled_by_default() -> None:
-    decision = PermissionPolicy().check("yaam.memory.query", "read")
+    policy = PermissionPolicy()
 
-    assert decision.allowed is True
+    for tool_name in (
+        "yaam.memory.query",
+        "yaam.contradiction.review",
+        "yaam.curation.list_decisions",
+        "yaam.trace.lookup",
+    ):
+        decision = policy.check(tool_name, "read")
+        assert decision.allowed is True
 
 
 def test_write_tools_are_denied_by_default() -> None:
@@ -31,12 +38,22 @@ def test_allowlisted_write_requires_write_flag() -> None:
 def test_allowlisted_write_is_permitted_when_write_flag_is_enabled() -> None:
     policy = PermissionPolicy(
         enable_writes=True,
-        allowlisted_tools=frozenset({"yaam.l2.store_fact"}),
+        allowlisted_tools=frozenset(
+            {
+                "yaam.l2.store_fact",
+                "yaam.curation.record_decision",
+                "yaam.trace.record_correlation",
+            }
+        ),
     )
 
-    decision = policy.check("yaam.l2.store_fact", "write")
-
-    assert decision.allowed is True
+    for tool_name in (
+        "yaam.l2.store_fact",
+        "yaam.curation.record_decision",
+        "yaam.trace.record_correlation",
+    ):
+        decision = policy.check(tool_name, "write")
+        assert decision.allowed is True
 
 
 def test_policy_from_env_parses_flags_and_tool_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -11,13 +11,18 @@ from src.memory.ciar_formula import calculate_ciar_score
 from src.memory.models import Episode, EpisodeStoreInput, Fact, KnowledgeDocument, SearchWeights
 from src.memory.services.contracts import (
     ContextResponse,
+    ContradictionReviewResponse,
+    CurationDecisionRecord,
     EvidenceRow,
     EvidenceTableResponse,
     HealthResponse,
+    LeakageGuardResult,
     MemoryResult,
     Provenance,
     ScopeEnvelope,
+    TraceCorrelationRecord,
     WriteAck,
+    YAAMErrorPayload,
     YAAMWarning,
     memory_result_from_episode,
     memory_result_from_fact,
@@ -25,8 +30,28 @@ from src.memory.services.contracts import (
     memory_result_from_unified,
     redact_metadata,
 )
-from src.memory.services.permissions import PermissionPolicy
+from src.memory.services.permissions import PermissionPolicy, YAAMPermissionError
 from src.observability import set_span_attributes, set_span_error, start_span
+
+BENCHMARK_RUNTIME_ROLE = "benchmark_runtime_agent"
+MAINTAINER_ROLES = frozenset({"benchmark_maintainer", "post_run_ingestion_service"})
+BENCHMARK_RUNTIME_SCOPE = "benchmark_runtime"
+MAINTAINER_ONLY_SCOPE = "maintainer_only"
+DEFAULT_FORBIDDEN_BENCHMARK_FIELDS = (
+    "ground_truth_answer",
+    "ground_truth_reasoning",
+    "judge_reasoning",
+    "judge_notes",
+    "curation_notes",
+    "curation_record",
+    "rejected_task_diagnostics",
+    "hidden_gold",
+)
+HIDDEN_VISIBILITY_SCOPES = frozenset(
+    {"maintainer_only", "curation_only", "judge_only", "audit_only", "hidden_gold"}
+)
+CURATION_RECORD_TYPE = "scm_cert_bench_curation_decision"
+TRACE_CORRELATION_RECORD_TYPE = "scm_cert_bench_trace_correlation"
 
 
 class MemoryGatewayService:
@@ -46,6 +71,9 @@ class MemoryGatewayService:
         query: str,
         limit: int = 10,
         weights: SearchWeights | None = None,
+        allowed_fields: list[str] | None = None,
+        forbidden_fields: list[str] | None = None,
+        require_leakage_guard: bool = False,
     ) -> list[MemoryResult]:
         """Run scoped unified memory retrieval across L2/L3/L4."""
         self.permission_policy.require("yaam.memory.query", "read")
@@ -69,12 +97,43 @@ class MemoryGatewayService:
                 set_span_error(span, exc)
                 raise
 
+    async def query_memory_checked(
+        self,
+        scope: ScopeEnvelope,
+        query: str,
+        limit: int = 10,
+        weights: SearchWeights | None = None,
+        allowed_fields: list[str] | None = None,
+        forbidden_fields: list[str] | None = None,
+        require_leakage_guard: bool = False,
+    ) -> tuple[list[MemoryResult], LeakageGuardResult]:
+        """Run retrieval and return explicit leakage guard metadata."""
+        results = await self.query_memory(
+            scope,
+            query=query,
+            limit=limit,
+            weights=weights,
+            allowed_fields=allowed_fields,
+            forbidden_fields=forbidden_fields,
+            require_leakage_guard=require_leakage_guard,
+        )
+        return self._apply_leakage_guard(
+            results,
+            scope=scope,
+            allowed_fields=allowed_fields,
+            forbidden_fields=forbidden_fields,
+            require_leakage_guard=require_leakage_guard,
+        )
+
     async def get_context(
         self,
         scope: ScopeEnvelope,
         min_ciar: float = 0.6,
         max_turns: int = 20,
         max_facts: int = 10,
+        allowed_fields: list[str] | None = None,
+        forbidden_fields: list[str] | None = None,
+        require_leakage_guard: bool = False,
     ) -> ContextResponse:
         """Assemble bounded context with provenance-bearing result items."""
         self.permission_policy.require("yaam.memory.get_context", "read")
@@ -110,11 +169,23 @@ class MemoryGatewayService:
                 )
             )
 
+        items, guard = self._apply_leakage_guard(
+            items,
+            scope=scope,
+            allowed_fields=allowed_fields,
+            forbidden_fields=forbidden_fields,
+            require_leakage_guard=require_leakage_guard,
+        )
         return ContextResponse(
             session_id=scope.session_id,
             items=items,
             context_summary=context.to_prompt_string(include_metadata=False),
             estimated_tokens=context.estimated_tokens,
+            partial=bool(guard.warnings),
+            warnings=guard.warnings,
+            visibility_scope=guard.visibility_scope,
+            leakage_guard_passed=guard.leakage_guard_passed,
+            filtered_item_count=guard.filtered_item_count,
         )
 
     async def store_l2_fact(
@@ -425,6 +496,187 @@ class MemoryGatewayService:
         ]
         return EvidenceTableResponse(rows=rows, query=query, scope=scope)
 
+    async def review_contradiction(
+        self,
+        scope: ScopeEnvelope,
+        claims: list[str],
+        expected_behavior: str | None = None,
+        limit: int = 5,
+    ) -> ContradictionReviewResponse:
+        """Review claims for explicit supporting/conflicting evidence."""
+        self.permission_policy.require("yaam.contradiction.review", "read")
+        supporting: list[MemoryResult] = []
+        conflicting: list[MemoryResult] = []
+        warnings: list[YAAMWarning] = []
+
+        for claim in claims:
+            results, guard = await self.query_memory_checked(
+                scope,
+                query=claim,
+                limit=limit,
+                require_leakage_guard=_requires_benchmark_guard(scope),
+            )
+            warnings.extend(guard.warnings)
+            for result in results:
+                relation = str(result.metadata.get("evidence_relation", "")).lower()
+                relation = relation or str(result.metadata.get("relation", "")).lower()
+                if relation in {"conflict", "conflicting", "contradicts", "refutes"}:
+                    conflicting.append(result)
+                elif relation in {"support", "supporting", "supports"}:
+                    supporting.append(result)
+
+        contradiction_detected = bool(supporting and conflicting)
+        if not supporting and not conflicting:
+            warnings.append(
+                YAAMWarning(
+                    code="contradiction.insufficient_evidence",
+                    message="No explicit supporting or conflicting evidence was found.",
+                    affected_tier="SYSTEM",
+                    retryable=False,
+                    details={"claims": claims},
+                )
+            )
+
+        rationale: str | None = None
+        infeasibility_reason: str | None = None
+        if contradiction_detected:
+            infeasibility_reason = "Scoped evidence contains both supporting and conflicting records."
+            if expected_behavior:
+                rationale = (
+                    "Safe refusal is recommended when the planning context contains unresolved "
+                    f"conflicts and expected_behavior={expected_behavior}."
+                )
+
+        return ContradictionReviewResponse(
+            contradiction_detected=contradiction_detected,
+            infeasibility_reason=infeasibility_reason,
+            supporting_evidence=supporting,
+            conflicting_evidence=conflicting,
+            safe_refusal_rationale=rationale,
+            partial=bool(warnings),
+            warnings=warnings,
+            scope=scope,
+        )
+
+    async def record_curation_decision(
+        self,
+        scope: ScopeEnvelope,
+        task_id: str,
+        decision: str,
+        reason: str,
+        source_triad: dict[str, Any],
+        reviewer: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> WriteAck:
+        """Store a maintainer-only SCM-Cert-Bench curation decision."""
+        self.permission_policy.require("yaam.curation.record_decision", "write")
+        _require_maintainer_or_ingestion(scope, "yaam.curation.record_decision")
+        curation_record_id = f"curation-{uuid.uuid4().hex[:8]}"
+        record_metadata = {
+            "record_type": CURATION_RECORD_TYPE,
+            "curation_record_id": curation_record_id,
+            "task_id": task_id,
+            "decision": decision,
+            "reason": reason,
+            "source_triad": source_triad,
+            "reviewer": reviewer,
+            "visibility_scope": MAINTAINER_ONLY_SCOPE,
+            **(metadata or {}),
+        }
+        content = f"SCM-Cert-Bench curation decision for {task_id}: {decision}. {reason}"
+        return await self._store_l2_record(
+            scope=scope.model_copy(
+                update={"task_id": task_id, "visibility_scope": MAINTAINER_ONLY_SCOPE}
+            ),
+            operation="yaam.curation.record_decision",
+            content=content,
+            metadata=record_metadata,
+            created_id=curation_record_id,
+        )
+
+    async def list_curation_decisions(
+        self,
+        scope: ScopeEnvelope,
+        task_id: str | None = None,
+        limit: int = 50,
+    ) -> list[CurationDecisionRecord]:
+        """List visible SCM-Cert-Bench curation decisions."""
+        self.permission_policy.require("yaam.curation.list_decisions", "read")
+        _require_maintainer_or_ingestion(scope, "yaam.curation.list_decisions")
+        facts = await self.list_l2_facts(scope, limit=limit)
+        records: list[CurationDecisionRecord] = []
+        for fact in facts:
+            record = _curation_record_from_fact(fact, scope)
+            if record is None:
+                continue
+            if task_id is None or record.task_id == task_id:
+                records.append(record)
+        return records
+
+    async def record_trace_correlation(
+        self,
+        scope: ScopeEnvelope,
+        trace_id: str | None = None,
+        artifact_ref: str | None = None,
+        openrouter_call_id: str | None = None,
+        linked_memory_ids: list[str] | None = None,
+        error_summary: str | None = None,
+        trace_status: str = "unverified",
+        metadata: dict[str, Any] | None = None,
+    ) -> WriteAck:
+        """Store a safe external trace and artifact correlation record."""
+        self.permission_policy.require("yaam.trace.record_correlation", "write")
+        _require_maintainer_or_ingestion(scope, "yaam.trace.record_correlation")
+        correlation_id = f"tracecorr-{uuid.uuid4().hex[:8]}"
+        record_metadata = {
+            "record_type": TRACE_CORRELATION_RECORD_TYPE,
+            "correlation_id": correlation_id,
+            "trace_id": trace_id,
+            "artifact_ref": artifact_ref,
+            "openrouter_call_id": openrouter_call_id,
+            "linked_memory_ids": linked_memory_ids or [],
+            "error_summary": error_summary,
+            "trace_status": trace_status,
+            **(metadata or {}),
+        }
+        content = f"Trace correlation {correlation_id} for task {scope.task_id or 'unscoped'}."
+        return await self._store_l2_record(
+            scope=scope,
+            operation="yaam.trace.record_correlation",
+            content=content,
+            metadata=record_metadata,
+            created_id=correlation_id,
+        )
+
+    async def lookup_trace_correlation(
+        self,
+        scope: ScopeEnvelope,
+        correlation_id: str | None = None,
+        trace_id: str | None = None,
+        task_id: str | None = None,
+        run_id: str | None = None,
+        limit: int = 50,
+    ) -> list[TraceCorrelationRecord]:
+        """Look up safe external trace and artifact correlation records."""
+        self.permission_policy.require("yaam.trace.lookup", "read")
+        _require_maintainer_or_ingestion(scope, "yaam.trace.lookup")
+        facts = await self.list_l2_facts(scope, limit=limit)
+        records: list[TraceCorrelationRecord] = []
+        for fact in facts:
+            record = _trace_correlation_from_fact(fact, scope)
+            if record is None:
+                continue
+            if correlation_id is not None and record.correlation_id != correlation_id:
+                continue
+            if trace_id is not None and record.trace_id != trace_id:
+                continue
+            if task_id is not None and record.task_id != task_id:
+                continue
+            if run_id is not None and record.run_id != run_id:
+                continue
+            records.append(record)
+        return records
+
     async def health_check(self) -> HealthResponse:
         """Return redacted health status for configured memory tiers."""
         self.permission_policy.require("yaam.health.check", "read")
@@ -470,6 +722,95 @@ class MemoryGatewayService:
             warnings=warnings,
         )
 
+    def _apply_leakage_guard(
+        self,
+        items: list[MemoryResult],
+        scope: ScopeEnvelope,
+        allowed_fields: list[str] | None = None,
+        forbidden_fields: list[str] | None = None,
+        require_leakage_guard: bool = False,
+    ) -> tuple[list[MemoryResult], LeakageGuardResult]:
+        strict = require_leakage_guard or _requires_benchmark_guard(scope)
+        forbidden = _normalized_forbidden_fields(forbidden_fields)
+        if not strict and not allowed_fields and not forbidden_fields:
+            return items, LeakageGuardResult(
+                leakage_guard_passed=False,
+                visibility_scope=scope.visibility_scope,
+                checked_item_count=0,
+            )
+
+        filtered: list[MemoryResult] = []
+        filtered_count = 0
+        for item in items:
+            if _item_has_forbidden_visibility(item, forbidden, scope):
+                filtered_count += 1
+                continue
+            filtered.append(item)
+
+        warnings: list[YAAMWarning] = []
+        if filtered_count:
+            warnings.append(
+                YAAMWarning(
+                    code="leakage_guard.filtered",
+                    message="Benchmark leakage guard removed hidden or forbidden memory items.",
+                    affected_tier="SYSTEM",
+                    retryable=False,
+                    details={
+                        "filtered_item_count": filtered_count,
+                        "forbidden_fields": list(forbidden),
+                    },
+                )
+            )
+
+        return filtered, LeakageGuardResult(
+            leakage_guard_passed=True,
+            visibility_scope=scope.visibility_scope,
+            forbidden_fields=list(forbidden),
+            filtered_item_count=filtered_count,
+            checked_item_count=len(items),
+            warnings=warnings,
+        )
+
+    async def _store_l2_record(
+        self,
+        scope: ScopeEnvelope,
+        operation: str,
+        content: str,
+        metadata: dict[str, Any],
+        created_id: str,
+    ) -> WriteAck:
+        l2_tier = self._require_tier("l2_tier", "L2")
+        record_metadata = self._write_metadata(scope, metadata)
+        fact = Fact(
+            fact_id=created_id,
+            session_id=scope.session_id,
+            content=content,
+            fact_type="event",
+            ciar_score=calculate_ciar_score(1.0, 1.0, 1.0, 1.0),
+            certainty=1.0,
+            impact=1.0,
+            age_decay=1.0,
+            recency_boost=1.0,
+            metadata=record_metadata,
+        )
+        stored_id = await l2_tier.store(fact)
+        final_id = str(stored_id or created_id)
+        return WriteAck(
+            operation=operation,
+            created_id=final_id,
+            provenance=Provenance(
+                source_tier="L2",
+                source_id=final_id,
+                session_id=scope.session_id,
+                agent_id=scope.agent_id,
+                task_id=scope.task_id,
+                tenant_id=scope.tenant_id,
+                run_id=scope.run_id,
+                created_at=fact.extracted_at,
+                metadata=redact_metadata(record_metadata),
+            ),
+        )
+
     def _require_tier(self, attr_name: str, tier_label: str) -> Any:
         tier = getattr(self.memory_system, attr_name, None)
         if not tier:
@@ -482,6 +823,8 @@ class MemoryGatewayService:
         merged = {
             **(metadata or {}),
             "agent_id": scope.agent_id,
+            "caller_role": scope.caller_role,
+            "visibility_scope": scope.visibility_scope,
             "task_id": scope.task_id,
             "tenant_id": scope.tenant_id,
             "run_id": scope.run_id,
@@ -496,6 +839,8 @@ class MemoryGatewayService:
         attributes = {
             "session.id": scope.session_id,
             "yaam.agent_id": scope.agent_id,
+            "yaam.caller_role": scope.caller_role or "",
+            "yaam.visibility_scope": scope.visibility_scope or "",
             "yaam.task_id": scope.task_id or "",
             "yaam.operation": operation,
             "yaam.tenant_id": scope.tenant_id or "",
@@ -510,3 +855,158 @@ async def _maybe_await(value: Any) -> Any:
     if inspect.isawaitable(value):
         return await value
     return value
+
+
+def _requires_benchmark_guard(scope: ScopeEnvelope) -> bool:
+    return (
+        scope.caller_role == BENCHMARK_RUNTIME_ROLE
+        or scope.visibility_scope == BENCHMARK_RUNTIME_SCOPE
+    )
+
+
+def _normalized_forbidden_fields(forbidden_fields: list[str] | None) -> set[str]:
+    return {field.lower() for field in (forbidden_fields or DEFAULT_FORBIDDEN_BENCHMARK_FIELDS)}
+
+
+def _item_has_forbidden_visibility(
+    item: MemoryResult,
+    forbidden_fields: set[str],
+    scope: ScopeEnvelope,
+) -> bool:
+    metadata = item.metadata or {}
+    if _requires_benchmark_guard(scope):
+        item_scope = str(metadata.get("visibility_scope", "")).lower()
+        if item_scope in HIDDEN_VISIBILITY_SCOPES:
+            return True
+    content = item.content.lower()
+    for field in forbidden_fields:
+        if field in content:
+            return True
+        if _metadata_has_forbidden_key(metadata, field):
+            return True
+    return False
+
+
+def _metadata_has_forbidden_key(metadata: dict[str, Any], field: str) -> bool:
+    for key, value in metadata.items():
+        key_lower = key.lower()
+        if field in key_lower:
+            return True
+        if isinstance(value, dict) and _metadata_has_forbidden_key(value, field):
+            return True
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict) and _metadata_has_forbidden_key(item, field):
+                    return True
+    return False
+
+
+def _require_maintainer_or_ingestion(scope: ScopeEnvelope, operation: str) -> None:
+    if scope.caller_role in MAINTAINER_ROLES:
+        return
+    raise YAAMPermissionError(
+        YAAMErrorPayload(
+            code="permission.role_denied",
+            message="Operation requires benchmark maintainer or post-run ingestion role.",
+            retryable=False,
+            operation=operation,
+            affected_tier="SYSTEM",
+            details={
+                "caller_role": scope.caller_role,
+                "allowed_roles": sorted(MAINTAINER_ROLES),
+            },
+        )
+    )
+
+
+def _curation_record_from_fact(
+    fact: Any,
+    scope: ScopeEnvelope,
+) -> CurationDecisionRecord | None:
+    metadata = _model_metadata(fact)
+    if metadata.get("record_type") != CURATION_RECORD_TYPE:
+        return None
+    task_id = str(metadata.get("task_id") or scope.task_id or "")
+    if not task_id:
+        return None
+    record_id = str(metadata.get("curation_record_id") or _model_value(fact, "fact_id", ""))
+    return CurationDecisionRecord(
+        curation_record_id=record_id,
+        task_id=task_id,
+        decision=str(metadata.get("decision", "")),
+        reason=str(metadata.get("reason", "")),
+        source_triad=_dict_value(metadata.get("source_triad")),
+        reviewer=str(metadata.get("reviewer", "")),
+        visibility_scope=str(metadata.get("visibility_scope") or MAINTAINER_ONLY_SCOPE),
+        provenance=Provenance(
+            source_tier="L2",
+            source_id=record_id or "unknown",
+            session_id=_model_value(fact, "session_id", scope.session_id),
+            agent_id=metadata.get("agent_id") or scope.agent_id,
+            task_id=task_id,
+            tenant_id=scope.tenant_id,
+            run_id=scope.run_id,
+            created_at=_model_value(fact, "created_at", None)
+            or _model_value(fact, "extracted_at", None),
+            metadata=metadata,
+        ),
+        metadata=metadata,
+    )
+
+
+def _trace_correlation_from_fact(
+    fact: Any,
+    scope: ScopeEnvelope,
+) -> TraceCorrelationRecord | None:
+    metadata = _model_metadata(fact)
+    if metadata.get("record_type") != TRACE_CORRELATION_RECORD_TYPE:
+        return None
+    correlation_id = str(metadata.get("correlation_id") or _model_value(fact, "fact_id", ""))
+    linked_memory_ids = metadata.get("linked_memory_ids", [])
+    if not isinstance(linked_memory_ids, list):
+        linked_memory_ids = []
+    return TraceCorrelationRecord(
+        correlation_id=correlation_id,
+        trace_id=_optional_str(metadata.get("trace_id")),
+        task_id=_optional_str(metadata.get("task_id") or scope.task_id),
+        run_id=_optional_str(metadata.get("run_id") or scope.run_id),
+        artifact_ref=_optional_str(metadata.get("artifact_ref")),
+        openrouter_call_id=_optional_str(metadata.get("openrouter_call_id")),
+        linked_memory_ids=[str(item) for item in linked_memory_ids],
+        error_summary=_optional_str(metadata.get("error_summary")),
+        trace_status=str(metadata.get("trace_status") or "unverified"),
+        provenance=Provenance(
+            source_tier="L2",
+            source_id=correlation_id or "unknown",
+            session_id=_model_value(fact, "session_id", scope.session_id),
+            agent_id=metadata.get("agent_id") or scope.agent_id,
+            task_id=_optional_str(metadata.get("task_id") or scope.task_id),
+            tenant_id=scope.tenant_id,
+            run_id=_optional_str(metadata.get("run_id") or scope.run_id),
+            created_at=_model_value(fact, "created_at", None)
+            or _model_value(fact, "extracted_at", None),
+            metadata=metadata,
+        ),
+        metadata=metadata,
+    )
+
+
+def _model_metadata(item: Any) -> dict[str, Any]:
+    metadata = _model_value(item, "metadata", {})
+    return redact_metadata(metadata if isinstance(metadata, dict) else {})
+
+
+def _model_value(item: Any, key: str, default: Any = None) -> Any:
+    if isinstance(item, dict):
+        return item.get(key, default)
+    return getattr(item, key, default)
+
+
+def _dict_value(value: Any) -> dict[str, Any]:
+    return redact_metadata(value if isinstance(value, dict) else {})
+
+
+def _optional_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    return str(value)

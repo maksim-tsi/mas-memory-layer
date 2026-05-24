@@ -38,6 +38,16 @@ MCP v1 covers the following accepted P0 and P1 requirements:
 | `YAAM-REQ-0026`, `YAAM-REQ-0027` | Keep LangChain tools and direct library calls out of customer-facing contracts. |
 | `YAAM-REQ-0031`, `YAAM-REQ-0033`, `YAAM-REQ-0034`, `YAAM-REQ-0035` | Provide common prompts, fail-fast writes, performance observability, and requirement traceability. |
 
+MCP v1 has a compatible SCM-Cert-Bench extension that covers the following
+requirements without adding customer-specific resources:
+
+| Requirement IDs | Coverage |
+|---|---|
+| `YAAM-REQ-0036` | Benchmark runtime reads can request leakage-guarded context and query results that filter hidden gold, judge, curation, and answer-leakage fields. |
+| `YAAM-REQ-0029` | `yaam.contradiction.review` provides deterministic supporting/conflicting evidence review and safe-refusal rationale. |
+| `YAAM-REQ-0037` | Maintainer/post-run ingestion roles can record and list Gold task curation decisions with source-triad links. |
+| `YAAM-REQ-0038` | Maintainer/post-run ingestion roles can record and look up Phoenix/OpenRouter/artifact/run/task correlation metadata. |
+
 The following requirements are deferred from generic MCP v1:
 
 | Requirement IDs | Deferral reason |
@@ -45,7 +55,8 @@ The following requirements are deferred from generic MCP v1:
 | `YAAM-REQ-0019`, `YAAM-REQ-0020`, `YAAM-REQ-0028` | Artifact lineage requires a separate product decision and may become a customer-specific or v1.1 module. |
 | `YAAM-REQ-0022`, `YAAM-REQ-0023`, `YAAM-REQ-0032` | Skill Factory views and domain-specific prompts should follow the generic MCP surface. |
 | `YAAM-REQ-0024`, `YAAM-REQ-0025` | Maritime run, scenario, port, and fact views should follow the generic MCP surface. |
-| `YAAM-REQ-0029`, `YAAM-REQ-0030` | Contradiction review and autonomous lifecycle operations remain opt-in future capabilities. |
+| `YAAM-REQ-0030` | Autonomous lifecycle operations remain opt-in future capabilities. |
+| `YAAM-REQ-0039` | SCM-Cert-Bench task/evidence/curation/episode resources remain a customer-specific follow-on decision. |
 
 ## 3. MCP v1 Scope Envelope
 
@@ -67,6 +78,9 @@ Conditionally required fields:
 
 Optional fields:
 
+- `caller_role`: caller role for policy decisions, including benchmark runtime,
+  maintainer, and post-run ingestion scopes.
+- `visibility_scope`: requested memory visibility scope.
 - `user_id`: stable human or system user identity when available.
 - `domain_ids`: customer or domain identifiers such as `ctt_id`, `skill_name`,
   `scenario_id`, `port_code`, `artifact_id`, or `knowledge_id`.
@@ -119,7 +133,12 @@ should converge on these services to avoid interface-specific behavior drift.
 | `yaam.l4.finalize_artifact` | Write/lifecycle | Allowlisted | Explicit final artifact/document persistence. |
 | `yaam.ciar.explain` | Read | Enabled | CIAR component and policy explanation for memory ids or evidence items. |
 | `yaam.evidence.table` | Read/agentic | Enabled for read-only assembly | May return partial deterministic rows if agentic scoring is unavailable. |
+| `yaam.contradiction.review` | Read | Enabled | Deterministic safe-refusal review over explicit support/conflict evidence. |
 | `yaam.health.check` | Read | Enabled | Tier and service status without secrets. |
+| `yaam.curation.record_decision` | Write | Allowlisted plus role check | Maintainer-only Gold task curation decision with source-triad links. |
+| `yaam.curation.list_decisions` | Read | Role check | Maintainer/post-run ingestion curation view. |
+| `yaam.trace.record_correlation` | Write | Allowlisted plus role check | External trace/provider/artifact correlation metadata. |
+| `yaam.trace.lookup` | Read | Role check | Maintainer/post-run ingestion trace-correlation lookup. |
 
 Each tool must expose JSON Schema input and output definitions. MCP responses
 must include structured content and a compact text summary for clients that

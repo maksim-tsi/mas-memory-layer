@@ -23,6 +23,8 @@ class ScopeEnvelope(BaseModel):
 
     session_id: str = Field(..., min_length=1, description="Scoped memory session identifier")
     agent_id: str = Field(..., min_length=1, description="Calling or producing agent identifier")
+    caller_role: str | None = Field(default=None, description="Calling role for policy decisions")
+    visibility_scope: str | None = Field(default=None, description="Requested memory visibility scope")
     task_id: str | None = Field(default=None, description="Optional task or benchmark identifier")
     tenant_id: str | None = Field(default=None, description="Optional tenant boundary")
     run_id: str | None = Field(default=None, description="Optional benchmark or scenario run id")
@@ -103,6 +105,20 @@ class ContextResponse(BaseModel):
     estimated_tokens: int | None = Field(default=None, ge=0)
     partial: bool = False
     warnings: list[YAAMWarning] = Field(default_factory=list)
+    visibility_scope: str | None = None
+    leakage_guard_passed: bool | None = None
+    filtered_item_count: int = 0
+
+
+class LeakageGuardResult(BaseModel):
+    """Visibility filtering metadata for benchmark-safe reads."""
+
+    leakage_guard_passed: bool
+    visibility_scope: str | None = None
+    forbidden_fields: list[str] = Field(default_factory=list)
+    filtered_item_count: int = 0
+    checked_item_count: int = 0
+    warnings: list[YAAMWarning] = Field(default_factory=list)
 
 
 class EvidenceRow(BaseModel):
@@ -146,6 +162,49 @@ class WriteAck(BaseModel):
     updated_id: str | None = None
     provenance: Provenance | None = None
     audit_id: str | None = None
+
+
+class ContradictionReviewResponse(BaseModel):
+    """Deterministic contradiction and safe-refusal review result."""
+
+    contradiction_detected: bool = False
+    infeasibility_reason: str | None = None
+    supporting_evidence: list[MemoryResult] = Field(default_factory=list)
+    conflicting_evidence: list[MemoryResult] = Field(default_factory=list)
+    safe_refusal_rationale: str | None = None
+    partial: bool = False
+    warnings: list[YAAMWarning] = Field(default_factory=list)
+    scope: ScopeEnvelope | None = None
+
+
+class CurationDecisionRecord(BaseModel):
+    """Maintainer-only benchmark curation decision."""
+
+    curation_record_id: str
+    task_id: str
+    decision: str
+    reason: str
+    source_triad: dict[str, Any] = Field(default_factory=dict)
+    reviewer: str
+    visibility_scope: str = "maintainer_only"
+    provenance: Provenance | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class TraceCorrelationRecord(BaseModel):
+    """External trace and artifact correlation metadata."""
+
+    correlation_id: str
+    trace_id: str | None = None
+    task_id: str | None = None
+    run_id: str | None = None
+    artifact_ref: str | None = None
+    openrouter_call_id: str | None = None
+    linked_memory_ids: list[str] = Field(default_factory=list)
+    error_summary: str | None = None
+    trace_status: str = "unverified"
+    provenance: Provenance | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 def redact_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:

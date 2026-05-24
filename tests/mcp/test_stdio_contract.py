@@ -128,7 +128,14 @@ async def test_mcp_stdio_fixture_read_tools_return_structured_contracts() -> Non
         context = _decode_tool_result(
             await session.call_tool(
                 "yaam.memory.get_context",
-                {"session_id": "session-a", "agent_id": "agent-a", "task_id": "task-a"},
+                {
+                    "session_id": "session-a",
+                    "agent_id": "agent-a",
+                    "task_id": "task-a",
+                    "caller_role": "benchmark_runtime_agent",
+                    "visibility_scope": "benchmark_runtime",
+                    "require_leakage_guard": True,
+                },
             )
         )
         l2 = _decode_tool_result(
@@ -161,6 +168,41 @@ async def test_mcp_stdio_fixture_read_tools_return_structured_contracts() -> Non
                 {"session_id": "session-a", "agent_id": "agent-a", "query": "dock"},
             )
         )
+        review = _decode_tool_result(
+            await session.call_tool(
+                "yaam.contradiction.review",
+                {
+                    "session_id": "session-a",
+                    "agent_id": "agent-a",
+                    "task_id": "task-a",
+                    "claims": ["Claim one."],
+                    "expected_behavior": "safe refusal",
+                },
+            )
+        )
+        curation = _decode_tool_result(
+            await session.call_tool(
+                "yaam.curation.list_decisions",
+                {
+                    "session_id": "session-a",
+                    "agent_id": "agent-a",
+                    "task_id": "task-a",
+                    "caller_role": "benchmark_maintainer",
+                },
+            )
+        )
+        trace = _decode_tool_result(
+            await session.call_tool(
+                "yaam.trace.lookup",
+                {
+                    "session_id": "session-a",
+                    "agent_id": "agent-a",
+                    "task_id": "task-a",
+                    "run_id": "run-a",
+                    "caller_role": "post_run_ingestion_service",
+                },
+            )
+        )
 
     assert health["summary"] == "Health checked."
     assert health["health"]["status"] == "ok"
@@ -179,6 +221,7 @@ async def test_mcp_stdio_fixture_read_tools_return_structured_contracts() -> Non
     assert context["context"]["session_id"] == "session-a"
     assert context["context"]["items"][0]["source_id"] == "fact-context"
     assert context["context"]["items"][0]["provenance"]["task_id"] == "task-a"
+    assert context["context"]["leakage_guard_passed"] is True
 
     assert l2["summary"] == "L2 facts retrieved."
     assert l2["results"][0]["tier"] == "L2"
@@ -200,6 +243,18 @@ async def test_mcp_stdio_fixture_read_tools_return_structured_contracts() -> Non
     assert evidence["summary"] == "Evidence table assembled."
     assert evidence["evidence_table"]["rows"][0]["source_id"] == "fact-evidence"
     assert evidence["evidence_table"]["rows"][0]["provenance"]["agent_id"] == "agent-a"
+
+    assert review["summary"] == "Contradiction reviewed."
+    assert review["review"]["contradiction_detected"] is True
+    assert review["review"]["safe_refusal_rationale"] == "Fixture safe refusal."
+
+    assert curation["summary"] == "Curation decisions listed."
+    assert curation["decisions"][0]["task_id"] == "task-a"
+    assert curation["decisions"][0]["visibility_scope"] == "maintainer_only"
+
+    assert trace["summary"] == "Trace correlations listed."
+    assert trace["correlations"][0]["trace_id"] == "phoenix-trace-fixture"
+    assert trace["correlations"][0]["task_id"] == "task-a"
 
 
 @pytest.mark.asyncio
@@ -234,12 +289,29 @@ async def test_mcp_stdio_fixture_write_denial_returns_structured_error() -> None
             "yaam.l2.store_fact",
             {"session_id": "session-a", "agent_id": "agent-a", "content": "Fact."},
         )
+        curation_result = await session.call_tool(
+            "yaam.curation.record_decision",
+            {
+                "session_id": "session-a",
+                "agent_id": "agent-a",
+                "task_id": "task-a",
+                "decision": "accepted",
+                "reason": "Maintainer review.",
+                "source_triad": {"prompt": "prompt-a"},
+                "reviewer": "reviewer-a",
+                "caller_role": "benchmark_maintainer",
+            },
+        )
 
     payload = _decode_error_payload(result)
     assert payload["code"] == "permission.writes_disabled"
     assert payload["operation"] == "yaam.l2.store_fact"
     assert payload["retryable"] is False
     assert payload["affected_tier"] == "SYSTEM"
+
+    curation_payload = _decode_error_payload(curation_result)
+    assert curation_payload["code"] == "permission.writes_disabled"
+    assert curation_payload["operation"] == "yaam.curation.record_decision"
 
 
 @pytest.mark.asyncio
@@ -286,6 +358,35 @@ async def test_mcp_stdio_fixture_write_tools_return_acknowledgements() -> None:
                 },
             )
         )
+        curation = _decode_tool_result(
+            await session.call_tool(
+                "yaam.curation.record_decision",
+                {
+                    "session_id": "session-a",
+                    "agent_id": "agent-a",
+                    "task_id": "task-a",
+                    "decision": "accepted",
+                    "reason": "Maintainer review.",
+                    "source_triad": {"prompt": "prompt-a", "oracle": "oracle-a"},
+                    "reviewer": "reviewer-a",
+                    "caller_role": "benchmark_maintainer",
+                },
+            )
+        )
+        trace = _decode_tool_result(
+            await session.call_tool(
+                "yaam.trace.record_correlation",
+                {
+                    "session_id": "session-a",
+                    "agent_id": "agent-a",
+                    "task_id": "task-a",
+                    "run_id": "run-a",
+                    "trace_id": "phoenix-trace-a",
+                    "artifact_ref": "artifacts/run-a.jsonl",
+                    "caller_role": "post_run_ingestion_service",
+                },
+            )
+        )
 
     assert l2["summary"] == "Fact stored."
     assert l2["ack"]["status"] == "success"
@@ -304,6 +405,18 @@ async def test_mcp_stdio_fixture_write_tools_return_acknowledgements() -> None:
     assert l4["ack"]["operation"] == "yaam.l4.finalize_artifact"
     assert l4["ack"]["created_id"] == "knowledge-written"
     assert l4["ack"]["provenance"]["source_tier"] == "L4"
+
+    assert curation["summary"] == "Curation decision recorded."
+    assert curation["ack"]["status"] == "success"
+    assert curation["ack"]["operation"] == "yaam.curation.record_decision"
+    assert curation["ack"]["created_id"] == "curation-written"
+    assert curation["ack"]["provenance"]["source_tier"] == "L2"
+
+    assert trace["summary"] == "Trace correlation recorded."
+    assert trace["ack"]["status"] == "success"
+    assert trace["ack"]["operation"] == "yaam.trace.record_correlation"
+    assert trace["ack"]["created_id"] == "tracecorr-written"
+    assert trace["ack"]["provenance"]["source_tier"] == "L2"
 
 
 @pytest.mark.asyncio

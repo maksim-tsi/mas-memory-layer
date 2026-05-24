@@ -1,5 +1,6 @@
 import pytest
 
+from src.memory.models import Fact
 from src.memory.services import MemoryGatewayService, PermissionPolicy, ScopeEnvelope
 from src.memory.services.permissions import YAAMPermissionError
 
@@ -110,3 +111,227 @@ async def test_get_fact_allows_wildcard_resource_scope(mocker) -> None:
 
     assert result is not None
     assert result.source_id == "fact-a"
+
+
+@pytest.mark.asyncio
+async def test_benchmark_query_filters_hidden_records(mocker) -> None:
+    memory_system = mocker.Mock()
+    memory_system.query_memory = mocker.AsyncMock(
+        return_value=[
+            {
+                "content": "Visible benchmark-safe evidence.",
+                "tier": "L2",
+                "score": 0.9,
+                "metadata": {"fact_id": "fact-visible", "visibility_scope": "benchmark_runtime"},
+            },
+            {
+                "content": "Hidden gold answer should never reach runtime retrieval.",
+                "tier": "L2",
+                "score": 0.9,
+                "metadata": {"fact_id": "fact-hidden", "visibility_scope": "maintainer_only"},
+            },
+        ]
+    )
+    service = MemoryGatewayService(memory_system)
+    scope = ScopeEnvelope(
+        session_id="session-a",
+        agent_id="agent-a",
+        caller_role="benchmark_runtime_agent",
+        visibility_scope="benchmark_runtime",
+    )
+
+    results, guard = await service.query_memory_checked(
+        scope,
+        query="certification task context",
+        limit=2,
+    )
+
+    assert [result.source_id for result in results] == ["fact-visible"]
+    assert guard.leakage_guard_passed is True
+    assert guard.filtered_item_count == 1
+    assert guard.warnings[0].code == "leakage_guard.filtered"
+
+
+@pytest.mark.asyncio
+async def test_generic_query_does_not_apply_benchmark_guard(mocker) -> None:
+    memory_system = mocker.Mock()
+    memory_system.query_memory = mocker.AsyncMock(
+        return_value=[
+            {
+                "content": "Maintainer-only operational note.",
+                "tier": "L2",
+                "score": 0.9,
+                "metadata": {"fact_id": "fact-hidden", "visibility_scope": "maintainer_only"},
+            }
+        ]
+    )
+    service = MemoryGatewayService(memory_system)
+    scope = ScopeEnvelope(session_id="session-a", agent_id="agent-a")
+
+    results, guard = await service.query_memory_checked(scope, query="ops note", limit=1)
+
+    assert [result.source_id for result in results] == ["fact-hidden"]
+    assert guard.leakage_guard_passed is False
+    assert guard.checked_item_count == 0
+
+
+@pytest.mark.asyncio
+async def test_curation_write_requires_maintainer_role_even_when_allowlisted(mocker) -> None:
+    memory_system = mocker.Mock()
+    memory_system.l2_tier = mocker.Mock()
+    service = MemoryGatewayService(
+        memory_system,
+        PermissionPolicy(
+            enable_writes=True,
+            allowlisted_tools=frozenset({"yaam.curation.record_decision"}),
+        ),
+    )
+    scope = ScopeEnvelope(
+        session_id="session-a",
+        agent_id="agent-a",
+        caller_role="benchmark_runtime_agent",
+    )
+
+    with pytest.raises(YAAMPermissionError) as exc_info:
+        await service.record_curation_decision(
+            scope,
+            task_id="task-a",
+            decision="accepted",
+            reason="Maintainer-only source triad review.",
+            source_triad={"prompt": "prompt-a", "oracle": "oracle-a", "rubric": "rubric-a"},
+            reviewer="reviewer-a",
+        )
+
+    assert exc_info.value.payload.code == "permission.role_denied"
+    assert exc_info.value.payload.operation == "yaam.curation.record_decision"
+
+
+@pytest.mark.asyncio
+async def test_curation_write_stores_maintainer_only_metadata(mocker) -> None:
+    l2_tier = mocker.Mock()
+    l2_tier.store = mocker.AsyncMock(return_value=None)
+    memory_system = mocker.Mock()
+    memory_system.l2_tier = l2_tier
+    service = MemoryGatewayService(
+        memory_system,
+        PermissionPolicy(
+            enable_writes=True,
+            allowlisted_tools=frozenset({"yaam.curation.record_decision"}),
+        ),
+    )
+    scope = ScopeEnvelope(
+        session_id="session-a",
+        agent_id="agent-a",
+        caller_role="benchmark_maintainer",
+    )
+
+    ack = await service.record_curation_decision(
+        scope,
+        task_id="task-a",
+        decision="rejected",
+        reason="Task leaks gold answer.",
+        source_triad={"prompt": "prompt-a", "oracle": "oracle-a", "rubric": "rubric-a"},
+        reviewer="reviewer-a",
+        metadata={"api_token": "secret"},
+    )
+
+    stored_fact = l2_tier.store.await_args.args[0]
+    assert ack.operation == "yaam.curation.record_decision"
+    assert ack.created_id.startswith("curation-")
+    assert stored_fact.metadata["record_type"] == "scm_cert_bench_curation_decision"
+    assert stored_fact.metadata["visibility_scope"] == "maintainer_only"
+    assert stored_fact.metadata["reviewer"] == "reviewer-a"
+    assert stored_fact.metadata["api_token"] == "[REDACTED]"
+    assert ack.provenance.metadata["visibility_scope"] == "maintainer_only"
+
+
+@pytest.mark.asyncio
+async def test_trace_correlation_write_and_lookup_use_redacted_l2_records(mocker) -> None:
+    trace_fact = Fact(
+        fact_id="tracecorr-a",
+        session_id="session-a",
+        content="Trace correlation.",
+        metadata={
+            "record_type": "scm_cert_bench_trace_correlation",
+            "correlation_id": "tracecorr-a",
+            "trace_id": "phoenix-trace-a",
+            "task_id": "task-a",
+            "run_id": "run-a",
+            "artifact_ref": "artifacts/run-a.jsonl",
+            "openrouter_call_id": "or-call-a",
+            "linked_memory_ids": ["fact-a"],
+            "trace_status": "verified",
+        },
+    )
+    l2_tier = mocker.Mock()
+    l2_tier.store = mocker.AsyncMock(return_value=None)
+    l2_tier.query_by_session = mocker.AsyncMock(return_value=[trace_fact])
+    memory_system = mocker.Mock()
+    memory_system.l2_tier = l2_tier
+    service = MemoryGatewayService(
+        memory_system,
+        PermissionPolicy(
+            enable_writes=True,
+            allowlisted_tools=frozenset({"yaam.trace.record_correlation"}),
+        ),
+    )
+    scope = ScopeEnvelope(
+        session_id="session-a",
+        agent_id="agent-a",
+        task_id="task-a",
+        run_id="run-a",
+        caller_role="post_run_ingestion_service",
+    )
+
+    ack = await service.record_trace_correlation(
+        scope,
+        trace_id="phoenix-trace-a",
+        artifact_ref="artifacts/run-a.jsonl",
+        openrouter_call_id="or-call-a",
+        linked_memory_ids=["fact-a"],
+        metadata={"password": "secret"},
+    )
+    records = await service.lookup_trace_correlation(scope, trace_id="phoenix-trace-a")
+
+    stored_fact = l2_tier.store.await_args.args[0]
+    assert ack.operation == "yaam.trace.record_correlation"
+    assert stored_fact.metadata["password"] == "[REDACTED]"
+    assert records[0].correlation_id == "tracecorr-a"
+    assert records[0].trace_id == "phoenix-trace-a"
+    assert records[0].openrouter_call_id == "or-call-a"
+    assert records[0].linked_memory_ids == ["fact-a"]
+
+
+@pytest.mark.asyncio
+async def test_contradiction_review_uses_explicit_evidence_relations(mocker) -> None:
+    memory_system = mocker.Mock()
+    memory_system.query_memory = mocker.AsyncMock(
+        return_value=[
+            {
+                "content": "Evidence supports claim A.",
+                "tier": "L2",
+                "score": 0.8,
+                "metadata": {"fact_id": "support-a", "evidence_relation": "support"},
+            },
+            {
+                "content": "Evidence refutes claim A.",
+                "tier": "L2",
+                "score": 0.8,
+                "metadata": {"fact_id": "conflict-a", "evidence_relation": "refutes"},
+            },
+        ]
+    )
+    service = MemoryGatewayService(memory_system)
+    scope = ScopeEnvelope(session_id="session-a", agent_id="agent-a")
+
+    review = await service.review_contradiction(
+        scope,
+        claims=["claim A"],
+        expected_behavior="refuse unsafe answer",
+    )
+
+    assert review.contradiction_detected is True
+    assert review.infeasibility_reason is not None
+    assert review.safe_refusal_rationale is not None
+    assert [item.source_id for item in review.supporting_evidence] == ["support-a"]
+    assert [item.source_id for item in review.conflicting_evidence] == ["conflict-a"]

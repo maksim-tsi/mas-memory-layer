@@ -38,7 +38,12 @@ def test_mcp_v1_names_match_planning_freeze() -> None:
         "yaam.l4.finalize_artifact",
         "yaam.ciar.explain",
         "yaam.evidence.table",
+        "yaam.contradiction.review",
         "yaam.health.check",
+        "yaam.curation.record_decision",
+        "yaam.curation.list_decisions",
+        "yaam.trace.record_correlation",
+        "yaam.trace.lookup",
     )
     assert "yaam://health" in MCP_RESOURCE_URIS
     assert "yaam://schemas/fact" in MCP_RESOURCE_URIS
@@ -114,6 +119,7 @@ async def test_mcp_read_tools_delegate_to_service_with_scope_and_structured_payl
     )
     assert memory_query["summary"] == "Memory query complete."
     assert memory_query["results"][0]["provenance"]["session_id"] == "session-a"
+    assert memory_query["leakage_guard"]["checked_item_count"] == 1
     query_call = service.calls[-1]
     scope = query_call[1][0]
     weights = query_call[1][3]
@@ -126,10 +132,20 @@ async def test_mcp_read_tools_delegate_to_service_with_scope_and_structured_payl
     context = await _call_tool(
         server,
         "yaam.memory.get_context",
-        {"session_id": "session-a", "agent_id": "agent-a", "task_id": "task-a"},
+        {
+            "session_id": "session-a",
+            "agent_id": "agent-a",
+            "task_id": "task-a",
+            "caller_role": "benchmark_runtime_agent",
+            "visibility_scope": "benchmark_runtime",
+            "forbidden_fields": ["ground_truth_answer"],
+            "require_leakage_guard": True,
+        },
     )
     assert context["summary"] == "Context assembled."
     assert context["context"]["context_summary"] == "Context summary."
+    assert context["context"]["leakage_guard_passed"] is True
+    assert context["context"]["visibility_scope"] == "benchmark_runtime"
 
     l2 = await _call_tool(
         server,
@@ -167,8 +183,49 @@ async def test_mcp_read_tools_delegate_to_service_with_scope_and_structured_payl
     )
     assert evidence["evidence_table"]["rows"][0]["source_id"] == "fact-evidence"
 
+    review = await _call_tool(
+        server,
+        "yaam.contradiction.review",
+        {
+            "session_id": "session-a",
+            "agent_id": "agent-a",
+            "task_id": "task-a",
+            "claims": ["Claim one."],
+            "expected_behavior": "safe refusal",
+        },
+    )
+    assert review["summary"] == "Contradiction reviewed."
+    assert review["review"]["contradiction_detected"] is True
+
     health = await _call_tool(server, "yaam.health.check", {})
     assert health["health"]["status"] == "ok"
+
+    curation = await _call_tool(
+        server,
+        "yaam.curation.list_decisions",
+        {
+            "session_id": "session-a",
+            "agent_id": "agent-a",
+            "task_id": "task-a",
+            "caller_role": "benchmark_maintainer",
+        },
+    )
+    assert curation["decisions"][0]["task_id"] == "task-a"
+    assert curation["decisions"][0]["visibility_scope"] == "maintainer_only"
+
+    trace = await _call_tool(
+        server,
+        "yaam.trace.lookup",
+        {
+            "session_id": "session-a",
+            "agent_id": "agent-a",
+            "task_id": "task-a",
+            "run_id": "run-a",
+            "caller_role": "post_run_ingestion_service",
+            "trace_id": "phoenix-trace-fixture",
+        },
+    )
+    assert trace["correlations"][0]["trace_id"] == "phoenix-trace-fixture"
 
 
 @pytest.mark.asyncio
@@ -201,6 +258,29 @@ async def test_mcp_mutating_tools_are_denied_by_default(mocker) -> None:
                 "agent_id": "agent-a",
                 "title": "Final Artifact",
                 "final_artifact": "A final artifact with enough content.",
+            },
+        ),
+        (
+            "yaam.curation.record_decision",
+            {
+                "session_id": "session-a",
+                "agent_id": "agent-a",
+                "task_id": "task-a",
+                "decision": "accepted",
+                "reason": "Maintainer review.",
+                "source_triad": {"prompt": "prompt-a"},
+                "reviewer": "reviewer-a",
+                "caller_role": "benchmark_maintainer",
+            },
+        ),
+        (
+            "yaam.trace.record_correlation",
+            {
+                "session_id": "session-a",
+                "agent_id": "agent-a",
+                "task_id": "task-a",
+                "trace_id": "phoenix-trace-a",
+                "caller_role": "post_run_ingestion_service",
             },
         ),
     ]
@@ -239,6 +319,8 @@ async def test_mcp_allowlisted_write_tools_persist_and_return_acknowledgements(m
                     "yaam.l2.store_fact",
                     "yaam.l3.assimilate_episode",
                     "yaam.l4.finalize_artifact",
+                    "yaam.curation.record_decision",
+                    "yaam.trace.record_correlation",
                 }
             ),
         ),
@@ -286,6 +368,39 @@ async def test_mcp_allowlisted_write_tools_persist_and_return_acknowledgements(m
     )
     assert l4["ack"]["created_id"] == "knowledge-stored"
     assert l4["ack"]["provenance"]["source_tier"] == "L4"
+
+    curation = await _call_tool(
+        server,
+        "yaam.curation.record_decision",
+        {
+            "session_id": "session-a",
+            "agent_id": "agent-a",
+            "task_id": "task-a",
+            "decision": "accepted",
+            "reason": "Maintainer review.",
+            "source_triad": {"prompt": "prompt-a", "oracle": "oracle-a"},
+            "reviewer": "reviewer-a",
+            "caller_role": "benchmark_maintainer",
+        },
+    )
+    assert curation["ack"]["operation"] == "yaam.curation.record_decision"
+    assert curation["ack"]["provenance"]["source_tier"] == "L2"
+
+    trace = await _call_tool(
+        server,
+        "yaam.trace.record_correlation",
+        {
+            "session_id": "session-a",
+            "agent_id": "agent-a",
+            "task_id": "task-a",
+            "run_id": "run-a",
+            "trace_id": "phoenix-trace-a",
+            "artifact_ref": "artifacts/run-a.jsonl",
+            "caller_role": "post_run_ingestion_service",
+        },
+    )
+    assert trace["ack"]["operation"] == "yaam.trace.record_correlation"
+    assert trace["ack"]["provenance"]["source_tier"] == "L2"
 
 
 @pytest.mark.asyncio
