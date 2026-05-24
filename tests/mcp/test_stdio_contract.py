@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,12 @@ FIXTURE_SERVER_PARAMS = StdioServerParameters(
     command=sys.executable,
     args=["-m", "tests.mcp.stdio_fixture_server"],
     cwd=REPO_ROOT,
+)
+WRITE_FIXTURE_SERVER_PARAMS = StdioServerParameters(
+    command=sys.executable,
+    args=["-m", "tests.mcp.stdio_fixture_server"],
+    cwd=REPO_ROOT,
+    env={**os.environ, "YAAM_MCP_FIXTURE_WRITES": "1"},
 )
 
 
@@ -129,6 +136,18 @@ async def test_mcp_stdio_fixture_read_tools_return_structured_contracts() -> Non
                 {"session_id": "session-a", "agent_id": "agent-a", "query": "dock"},
             )
         )
+        l3 = _decode_tool_result(
+            await session.call_tool(
+                "yaam.l3.search_episodes",
+                {"session_id": "session-a", "agent_id": "agent-a", "query": "dock"},
+            )
+        )
+        l4 = _decode_tool_result(
+            await session.call_tool(
+                "yaam.l4.search_knowledge",
+                {"session_id": "session-a", "agent_id": "agent-a", "query": "dock"},
+            )
+        )
         ciar = _decode_tool_result(
             await session.call_tool(
                 "yaam.ciar.explain",
@@ -163,6 +182,14 @@ async def test_mcp_stdio_fixture_read_tools_return_structured_contracts() -> Non
     assert l2["summary"] == "L2 facts retrieved."
     assert l2["results"][0]["tier"] == "L2"
     assert l2["results"][0]["source_id"] == "fact-search"
+
+    assert l3["summary"] == "L3 episodes retrieved."
+    assert l3["results"][0]["tier"] == "L3"
+    assert l3["results"][0]["source_id"] == "episode-search"
+
+    assert l4["summary"] == "L4 knowledge retrieved."
+    assert l4["results"][0]["tier"] == "L4"
+    assert l4["results"][0]["source_id"] == "knowledge-search"
 
     assert ciar["summary"] == "CIAR explained."
     assert ciar["explanation"]["score"] == 0.42
@@ -215,6 +242,70 @@ async def test_mcp_stdio_fixture_write_denial_returns_structured_error() -> None
 
 
 @pytest.mark.asyncio
+async def test_mcp_stdio_fixture_write_tools_return_acknowledgements() -> None:
+    async with (
+        stdio_client(WRITE_FIXTURE_SERVER_PARAMS) as (read_stream, write_stream),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        await session.initialize()
+
+        l2 = _decode_tool_result(
+            await session.call_tool(
+                "yaam.l2.store_fact",
+                {
+                    "session_id": "session-a",
+                    "agent_id": "agent-a",
+                    "task_id": "task-a",
+                    "content": "Fact content.",
+                },
+            )
+        )
+        l3 = _decode_tool_result(
+            await session.call_tool(
+                "yaam.l3.assimilate_episode",
+                {
+                    "session_id": "session-a",
+                    "agent_id": "agent-a",
+                    "task_id": "task-a",
+                    "text_to_assimilate": "A durable episode should be stored.",
+                    "domain_tags": ["engineering"],
+                },
+            )
+        )
+        l4 = _decode_tool_result(
+            await session.call_tool(
+                "yaam.l4.finalize_artifact",
+                {
+                    "session_id": "session-a",
+                    "agent_id": "agent-a",
+                    "task_id": "task-a",
+                    "title": "Final Artifact",
+                    "final_artifact": "A final artifact with enough content.",
+                    "consensus_metadata": {"reviewed_by": "agent-a"},
+                },
+            )
+        )
+
+    assert l2["summary"] == "Fact stored."
+    assert l2["ack"]["status"] == "success"
+    assert l2["ack"]["operation"] == "yaam.l2.store_fact"
+    assert l2["ack"]["created_id"] == "fact-written"
+    assert l2["ack"]["provenance"]["source_tier"] == "L2"
+
+    assert l3["summary"] == "Episode assimilated."
+    assert l3["ack"]["status"] == "success"
+    assert l3["ack"]["operation"] == "yaam.l3.assimilate_episode"
+    assert l3["ack"]["created_id"] == "episode-written"
+    assert l3["ack"]["provenance"]["source_tier"] == "L3"
+
+    assert l4["summary"] == "L4 artifact finalized."
+    assert l4["ack"]["status"] == "success"
+    assert l4["ack"]["operation"] == "yaam.l4.finalize_artifact"
+    assert l4["ack"]["created_id"] == "knowledge-written"
+    assert l4["ack"]["provenance"]["source_tier"] == "L4"
+
+
+@pytest.mark.asyncio
 async def test_mcp_stdio_live_read_contract_is_env_gated() -> None:
     if os.environ.get("YAAM_MCP_RUN_LIVE_CONTRACT") != "1":
         pytest.skip("Set YAAM_MCP_RUN_LIVE_CONTRACT=1 to run live MCP read contract checks.")
@@ -236,6 +327,95 @@ async def test_mcp_stdio_live_read_contract_is_env_gated() -> None:
     assert _decode_tool_result(health)["health"]["status"] in {"ok", "degraded", "unavailable"}
     assert json.loads(ciar.contents[0].text)["formula"]
     assert "without mutation" in prompt.messages[0].content.text
+
+
+@pytest.mark.asyncio
+async def test_mcp_stdio_live_write_contract_is_env_gated() -> None:
+    if os.environ.get("YAAM_MCP_RUN_LIVE_WRITE_CONTRACT") != "1":
+        pytest.skip(
+            "Set YAAM_MCP_RUN_LIVE_WRITE_CONTRACT=1 to run live MCP write contract checks."
+        )
+    if os.environ.get("YAAM_MCP_RUN_LIVE_CONTRACT") != "1":
+        pytest.skip("Set YAAM_MCP_RUN_LIVE_CONTRACT=1 before live MCP write checks.")
+    if os.environ.get("YAAM_MCP_ENABLE_WRITES", "").lower() not in {"1", "true", "yes", "on"}:
+        pytest.skip("Set YAAM_MCP_ENABLE_WRITES=true before live MCP write checks.")
+    if os.environ.get("YAAM_MCP_ENABLE_LIFECYCLE", "").lower() not in {"1", "true", "yes", "on"}:
+        pytest.skip("Set YAAM_MCP_ENABLE_LIFECYCLE=true before live MCP lifecycle checks.")
+
+    allowlist = {
+        item.strip()
+        for item in os.environ.get("YAAM_MCP_ALLOWLISTED_TOOLS", "").split(",")
+        if item.strip()
+    }
+    required = {
+        "yaam.l2.store_fact",
+        "yaam.l3.assimilate_episode",
+        "yaam.l4.finalize_artifact",
+    }
+    if "*" not in allowlist and not required.issubset(allowlist):
+        pytest.skip(
+            "Set YAAM_MCP_ALLOWLISTED_TOOLS to include all MCP write/lifecycle tools."
+        )
+
+    suffix = uuid.uuid4().hex[:8]
+    session_id = f"mcp-live-contract-{suffix}"
+    task_id = f"mcp-live-contract-task-{suffix}"
+
+    async with (
+        stdio_client(PRODUCTION_SERVER_PARAMS) as (read_stream, write_stream),
+        ClientSession(read_stream, write_stream) as session,
+    ):
+        await session.initialize()
+
+        l2 = _decode_tool_result(
+            await session.call_tool(
+                "yaam.l2.store_fact",
+                {
+                    "session_id": session_id,
+                    "agent_id": "mcp-live-contract",
+                    "task_id": task_id,
+                    "content": "Synthetic MCP live write contract fact.",
+                },
+            )
+        )
+        l3 = _decode_tool_result(
+            await session.call_tool(
+                "yaam.l3.assimilate_episode",
+                {
+                    "session_id": session_id,
+                    "agent_id": "mcp-live-contract",
+                    "task_id": task_id,
+                    "text_to_assimilate": "Synthetic MCP live lifecycle episode.",
+                    "domain_tags": ["mcp-contract"],
+                },
+            )
+        )
+        l4 = _decode_tool_result(
+            await session.call_tool(
+                "yaam.l4.finalize_artifact",
+                {
+                    "session_id": session_id,
+                    "agent_id": "mcp-live-contract",
+                    "task_id": task_id,
+                    "title": "Synthetic MCP Live Contract Artifact",
+                    "final_artifact": "Synthetic MCP live lifecycle artifact content.",
+                    "consensus_metadata": {"source": "mcp-live-contract"},
+                },
+            )
+        )
+
+    for payload, operation, source_tier in (
+        (l2, "yaam.l2.store_fact", "L2"),
+        (l3, "yaam.l3.assimilate_episode", "L3"),
+        (l4, "yaam.l4.finalize_artifact", "L4"),
+    ):
+        assert payload["ack"]["status"] == "success"
+        assert payload["ack"]["operation"] == operation
+        assert payload["ack"]["created_id"]
+        assert payload["ack"]["provenance"]["source_tier"] == source_tier
+        assert payload["ack"]["provenance"]["session_id"] == session_id
+        assert payload["ack"]["provenance"]["agent_id"] == "mcp-live-contract"
+        assert payload["ack"]["provenance"]["task_id"] == task_id
 
 
 def _decode_tool_result(result: Any) -> dict[str, Any]:

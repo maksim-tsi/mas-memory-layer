@@ -1,9 +1,10 @@
 # MCP v1 Implementation Plan
 
-**Status:** Draft
+**Status:** Complete
 **Date:** 2026-05-24
 **Spec:** [MCP v1 Implementation Contract](../specs/spec-mcp-v1-implementation.md)
 **Related RFC:** [YAAM MCP v1 Planning Freeze](../RFC/2026-05-24-yaam-mcp-v1-planning-freeze.md)
+**Runbook:** [MCP v1 Stdio Server](../runbooks/mcp-v1-stdio-server.md)
 
 ## Summary
 
@@ -163,14 +164,21 @@ Acceptance evidence:
 - Stdio contract tests pass without live external services where mocks are used.
 - Live tests skip clearly when required environment is absent.
 
-### Batch 13: Runbook And Final Verification (<=3h)
+### Batch 13: Runbook, Stdio Enablement, And Final Verification (<=4h)
 
 - Add a runbook for launching and inspecting the MCP stdio server.
 - Document environment variables, allowlist configuration, and troubleshooting.
+- Extend stdio contract coverage to the full generic MCP v1 tool surface,
+  including fixture-backed write acknowledgements for the three mutating or
+  lifecycle tools.
+- Add opt-in live stdio write/lifecycle validation behind
+  `YAAM_MCP_RUN_LIVE_WRITE_CONTRACT=1`; live writes require explicit production
+  write, lifecycle, and tool allowlist flags.
 - Run repository verification.
 
 Acceptance evidence:
 
+- `./.venv/bin/pytest tests/mcp/ -v` passes.
 - `./.venv/bin/ruff check .` passes.
 - `./.venv/bin/pytest tests/ -v` passes or environment-gated skips are
   documented.
@@ -197,5 +205,14 @@ Required after source changes:
 
 ```bash
 ./.venv/bin/ruff check .
+./.venv/bin/pytest tests/mcp/ -v
 ./.venv/bin/pytest tests/ -v
 ```
+
+## Completion Summary
+
+As of Batch 13, MCP v1 is implemented as a generic stdio-first adapter over
+shared YAAM memory services. The implemented surface includes the frozen v1
+tools, read-only resources, reusable prompts, structured errors, tracing
+metadata, default-deny write permissions, fixture-backed stdio contract tests,
+and opt-in live read/write validation gates.

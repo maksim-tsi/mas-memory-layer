@@ -13,6 +13,7 @@ from src.memory.services import (
     MemoryResult,
     Provenance,
     ScopeEnvelope,
+    WriteAck,
     YAAMErrorPayload,
     YAAMWarning,
 )
@@ -178,6 +179,51 @@ class PartialContextService(RecordingMCPService):
         )
 
 
+class WriteEnabledRecordingMCPService(RecordingMCPService):
+    """Recording service variant that acknowledges allowlisted writes."""
+
+    async def store_l2_fact(
+        self,
+        scope: ScopeEnvelope,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> WriteAck:
+        self.calls.append(("store_l2_fact", (scope, content), {"metadata": metadata}))
+        return _write_ack("yaam.l2.store_fact", "L2", "fact-written", scope)
+
+    async def assimilate_l3_episode(
+        self,
+        scope: ScopeEnvelope,
+        text_to_assimilate: str,
+        domain_tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> WriteAck:
+        self.calls.append(
+            (
+                "assimilate_l3_episode",
+                (scope, text_to_assimilate),
+                {"domain_tags": domain_tags, "metadata": metadata},
+            )
+        )
+        return _write_ack("yaam.l3.assimilate_episode", "L3", "episode-written", scope)
+
+    async def finalize_l4_artifact(
+        self,
+        scope: ScopeEnvelope,
+        title: str,
+        final_artifact: str,
+        consensus_metadata: dict[str, Any] | None = None,
+    ) -> WriteAck:
+        self.calls.append(
+            (
+                "finalize_l4_artifact",
+                (scope, title, final_artifact),
+                {"consensus_metadata": consensus_metadata},
+            )
+        )
+        return _write_ack("yaam.l4.finalize_artifact", "L4", "knowledge-written", scope)
+
+
 def memory_result(tier: str, source_id: str, scope: ScopeEnvelope) -> MemoryResult:
     """Return deterministic memory result data for tests."""
     return _memory_result(tier, source_id, scope)
@@ -207,4 +253,12 @@ def _provenance(tier: str, source_id: str, scope: ScopeEnvelope) -> Provenance:
         task_id=scope.task_id,
         tenant_id=scope.tenant_id,
         run_id=scope.run_id,
+    )
+
+
+def _write_ack(operation: str, tier: str, source_id: str, scope: ScopeEnvelope) -> WriteAck:
+    return WriteAck(
+        operation=operation,
+        created_id=source_id,
+        provenance=_provenance(tier, source_id, scope),
     )

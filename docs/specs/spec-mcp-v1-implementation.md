@@ -1,8 +1,9 @@
 # Specification: MCP v1 Implementation Contract
 
-**Status:** Draft
+**Status:** Implemented
 **Date:** 2026-05-24
 **Related RFC:** [YAAM MCP v1 Planning Freeze](../RFC/2026-05-24-yaam-mcp-v1-planning-freeze.md)
+**Runbook:** [MCP v1 Stdio Server](../runbooks/mcp-v1-stdio-server.md)
 **Requirement coverage:** `YAAM-REQ-0001`, `YAAM-REQ-0002`, `YAAM-REQ-0003`, `YAAM-REQ-0004`, `YAAM-REQ-0005`, `YAAM-REQ-0006`, `YAAM-REQ-0007`, `YAAM-REQ-0008`, `YAAM-REQ-0009`, `YAAM-REQ-0010`, `YAAM-REQ-0011`, `YAAM-REQ-0012`, `YAAM-REQ-0013`, `YAAM-REQ-0014`, `YAAM-REQ-0015`, `YAAM-REQ-0016`, `YAAM-REQ-0017`, `YAAM-REQ-0018`, `YAAM-REQ-0026`, `YAAM-REQ-0027`, `YAAM-REQ-0031`, `YAAM-REQ-0033`, `YAAM-REQ-0034`, `YAAM-REQ-0035`
 
 ## 1. Objective
@@ -206,6 +207,16 @@ MCP v1 is implemented when:
 10. REST v2 behavior remains compatible after service extraction.
 11. `./.venv/bin/ruff check .` passes.
 12. `./.venv/bin/pytest tests/ -v` passes or documents environment-gated skips.
+
+Implementation evidence:
+
+- Batches 1-13 in the MCP v1 implementation plan are complete.
+- Stdio contract tests cover discovery, representative reads, read-only
+  resources, prompts, structured write denial, fixture-backed write
+  acknowledgements, and opt-in live read/write validation gates.
+- Live write and lifecycle validation remains opt-in because it persists
+  synthetic records through configured backends and may call the configured LLM
+  provider.
 
 ## 10. Non-Goals
 

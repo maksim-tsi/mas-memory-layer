@@ -19,9 +19,9 @@ progressive disclosure of repository knowledge.
 - `docs/plan/2026-02-22-provider-parity-experiment-matrix.md` — Concrete experiment matrix defining
   provider × promotion mode × model combinations and a normative `--run-name` convention for Smoke5
   and memory-engine validation runs.
-- `docs/plan/2026-05-24-mcp-v1-implementation-plan.md` — Batch-based implementation plan for the
-  generic MCP v1 stdio adapter, shared service layer, contracts, tools, resources, prompts, and
-  verification.
+- `docs/plan/2026-05-24-mcp-v1-implementation-plan.md` — Completed batch-based implementation
+  plan for the generic MCP v1 stdio adapter, shared service layer, contracts, tools, resources,
+  prompts, runbook, and verification.
 
 ## Conventions
 
