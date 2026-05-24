@@ -22,6 +22,9 @@ The shared target is a service-backed interface model:
   behavior must remain separable.
 - Write and lifecycle operations must be explicit, scoped, audited, and
   allowlisted.
+- Benchmark integrations also need contamination guards that prevent evaluated
+  agents from seeing hidden answers, judge reasoning, or maintainer curation
+  notes.
 
 ## 2. Customer Submissions Reviewed
 
@@ -32,6 +35,7 @@ The shared target is a service-backed interface model:
 | Skill Factory | REST v2 for batch, MCP primary for agents | Skill generation history, QA/curation memory, CIAR and Evidence Table audits. |
 | SCM Cognitive Sandwich | MCP-first | Artifact draft/revision/feedback/commit lineage and solver feedback. |
 | Maritime Port Sandbox | REST v2 and MCP | Port/run/scenario evidence, admin mutation audit, simulation diagnostics. |
+| SCM-Cert-Bench | REST v2 and MCP | Benchmark contamination controls, Gold curation isolation, Phoenix/artifact correlation, contradiction and safe-refusal review. |
 
 ## 3. Shared P0 Requirements
 
@@ -46,6 +50,7 @@ should be treated as first-class architecture constraints:
 | Provenance and scope enforcement | `YAAM-REQ-0009`, `YAAM-REQ-0010` | Required for auditability and multi-customer isolation. |
 | MCP safety boundaries | `YAAM-REQ-0011` to `YAAM-REQ-0013` | Write/lifecycle operations need explicit allowlisting and redaction. |
 | Observability and health | `YAAM-REQ-0014`, `YAAM-REQ-0015` | Phoenix visibility and health/config inspection are acceptance criteria. |
+| Benchmark contamination controls | `YAAM-REQ-0036` | Runtime benchmark context must fail closed or exclude hidden answers, judge notes, and curation-only records. |
 | Requirements governance | `YAAM-REQ-0035` | Future plans should cite requirements to prevent architectural drift. |
 
 ## 4. High-Impact P1 Themes
@@ -85,6 +90,15 @@ Customers distinguish read and write failure behavior:
 
 Relevant IDs: `YAAM-REQ-0018`, `YAAM-REQ-0033`.
 
+### 4.5 Contradiction And Safe-Refusal Review
+
+SCM-Cert-Bench makes contradiction review an MVP-aligned benchmark capability
+because adversarial tasks need supporting and conflicting evidence plus a safe
+refusal or infeasibility rationale. This promotes the prior deferred
+contradiction review item into an accepted P1 requirement.
+
+Relevant ID: `YAAM-REQ-0029`.
+
 ## 5. Customer-Specific Extensions
 
 ### 5.1 SCM Cognitive Sandwich Artifact Lineage
@@ -110,6 +124,16 @@ result.
 
 Relevant IDs: `YAAM-REQ-0024`, `YAAM-REQ-0025`.
 
+### 5.4 SCM-Cert-Bench Benchmark Views
+
+SCM-Cert-Bench requires customer-specific views for benchmark tasks, Gold
+curation records, evidence tables, post-run episodes, and trace/artifact
+correlation. These are separate from generic MCP v1 resources because the
+visibility model must distinguish evaluated runtime agents from maintainers and
+post-run ingestion services.
+
+Relevant IDs: `YAAM-REQ-0037`, `YAAM-REQ-0038`, `YAAM-REQ-0039`.
+
 ## 6. Conflicts And Design Tensions
 
 | Tension | Observation | Recommendation |
@@ -119,6 +143,7 @@ Relevant IDs: `YAAM-REQ-0024`, `YAAM-REQ-0025`.
 | Agentic tools vs safety | Customers want Evidence/CIAR tools but restricted mutation. | Enable read-only agentic inspection first; gate lifecycle tools. |
 | Artifact lineage vs current tier model | Artifact lineage is not only L1/L2/L3/L4 storage. | Treat artifact lineage as a service-level concept backed by tiers, not as storage adapter logic. |
 | Partial reads vs fail-fast writes | Customers expect different degradation modes. | Encode this as interface policy: reads may degrade, writes must be explicit. |
+| Benchmark context vs answer leakage | SCM-Cert-Bench wants runtime memory context, but hidden Gold answers and curation notes would invalidate evaluations. | Add a benchmark contamination guard requirement and fail closed when visibility filtering cannot be verified. |
 
 ## 7. Priority Discussion Agenda
 
@@ -139,6 +164,8 @@ Discuss these decisions before implementation planning:
    should control them?
 6. Should CIAR explanation be part of MCP v1, given its high audit value and
    relatively bounded implementation surface?
+7. Should SCM-Cert-Bench use generic task/session scopes first, or define a
+   first-class benchmark task scope before customer-specific MCP resources?
 
 ## 8. Recommended Next Planning Step
 
@@ -156,3 +183,6 @@ Artifact lineage and customer-specific resources should be discussed as
 separate impact items because they may require new domain models rather than a
 simple adapter layer.
 
+SCM-Cert-Bench adds one cross-cutting P0 to that planning discussion:
+benchmark-safe context retrieval must prove hidden-answer and curation leakage
+guards before returning runtime context.

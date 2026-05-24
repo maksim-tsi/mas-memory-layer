@@ -19,46 +19,51 @@ Source customer systems:
 - Skill Factory
 - SCM Cognitive Sandwich
 - Maritime Port Sandbox
+- SCM-Cert-Bench
 
 ## Registry
 
 | ID | Title | Source customers | Tier | Interface | Operation | MVP | Priority | Status | Implementation area |
 |---|---|---|---|---|---|---|---|---|---|
-| YAAM-REQ-0001 | Keep API Wall, REST v2, and MCP as distinct interfaces | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox | Service | Multiple | Interface | Yes | P0 | Accepted | Public interface architecture |
-| YAAM-REQ-0002 | Expose read-heavy MCP memory query | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox | Unified | MCP | Read tool | Yes | P0 | Accepted | MCP service layer |
-| YAAM-REQ-0003 | Expose MCP context assembly | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox | Unified | MCP | Read tool/resource | Yes | P0 | Accepted | Unified retrieval/context service |
-| YAAM-REQ-0004 | Preserve REST v2 for backend and batch integrations | TRA, iAIMS, Skill Factory, Maritime Port Sandbox | Service | REST v2 | Read/write API | Yes | P0 | Accepted | REST v2 gateway |
-| YAAM-REQ-0005 | Provide scoped L2 fact store and retrieve | TRA, iAIMS, Skill Factory | Raw | REST v2, MCP | Read/write | Yes | P0 | Accepted | L2 working memory service |
-| YAAM-REQ-0006 | Provide L3 episode assimilation/store | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox | Raw | REST v2, MCP | Write/lifecycle | Yes | P0 | Accepted | L3 episodic memory service |
-| YAAM-REQ-0007 | Provide L3 semantic episode query | TRA, iAIMS, SCM Cognitive Sandwich, Maritime Port Sandbox | Unified | REST v2, MCP | Read | Yes | P0 | Accepted | L3 retrieval service |
+| YAAM-REQ-0001 | Keep API Wall, REST v2, and MCP as distinct interfaces | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox, SCM-Cert-Bench | Service | Multiple | Interface | Yes | P0 | Accepted | Public interface architecture |
+| YAAM-REQ-0002 | Expose read-heavy MCP memory query | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox, SCM-Cert-Bench | Unified | MCP | Read tool | Yes | P0 | Accepted | MCP service layer |
+| YAAM-REQ-0003 | Expose MCP context assembly | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox, SCM-Cert-Bench | Unified | MCP | Read tool/resource | Yes | P0 | Accepted | Unified retrieval/context service |
+| YAAM-REQ-0004 | Preserve REST v2 for backend and batch integrations | TRA, iAIMS, Skill Factory, Maritime Port Sandbox, SCM-Cert-Bench | Service | REST v2 | Read/write API | Yes | P0 | Accepted | REST v2 gateway |
+| YAAM-REQ-0005 | Provide scoped L2 fact store and retrieve | TRA, iAIMS, Skill Factory, SCM-Cert-Bench | Raw | REST v2, MCP | Read/write | Yes | P0 | Accepted | L2 working memory service |
+| YAAM-REQ-0006 | Provide L3 episode assimilation/store | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox, SCM-Cert-Bench | Raw | REST v2, MCP | Write/lifecycle | Yes | P0 | Accepted | L3 episodic memory service |
+| YAAM-REQ-0007 | Provide L3 semantic episode query | TRA, iAIMS, SCM Cognitive Sandwich, Maritime Port Sandbox, SCM-Cert-Bench | Unified | REST v2, MCP | Read | Yes | P0 | Accepted | L3 retrieval service |
 | YAAM-REQ-0008 | Provide L4 final artifact/document storage | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich | Raw | REST v2, MCP | Write/lifecycle | Yes | P0 | Accepted | L4 semantic memory service |
-| YAAM-REQ-0009 | Return provenance on all reads and writes | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox | Service | Multiple | Provenance | Yes | P0 | Accepted | Shared response model |
-| YAAM-REQ-0010 | Enforce session/task/tenant/run scoping | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox | Service | Multiple | Security | Yes | P0 | Accepted | Authorization/scope policy |
-| YAAM-REQ-0011 | Keep default MCP resources read-only | iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox | Service | MCP | Resource/security | Yes | P0 | Accepted | MCP authorization policy |
-| YAAM-REQ-0012 | Allowlist mutating and lifecycle MCP tools | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox | Service | MCP | Security | Yes | P0 | Accepted | MCP authorization policy |
-| YAAM-REQ-0013 | Never expose secrets, raw env, or sensitive traces through resources | iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox | Service | MCP | Security | Yes | P0 | Accepted | Redaction policy |
-| YAAM-REQ-0014 | Propagate trace context and expose Phoenix-auditable operations | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox | Service | Multiple | Observability | Yes | P0 | Accepted | Observability/tracing |
-| YAAM-REQ-0015 | Provide health and configuration inspection | iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox | Service | REST v2, MCP | Read/resource | Yes | P0 | Accepted | Health/config service |
-| YAAM-REQ-0016 | Provide Evidence Table generation | iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox | Agentic | MCP, REST v2 | Read/agentic | Mixed | P1 | Accepted | Evidence service |
-| YAAM-REQ-0017 | Provide CIAR explanation with components and policy metadata | TRA, iAIMS, Skill Factory, Maritime Port Sandbox | Agentic | MCP | Read | Mixed | P1 | Accepted | CIAR policy service |
-| YAAM-REQ-0018 | Return partial results with warnings for degraded agentic services | iAIMS, Skill Factory, Maritime Port Sandbox | Unified | MCP, REST v2 | Reliability | Yes | P1 | Accepted | Error handling |
+| YAAM-REQ-0009 | Return provenance on all reads and writes | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox, SCM-Cert-Bench | Service | Multiple | Provenance | Yes | P0 | Accepted | Shared response model |
+| YAAM-REQ-0010 | Enforce session/task/tenant/run scoping | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox, SCM-Cert-Bench | Service | Multiple | Security | Yes | P0 | Accepted | Authorization/scope policy |
+| YAAM-REQ-0011 | Keep default MCP resources read-only | iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox, SCM-Cert-Bench | Service | MCP | Resource/security | Yes | P0 | Accepted | MCP authorization policy |
+| YAAM-REQ-0012 | Allowlist mutating and lifecycle MCP tools | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox, SCM-Cert-Bench | Service | MCP | Security | Yes | P0 | Accepted | MCP authorization policy |
+| YAAM-REQ-0013 | Never expose secrets, raw env, or sensitive traces through resources | iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox, SCM-Cert-Bench | Service | MCP | Security | Yes | P0 | Accepted | Redaction policy |
+| YAAM-REQ-0014 | Propagate trace context and expose Phoenix-auditable operations | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox, SCM-Cert-Bench | Service | Multiple | Observability | Yes | P0 | Accepted | Observability/tracing |
+| YAAM-REQ-0015 | Provide health and configuration inspection | iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox, SCM-Cert-Bench | Service | REST v2, MCP | Read/resource | Yes | P0 | Accepted | Health/config service |
+| YAAM-REQ-0016 | Provide Evidence Table generation | iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox, SCM-Cert-Bench | Agentic | MCP, REST v2 | Read/agentic | Mixed | P1 | Accepted | Evidence service |
+| YAAM-REQ-0017 | Provide CIAR explanation with components and policy metadata | TRA, iAIMS, Skill Factory, Maritime Port Sandbox, SCM-Cert-Bench | Agentic | MCP | Read | Mixed | P1 | Accepted | CIAR policy service |
+| YAAM-REQ-0018 | Return partial results with warnings for degraded agentic services | iAIMS, Skill Factory, Maritime Port Sandbox, SCM-Cert-Bench | Unified | MCP, REST v2 | Reliability | Yes | P1 | Accepted | Error handling |
 | YAAM-REQ-0019 | Support artifact draft/revision/feedback/commit lineage | SCM Cognitive Sandwich | Artifact | MCP | Write/lifecycle/read | Yes | P1 | Needs discussion | Artifact service |
 | YAAM-REQ-0020 | Provide artifact lineage resources | SCM Cognitive Sandwich | Artifact | MCP | Resource/read | Yes | P1 | Needs discussion | MCP resources/artifact service |
-| YAAM-REQ-0021 | Store deterministic feedback and solver/sandbox evidence | SCM Cognitive Sandwich, Maritime Port Sandbox, Skill Factory | Artifact/Raw | MCP, REST v2 | Write | Yes | P1 | Accepted | Evidence/artifact ingestion |
+| YAAM-REQ-0021 | Store deterministic feedback and solver/sandbox evidence | SCM Cognitive Sandwich, Maritime Port Sandbox, Skill Factory, SCM-Cert-Bench | Artifact/Raw | MCP, REST v2 | Write | Yes | P1 | Accepted | Evidence/artifact ingestion |
 | YAAM-REQ-0022 | Store and query Skill Factory generation, QA, and curation memory | Skill Factory | Raw/Unified | REST v2, MCP | Read/write | Yes | P2 | Needs discussion | Skill-specific memory views |
 | YAAM-REQ-0023 | Provide Skill Factory resources for skills, CTTs, and runs | Skill Factory | Raw/Unified | MCP | Resource/read | Yes | P2 | Needs discussion | MCP resources/customer views |
 | YAAM-REQ-0024 | Store and query maritime port/run/scenario evidence | Maritime Port Sandbox | Raw/Unified | REST v2, MCP | Read/write | Yes | P2 | Needs discussion | Domain-specific memory views |
 | YAAM-REQ-0025 | Provide maritime resources for runs, scenarios, ports, and facts | Maritime Port Sandbox | Raw/Unified | MCP | Resource/read | Yes | P2 | Needs discussion | MCP resources/customer views |
-| YAAM-REQ-0026 | Keep LangChain tools out of customer-facing YAAM contracts | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox | Service | LangChain | Interface constraint | Yes | P1 | Accepted | Tool/service boundary |
-| YAAM-REQ-0027 | Avoid direct customer library calls into YAAM internals | TRA, iAIMS, Skill Factory, Maritime Port Sandbox | Service | Direct library | Interface constraint | Yes | P1 | Accepted | Public interface boundary |
+| YAAM-REQ-0026 | Keep LangChain tools out of customer-facing YAAM contracts | TRA, iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox, SCM-Cert-Bench | Service | LangChain | Interface constraint | Yes | P1 | Accepted | Tool/service boundary |
+| YAAM-REQ-0027 | Avoid direct customer library calls into YAAM internals | TRA, iAIMS, Skill Factory, Maritime Port Sandbox, SCM-Cert-Bench | Service | Direct library | Interface constraint | Yes | P1 | Accepted | Public interface boundary |
 | YAAM-REQ-0028 | Preserve transitional facade only until MCP parity for SCM Cognitive Sandwich | SCM Cognitive Sandwich | Service | Direct library, MCP | Compatibility | Yes | P2 | Needs discussion | Migration planning |
-| YAAM-REQ-0029 | Provide contradiction/supersession review as opt-in | Skill Factory, iAIMS, TRA | Agentic | MCP | Lifecycle/read | No | P2 | Deferred | Contradiction policy service |
+| YAAM-REQ-0029 | Provide contradiction/supersession and safe-refusal review as opt-in | Skill Factory, iAIMS, TRA, SCM-Cert-Bench | Agentic | MCP | Lifecycle/read | Mixed | P1 | Accepted | Contradiction policy service |
 | YAAM-REQ-0030 | Provide autonomous consolidation/distillation as opt-in only | Skill Factory, SCM Cognitive Sandwich | Agentic | MCP | Lifecycle | No | P3 | Deferred | Lifecycle service |
-| YAAM-REQ-0031 | Provide MCP prompt templates for evidence, memory inspection, and CIAR explanation | iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox | Agentic | MCP | Prompt | Mixed | P1 | Accepted | MCP prompts |
-| YAAM-REQ-0032 | Support domain-specific prompt templates | Skill Factory, SCM Cognitive Sandwich | Agentic | MCP | Prompt | Mixed | P2 | Needs discussion | MCP prompts/customer views |
-| YAAM-REQ-0033 | Preserve fail-fast behavior for write/assimilation failures | TRA, iAIMS, Skill Factory, Maritime Port Sandbox | Service | REST v2, MCP | Reliability | Yes | P1 | Accepted | Error handling |
-| YAAM-REQ-0034 | Track performance budgets for query, context, evidence, and CIAR operations | iAIMS, Skill Factory, Maritime Port Sandbox | Service | Multiple | Performance | Yes | P1 | Accepted | SLO/observability |
+| YAAM-REQ-0031 | Provide MCP prompt templates for evidence, memory inspection, and CIAR explanation | iAIMS, Skill Factory, SCM Cognitive Sandwich, Maritime Port Sandbox, SCM-Cert-Bench | Agentic | MCP | Prompt | Mixed | P1 | Accepted | MCP prompts |
+| YAAM-REQ-0032 | Support domain-specific prompt templates | Skill Factory, SCM Cognitive Sandwich, SCM-Cert-Bench | Agentic | MCP | Prompt | Mixed | P2 | Needs discussion | MCP prompts/customer views |
+| YAAM-REQ-0033 | Preserve fail-fast behavior for write/assimilation failures | TRA, iAIMS, Skill Factory, Maritime Port Sandbox, SCM-Cert-Bench | Service | REST v2, MCP | Reliability | Yes | P1 | Accepted | Error handling |
+| YAAM-REQ-0034 | Track performance budgets for query, context, evidence, and CIAR operations | iAIMS, Skill Factory, Maritime Port Sandbox, SCM-Cert-Bench | Service | Multiple | Performance | Yes | P1 | Accepted | SLO/observability |
 | YAAM-REQ-0035 | Require implementation plans to reference requirement IDs | Internal governance | Service | Documentation | Governance | Yes | P0 | Accepted | Documentation governance |
+| YAAM-REQ-0036 | Enforce benchmark answer-leakage and contamination guards | SCM-Cert-Bench | Service | MCP, REST v2 | Security/read policy | Yes | P0 | Accepted | Authorization/scope policy |
+| YAAM-REQ-0037 | Store maintainer-only Gold task curation decisions | SCM-Cert-Bench | Raw/Unified | REST v2, MCP | Write/read | Yes | P1 | Accepted | Curation memory service |
+| YAAM-REQ-0038 | Store and retrieve trace and artifact correlation metadata | SCM-Cert-Bench | Service | REST v2, MCP | Metadata read/write | Yes | P1 | Accepted | Observability/tracing |
+| YAAM-REQ-0039 | Provide SCM-Cert-Bench task, evidence, curation, and episode resources | SCM-Cert-Bench | Raw/Unified | MCP | Resource/read | Yes | P2 | Needs discussion | MCP resources/customer views |
 
 ## Requirement Details
 
@@ -90,15 +95,15 @@ provenance, warnings, and size/token metadata where available.
 
 ### YAAM-REQ-0004: Preserve REST v2 for backend and batch integrations
 
-TRA, iAIMS, Skill Factory, and Maritime Port Sandbox require REST v2 for
-runtime, scripts, ingestion, administrative reads, or test harnesses.
+TRA, iAIMS, Skill Factory, Maritime Port Sandbox, and SCM-Cert-Bench require
+REST v2 for runtime, scripts, ingestion, administrative reads, or test harnesses.
 
 Acceptance evidence: REST v2 remains documented and tested independently of MCP.
 
 ### YAAM-REQ-0005: Provide scoped L2 fact store and retrieve
 
 Multiple customers require working-memory facts for deterministic tool outputs,
-task facts, skill metadata, and final synthesis evidence.
+task facts, skill metadata, benchmark evidence, and final synthesis evidence.
 
 Acceptance evidence: writes return fact ids and provenance; reads enforce scope.
 
@@ -112,8 +117,8 @@ episode is retrievable by relevant scope fields.
 
 ### YAAM-REQ-0007: Provide L3 semantic episode query
 
-TRA, iAIMS, SCM Cognitive Sandwich, and Maritime Port Sandbox require similar
-episode retrieval before planning, repair, or diagnosis.
+TRA, iAIMS, SCM Cognitive Sandwich, Maritime Port Sandbox, and SCM-Cert-Bench
+require similar episode retrieval before planning, repair, diagnosis, or audit.
 
 Acceptance evidence: query returns scoped ranked episodes with provenance.
 
@@ -221,8 +226,9 @@ redacted payload behavior.
 
 ### YAAM-REQ-0021: Store deterministic feedback and solver/sandbox evidence
 
-SCM Cognitive Sandwich, Maritime Port Sandbox, and Skill Factory all need to
-store external deterministic feedback as evidence.
+SCM Cognitive Sandwich, Maritime Port Sandbox, Skill Factory, and
+SCM-Cert-Bench all need to store external deterministic feedback or benchmark
+judge evidence.
 
 Acceptance evidence: stored feedback is linked to episode, artifact, run, or
 skill scope and is queryable later.
@@ -281,11 +287,15 @@ parity exists.
 
 Acceptance evidence: migration plan defines facade deprecation or coexistence.
 
-### YAAM-REQ-0029: Provide contradiction/supersession review as opt-in
+### YAAM-REQ-0029: Provide contradiction/supersession and safe-refusal review as opt-in
 
-Multiple customers request review but generally not MVP mutation automation.
+Multiple customers request review, and SCM-Cert-Bench needs contradiction-aware
+safe-refusal support for adversarial benchmark tasks. Review remains explicit
+and should not trigger autonomous mutation by default.
 
-Acceptance evidence: contradiction review remains explicit and opt-in.
+Acceptance evidence: contradiction review returns supporting and conflicting
+evidence, an infeasibility or safe-refusal rationale when applicable, and remains
+explicitly invoked.
 
 ### YAAM-REQ-0030: Provide autonomous consolidation/distillation as opt-in only
 
@@ -302,8 +312,9 @@ Acceptance evidence: prompt discovery returns documented templates and variables
 
 ### YAAM-REQ-0032: Support domain-specific prompt templates
 
-Skill Factory and SCM Cognitive Sandwich request specialized prompts such as
-repair-pattern summaries and artifact-repair context.
+Skill Factory, SCM Cognitive Sandwich, and SCM-Cert-Bench request specialized
+prompts such as repair-pattern summaries, artifact-repair context, contradiction
+review, and curation summaries.
 
 Acceptance evidence: domain prompts are optional and scoped to relevant callers.
 
@@ -317,8 +328,9 @@ errors without pretending persistence succeeded.
 
 ### YAAM-REQ-0034: Track performance budgets for query, context, evidence, and CIAR operations
 
-iAIMS, Skill Factory, and Maritime Port Sandbox provide latency budgets for
-read, write, context, Evidence Table, and CIAR explanation flows.
+iAIMS, Skill Factory, Maritime Port Sandbox, and SCM-Cert-Bench provide latency
+budgets for read, write, context, Evidence Table, CIAR explanation, and
+contradiction review flows.
 
 Acceptance evidence: plans and tests record workflow-level latency budgets.
 
@@ -329,3 +341,41 @@ the requirement IDs they satisfy.
 
 Acceptance evidence: new plans and reports cite registry IDs.
 
+### YAAM-REQ-0036: Enforce benchmark answer-leakage and contamination guards
+
+SCM-Cert-Bench requires runtime retrieval to exclude hidden benchmark answers,
+ground-truth reasoning, judge notes, curation records, and other fields that
+would contaminate evaluated agents.
+
+Acceptance evidence: runtime context retrieval fails closed or returns only
+visibility-filtered memory with a leakage guard indicator and audit metadata.
+
+### YAAM-REQ-0037: Store maintainer-only Gold task curation decisions
+
+SCM-Cert-Bench requires durable storage for Gold task approval, rejection,
+defect, and source-triad review decisions while keeping those records hidden
+from evaluated runtime agents.
+
+Acceptance evidence: curation writes return a stable curation record id,
+visibility scope, source-triad links, timestamp, and audit id; runtime agents are
+denied access.
+
+### YAAM-REQ-0038: Store and retrieve trace and artifact correlation metadata
+
+SCM-Cert-Bench needs YAAM records to correlate Phoenix traces, OpenRouter calls,
+local JSONL artifacts, task ids, run ids, validation failures, and memory ids for
+debugging and reproducibility.
+
+Acceptance evidence: metadata writes and reads preserve correlation ids,
+external trace ids, safe artifact references, linked memory ids, and degraded
+trace status when an external trace cannot be verified.
+
+### YAAM-REQ-0039: Provide SCM-Cert-Bench task, evidence, curation, and episode resources
+
+SCM-Cert-Bench requests customer-specific MCP resources for task evidence,
+session facts, episodes, curation records, health, and CIAR configuration. These
+views should be discussed after generic MCP resources remain stable.
+
+Acceptance evidence: resource templates enforce visibility scope, deny
+runtime-only callers access to maintainer curation records, and return
+JSON-parseable provenance-bearing data.

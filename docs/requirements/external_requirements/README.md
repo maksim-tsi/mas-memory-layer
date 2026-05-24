@@ -15,6 +15,7 @@ Current submissions:
 | Skill Factory | [Skill-Factory-yaam-interface-requirements.md](Skill-Factory-yaam-interface-requirements.md) |
 | SCM Cognitive Sandwich | [scm-cognitive-sandwich-yaam-interface-requirements.md](scm-cognitive-sandwich-yaam-interface-requirements.md) |
 | Maritime Port Sandbox | [maritime-port-sandbox-yaam-interface-requirements.md](maritime-port-sandbox-yaam-interface-requirements.md) |
+| SCM-Cert-Bench | [2026-05-24-scm-cert-bench-yaam-interface-requirements.md](2026-05-24-scm-cert-bench-yaam-interface-requirements.md) |
 
 ## Handling Rules
 
@@ -24,4 +25,3 @@ Current submissions:
 - Preserve customer-specific terminology in source references.
 - Record conflicts, gaps, and shared requirements in
   [../2026-05-24-customer-requirements-analysis.md](../2026-05-24-customer-requirements-analysis.md).
-
