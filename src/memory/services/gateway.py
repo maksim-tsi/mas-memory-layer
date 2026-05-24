@@ -176,10 +176,13 @@ class MemoryGatewayService:
             forbidden_fields=forbidden_fields,
             require_leakage_guard=require_leakage_guard,
         )
+        context_summary = context.to_prompt_string(include_metadata=False)
+        if guard.filtered_item_count:
+            context_summary = "\n".join(item.content for item in items)
         return ContextResponse(
             session_id=scope.session_id,
             items=items,
-            context_summary=context.to_prompt_string(include_metadata=False),
+            context_summary=context_summary,
             estimated_tokens=context.estimated_tokens,
             partial=bool(guard.warnings),
             warnings=guard.warnings,

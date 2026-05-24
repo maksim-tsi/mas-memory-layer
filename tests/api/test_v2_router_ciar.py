@@ -230,3 +230,252 @@ async def test_v2_l4_finalize_uses_shared_service_and_keeps_response_shape(mocke
     assert captured["document"].metadata["task_id"] == "task-1"
     assert captured["document"].metadata["agent_id"] == "rest-v2"
     assert captured["document"].metadata["reviewed_by"] == "agent-1"
+
+
+@pytest.mark.asyncio
+async def test_v2_guarded_query_returns_leakage_guard_metadata(mocker):
+    memory_system = mocker.Mock()
+    memory_system.query_memory = mocker.AsyncMock(
+        return_value=[
+            {
+                "content": "Visible benchmark-safe context.",
+                "tier": "L2",
+                "score": 0.9,
+                "metadata": {"fact_id": "fact-visible", "visibility_scope": "benchmark_runtime"},
+            },
+            {
+                "content": "Hidden gold answer.",
+                "tier": "L2",
+                "score": 0.9,
+                "metadata": {"fact_id": "fact-hidden", "visibility_scope": "maintainer_only"},
+            },
+        ]
+    )
+    app = _build_app(mocker, memory_system=memory_system)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/v2/memory/query",
+            json={
+                "session_id": "session-1",
+                "agent_id": "agent-1",
+                "caller_role": "benchmark_runtime_agent",
+                "visibility_scope": "benchmark_runtime",
+                "query": "task context",
+                "limit": 2,
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "success"
+    assert [result["source_id"] for result in body["results"]] == ["fact-visible"]
+    assert body["leakage_guard"]["leakage_guard_passed"] is True
+    assert body["leakage_guard"]["filtered_item_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_v2_guarded_context_filters_hidden_records_and_summary(mocker):
+    visible_fact = Fact(
+        fact_id="fact-visible",
+        session_id="session-1",
+        content="Visible benchmark-safe fact.",
+        metadata={"visibility_scope": "benchmark_runtime"},
+    )
+    hidden_fact = Fact(
+        fact_id="fact-hidden",
+        session_id="session-1",
+        content="Hidden gold answer.",
+        metadata={"visibility_scope": "maintainer_only"},
+    )
+    context = mocker.Mock()
+    context.significant_facts = [visible_fact, hidden_fact]
+    context.recent_turns = []
+    context.estimated_tokens = 42
+    context.to_prompt_string = mocker.Mock(
+        return_value="Visible benchmark-safe fact.\nHidden gold answer."
+    )
+    memory_system = mocker.Mock()
+    memory_system.get_context_block = mocker.AsyncMock(return_value=context)
+    app = _build_app(mocker, memory_system=memory_system)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/v2/memory/context",
+            json={
+                "session_id": "session-1",
+                "agent_id": "agent-1",
+                "caller_role": "benchmark_runtime_agent",
+                "visibility_scope": "benchmark_runtime",
+                "require_leakage_guard": True,
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "success"
+    assert [item["source_id"] for item in body["context"]["items"]] == ["fact-visible"]
+    assert body["context"]["leakage_guard_passed"] is True
+    assert body["context"]["filtered_item_count"] == 1
+    assert body["context"]["context_summary"] == "Visible benchmark-safe fact."
+
+
+@pytest.mark.asyncio
+async def test_v2_curation_denies_runtime_callers_with_structured_error(mocker):
+    l2_tier = mocker.Mock()
+    l2_tier.store = mocker.AsyncMock()
+    app = _build_app(mocker, l2_tier=l2_tier)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/v2/memory/curation/decisions",
+            json={
+                "session_id": "session-1",
+                "agent_id": "agent-1",
+                "task_id": "task-1",
+                "caller_role": "benchmark_runtime_agent",
+                "decision": "accepted",
+                "reason": "Runtime caller should not write curation.",
+                "source_triad": {"prompt": "prompt-1"},
+                "reviewer": "reviewer-1",
+            },
+        )
+
+    assert response.status_code == 403
+    detail = response.json()["detail"]
+    assert detail["code"] == "permission.role_denied"
+    assert detail["operation"] == "yaam.curation.record_decision"
+    assert detail["affected_tier"] == "SYSTEM"
+
+
+@pytest.mark.asyncio
+async def test_v2_curation_create_and_list_maintainer_records(mocker):
+    curation_fact = Fact(
+        fact_id="curation-1",
+        session_id="session-1",
+        content="Curation decision.",
+        metadata={
+            "record_type": "scm_cert_bench_curation_decision",
+            "curation_record_id": "curation-1",
+            "task_id": "task-1",
+            "decision": "accepted",
+            "reason": "Source triad is valid.",
+            "source_triad": {"prompt": "prompt-1", "oracle": "oracle-1", "rubric": "rubric-1"},
+            "reviewer": "reviewer-1",
+            "visibility_scope": "maintainer_only",
+        },
+    )
+    l2_tier = mocker.Mock()
+    l2_tier.store = mocker.AsyncMock(return_value=None)
+    l2_tier.query_by_session = mocker.AsyncMock(return_value=[curation_fact])
+    app = _build_app(mocker, l2_tier=l2_tier)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/v2/memory/curation/decisions",
+            json={
+                "session_id": "session-1",
+                "agent_id": "agent-1",
+                "task_id": "task-1",
+                "caller_role": "benchmark_maintainer",
+                "decision": "accepted",
+                "reason": "Source triad is valid.",
+                "source_triad": {"prompt": "prompt-1", "oracle": "oracle-1"},
+                "reviewer": "reviewer-1",
+                "metadata": {"api_token": "secret"},
+            },
+        )
+        listed = await client.get(
+            "/v2/memory/curation/decisions",
+            params={
+                "session_id": "session-1",
+                "agent_id": "agent-1",
+                "task_id": "task-1",
+                "caller_role": "benchmark_maintainer",
+            },
+        )
+
+    assert created.status_code == 201
+    stored_fact = l2_tier.store.await_args.args[0]
+    assert stored_fact.metadata["visibility_scope"] == "maintainer_only"
+    assert stored_fact.metadata["api_token"] == "[REDACTED]"
+    assert created.json()["ack"]["operation"] == "yaam.curation.record_decision"
+
+    assert listed.status_code == 200
+    body = listed.json()
+    assert body["decisions"][0]["curation_record_id"] == "curation-1"
+    assert body["decisions"][0]["visibility_scope"] == "maintainer_only"
+    assert body["decisions"][0]["source_triad"]["prompt"] == "prompt-1"
+
+
+@pytest.mark.asyncio
+async def test_v2_trace_correlation_create_and_lookup(mocker):
+    trace_fact = Fact(
+        fact_id="tracecorr-1",
+        session_id="session-1",
+        content="Trace correlation.",
+        metadata={
+            "record_type": "scm_cert_bench_trace_correlation",
+            "correlation_id": "tracecorr-1",
+            "trace_id": "phoenix-trace-1",
+            "task_id": "task-1",
+            "run_id": "run-1",
+            "artifact_ref": "artifacts/run-1.jsonl",
+            "openrouter_call_id": "or-call-1",
+            "linked_memory_ids": ["fact-1"],
+            "trace_status": "degraded",
+        },
+    )
+    l2_tier = mocker.Mock()
+    l2_tier.store = mocker.AsyncMock(return_value=None)
+    l2_tier.query_by_session = mocker.AsyncMock(return_value=[trace_fact])
+    app = _build_app(mocker, l2_tier=l2_tier)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        created = await client.post(
+            "/v2/memory/trace-correlations",
+            json={
+                "session_id": "session-1",
+                "agent_id": "agent-1",
+                "task_id": "task-1",
+                "run_id": "run-1",
+                "caller_role": "post_run_ingestion_service",
+                "trace_id": "phoenix-trace-1",
+                "artifact_ref": "artifacts/run-1.jsonl",
+                "openrouter_call_id": "or-call-1",
+                "linked_memory_ids": ["fact-1"],
+                "trace_status": "degraded",
+                "metadata": {"password": "secret"},
+            },
+        )
+        listed = await client.get(
+            "/v2/memory/trace-correlations",
+            params={
+                "session_id": "session-1",
+                "agent_id": "agent-1",
+                "task_id": "task-1",
+                "run_id": "run-1",
+                "caller_role": "post_run_ingestion_service",
+                "trace_id": "phoenix-trace-1",
+            },
+        )
+
+    assert created.status_code == 201
+    stored_fact = l2_tier.store.await_args.args[0]
+    assert stored_fact.metadata["password"] == "[REDACTED]"
+    assert created.json()["ack"]["operation"] == "yaam.trace.record_correlation"
+
+    assert listed.status_code == 200
+    correlation = listed.json()["correlations"][0]
+    assert correlation["correlation_id"] == "tracecorr-1"
+    assert correlation["trace_id"] == "phoenix-trace-1"
+    assert correlation["task_id"] == "task-1"
+    assert correlation["run_id"] == "run-1"
+    assert correlation["artifact_ref"] == "artifacts/run-1.jsonl"
+    assert correlation["openrouter_call_id"] == "or-call-1"
+    assert correlation["linked_memory_ids"] == ["fact-1"]
