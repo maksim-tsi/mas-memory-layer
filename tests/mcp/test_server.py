@@ -22,8 +22,15 @@ from src.memory.services import (
     PermissionPolicy,
     Provenance,
     ScopeEnvelope,
+    YAAMWarning,
 )
 from src.memory.services.permissions import YAAMPermissionError
+from tests.helpers.fake_tracing import FakeTracer
+
+
+@pytest.fixture(autouse=True)
+def disable_real_tracing(mocker) -> None:
+    mocker.patch("src.observability.tracing._get_tracer", return_value=None)
 
 
 class RecordingMCPService:
@@ -316,7 +323,13 @@ async def test_mcp_mutating_tools_are_denied_by_default(mocker) -> None:
     for tool_name, arguments in write_calls:
         with pytest.raises(ToolError) as exc_info:
             await _call_tool(server, tool_name, arguments)
-        assert isinstance(exc_info.value.__cause__, YAAMPermissionError)
+        assert isinstance(exc_info.value.__cause__, ToolError)
+        assert isinstance(exc_info.value.__cause__.__cause__, YAAMPermissionError)
+        payload = _tool_error_payload(exc_info.value)
+        assert payload["code"].startswith("permission.")
+        assert payload["operation"] == tool_name
+        assert payload["retryable"] is False
+        assert payload["affected_tier"] == "SYSTEM"
 
 
 @pytest.mark.asyncio
@@ -468,6 +481,155 @@ async def test_mcp_prompts_render_frozen_inspection_templates() -> None:
     assert "Plan retrieval" in strategy[0].content.text
 
 
+@pytest.mark.asyncio
+async def test_mcp_tool_observability_records_attrs_and_traceparent(mocker) -> None:
+    fake_tracer = FakeTracer()
+    mocker.patch("src.observability.tracing._get_tracer", return_value=fake_tracer)
+    service = RecordingMCPService()
+    server = create_mcp_server(service)
+
+    await _call_tool(
+        server,
+        "yaam.memory.query",
+        {
+            "session_id": "session-a",
+            "agent_id": "agent-a",
+            "task_id": "task-a",
+            "tenant_id": "tenant-a",
+            "run_id": "run-a",
+            "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00",
+            "query": "dock status",
+        },
+    )
+
+    scope = service.calls[-1][1][0]
+    assert scope.traceparent == "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"
+    span = fake_tracer.spans[-1]
+    assert span.name == "yaam.mcp.tool.yaam.memory.query"
+    assert span.attributes["yaam.interface"] == "MCP"
+    assert span.attributes["yaam.mcp.surface"] == "tool"
+    assert span.attributes["yaam.operation"] == "yaam.memory.query"
+    assert span.attributes["yaam.operation_mode"] == "read"
+    assert span.attributes["session.id"] == "session-a"
+    assert span.attributes["yaam.agent_id"] == "agent-a"
+    assert span.attributes["yaam.task_id"] == "task-a"
+    assert span.attributes["yaam.tenant_id"] == "tenant-a"
+    assert span.attributes["yaam.run_id"] == "run-a"
+    assert span.attributes["yaam.traceparent.present"] is True
+    assert span.attributes["yaam.status"] == "success"
+    assert span.attributes["yaam.result_count"] == 1
+    assert json.loads(span.attributes["yaam.source_ids"]) == ["fact-1"]
+    assert span.attributes["yaam.partial"] is False
+    assert span.attributes["yaam.warning_count"] == 0
+    assert span.attributes["yaam.latency_ms"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_mcp_partial_read_records_warning_metadata(mocker) -> None:
+    class PartialContextService(RecordingMCPService):
+        async def get_context(
+            self,
+            scope: ScopeEnvelope,
+            min_ciar: float = 0.6,
+            max_turns: int = 20,
+            max_facts: int = 10,
+        ) -> ContextResponse:
+            self.calls.append(
+                (
+                    "get_context",
+                    (scope,),
+                    {"min_ciar": min_ciar, "max_turns": max_turns, "max_facts": max_facts},
+                )
+            )
+            return ContextResponse(
+                session_id=scope.session_id,
+                items=[_memory_result("L2", "fact-context", scope)],
+                partial=True,
+                warnings=[
+                    YAAMWarning(
+                        code="tier.timeout",
+                        message="L3 timed out.",
+                        affected_tier="L3",
+                        retryable=True,
+                    )
+                ],
+            )
+
+    fake_tracer = FakeTracer()
+    mocker.patch("src.observability.tracing._get_tracer", return_value=fake_tracer)
+    server = create_mcp_server(PartialContextService())
+
+    context = await _call_tool(
+        server,
+        "yaam.memory.get_context",
+        {"session_id": "session-a", "agent_id": "agent-a"},
+    )
+
+    assert context["context"]["partial"] is True
+    span = fake_tracer.spans[-1]
+    assert span.attributes["yaam.partial"] is True
+    assert span.attributes["yaam.warning_count"] == 1
+    assert json.loads(span.attributes["yaam.source_ids"]) == ["fact-context"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_validation_errors_are_structured_protocol_errors(mocker) -> None:
+    fake_tracer = FakeTracer()
+    mocker.patch("src.observability.tracing._get_tracer", return_value=fake_tracer)
+    server = create_mcp_server(RecordingMCPService())
+
+    with pytest.raises(ToolError) as exc_info:
+        await _call_tool(
+            server,
+            "yaam.memory.query",
+            {
+                "session_id": "session-a",
+                "agent_id": "agent-a",
+                "query": "dock status",
+                "traceparent": " ",
+            },
+        )
+
+    payload = _tool_error_payload(exc_info.value)
+    assert payload["code"] == "validation.invalid_scope"
+    assert payload["operation"] == "yaam.memory.query"
+    assert payload["retryable"] is False
+    assert payload["affected_tier"] == "SYSTEM"
+    assert payload["trace_id"] == "00000000000000000000000000000001"
+    assert fake_tracer.spans[-1].attributes["yaam.status"] == "error"
+    assert fake_tracer.spans[-1].attributes["yaam.error_code"] == "validation.invalid_scope"
+
+
+@pytest.mark.asyncio
+async def test_mcp_resources_and_prompts_emit_spans(mocker) -> None:
+    fake_tracer = FakeTracer()
+    mocker.patch("src.observability.tracing._get_tracer", return_value=fake_tracer)
+    server = create_mcp_server(RecordingMCPService())
+
+    resource = await server._resource_manager.get_resource("yaam://health")
+    assert resource is not None
+    await resource.read()
+
+    prompts = {prompt.name: prompt for prompt in server._prompt_manager.list_prompts()}
+    await prompts["yaam.prompt.memory_inspection"].render({"session_id": "session-a"})
+
+    spans = {span.name: span for span in fake_tracer.spans}
+    resource_span = spans["yaam.mcp.resource.yaam://health"]
+    assert resource_span.attributes["yaam.interface"] == "MCP"
+    assert resource_span.attributes["yaam.mcp.surface"] == "resource"
+    assert resource_span.attributes["yaam.operation"] == "yaam://health"
+    assert resource_span.attributes["yaam.status"] == "success"
+    assert resource_span.attributes["yaam.health.status"] == "ok"
+
+    prompt_span = spans["yaam.mcp.prompt.yaam.prompt.memory_inspection"]
+    assert prompt_span.attributes["yaam.interface"] == "MCP"
+    assert prompt_span.attributes["yaam.mcp.surface"] == "prompt"
+    assert prompt_span.attributes["yaam.operation"] == "yaam.prompt.memory_inspection"
+    assert prompt_span.attributes["session.id"] == "session-a"
+    assert prompt_span.attributes["yaam.agent_id"] == "resource-reader"
+    assert prompt_span.attributes["yaam.result_count"] == 1
+
+
 async def _call_tool(server, name: str, arguments: dict) -> dict:
     return await server._tool_manager.call_tool(name, arguments, convert_result=False)
 
@@ -501,3 +663,8 @@ def _provenance(tier: str, source_id: str, scope: ScopeEnvelope) -> Provenance:
         tenant_id=scope.tenant_id,
         run_id=scope.run_id,
     )
+
+
+def _tool_error_payload(error: ToolError) -> dict:
+    message = str(error)
+    return json.loads(message[message.index("{") :])["error"]

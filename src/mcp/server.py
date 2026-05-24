@@ -4,13 +4,29 @@ import argparse
 import asyncio
 import json
 import os
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
+from time import perf_counter
 from typing import Any
+
+from pydantic import ValidationError
 
 from src.evaluation.agent_wrapper import build_config, initialize_state, shutdown_state
 from src.memory.ciar_formula import DEFAULT_AGE_DECAY_LAMBDA, DEFAULT_RECENCY_ALPHA
 from src.memory.models import Episode, Fact, KnowledgeDocument, SearchWeights
-from src.memory.services import MemoryGatewayService, PermissionPolicy, ScopeEnvelope
+from src.memory.services import (
+    MemoryGatewayService,
+    PermissionPolicy,
+    ScopeEnvelope,
+    YAAMErrorPayload,
+    YAAMPermissionError,
+)
+from src.memory.services.contracts import redact_metadata
+from src.observability import (
+    current_trace_metadata,
+    set_span_attributes,
+    set_span_error,
+    start_span,
+)
 
 MCP_SDK_REQUIREMENT = "mcp>=1.12.4,<1.27.1"
 
@@ -63,6 +79,7 @@ def create_mcp_server(
     """
     try:
         from mcp.server.fastmcp import FastMCP
+        from mcp.server.fastmcp.exceptions import ToolError
     except ImportError as exc:
         raise RuntimeError(
             f"YAAM MCP v1 requires the official Python SDK dependency: {MCP_SDK_REQUIREMENT}."
@@ -90,44 +107,78 @@ def create_mcp_server(
         task_id: str | None = None,
         tenant_id: str | None = None,
         run_id: str | None = None,
+        traceparent: str | None = None,
         l2_weight: float = 0.3,
         l3_weight: float = 0.5,
         l4_weight: float = 0.2,
     ) -> dict[str, Any]:
-        scope = ScopeEnvelope(
-            session_id=session_id,
-            agent_id=agent_id,
-            task_id=task_id,
-            tenant_id=tenant_id,
-            run_id=run_id,
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> dict[str, Any]:
+            nonlocal scope
+            scope = _scope(
+                session_id=session_id,
+                agent_id=agent_id,
+                task_id=task_id,
+                tenant_id=tenant_id,
+                run_id=run_id,
+                traceparent=traceparent,
+            )
+            weights = SearchWeights(
+                l2_weight=l2_weight,
+                l3_weight=l3_weight,
+                l4_weight=l4_weight,
+            )
+            results = await (await get_service()).query_memory(
+                scope, query=query, limit=limit, weights=weights
+            )
+            return _response("Memory query complete.", {"results": _dump_many(results)})
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.memory.query",
+            "read",
+            action,
+            scope_provider=lambda: scope,
+            error_cls=ToolError,
         )
-        weights = SearchWeights(
-            l2_weight=l2_weight,
-            l3_weight=l3_weight,
-            l4_weight=l4_weight,
-        )
-        results = await (await get_service()).query_memory(
-            scope, query=query, limit=limit, weights=weights
-        )
-        return _response("Memory query complete.", {"results": _dump_many(results)})
 
     @mcp.tool(name="yaam.memory.get_context")
     async def memory_get_context(
         session_id: str,
         agent_id: str,
         task_id: str | None = None,
+        traceparent: str | None = None,
         min_ciar: float = 0.6,
         max_turns: int = 20,
         max_facts: int = 10,
     ) -> dict[str, Any]:
-        scope = ScopeEnvelope(session_id=session_id, agent_id=agent_id, task_id=task_id)
-        context = await (await get_service()).get_context(
-            scope,
-            min_ciar=min_ciar,
-            max_turns=max_turns,
-            max_facts=max_facts,
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> dict[str, Any]:
+            nonlocal scope
+            scope = _scope(
+                session_id=session_id,
+                agent_id=agent_id,
+                task_id=task_id,
+                traceparent=traceparent,
+            )
+            context = await (await get_service()).get_context(
+                scope,
+                min_ciar=min_ciar,
+                max_turns=max_turns,
+                max_facts=max_facts,
+            )
+            return _response("Context assembled.", {"context": context.model_dump(mode="json")})
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.memory.get_context",
+            "read",
+            action,
+            scope_provider=lambda: scope,
+            error_cls=ToolError,
         )
-        return _response("Context assembled.", {"context": context.model_dump(mode="json")})
 
     @mcp.tool(name="yaam.l2.store_fact")
     async def l2_store_fact(
@@ -135,11 +186,32 @@ def create_mcp_server(
         agent_id: str,
         content: str,
         task_id: str | None = None,
+        traceparent: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        scope = ScopeEnvelope(session_id=session_id, agent_id=agent_id, task_id=task_id)
-        ack = await (await get_service()).store_l2_fact(scope, content=content, metadata=metadata)
-        return _response("Fact stored.", {"ack": ack.model_dump(mode="json")})
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> dict[str, Any]:
+            nonlocal scope
+            scope = _scope(
+                session_id=session_id,
+                agent_id=agent_id,
+                task_id=task_id,
+                traceparent=traceparent,
+            )
+            ack = await (await get_service()).store_l2_fact(
+                scope, content=content, metadata=metadata
+            )
+            return _response("Fact stored.", {"ack": ack.model_dump(mode="json")})
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.l2.store_fact",
+            "write",
+            action,
+            scope_provider=lambda: scope,
+            error_cls=ToolError,
+        )
 
     @mcp.tool(name="yaam.l2.search_facts")
     async def l2_search_facts(
@@ -148,15 +220,29 @@ def create_mcp_server(
         query: str | None = None,
         min_ciar: float | None = None,
         limit: int = 20,
+        traceparent: str | None = None,
     ) -> dict[str, Any]:
-        scope = ScopeEnvelope(session_id=session_id, agent_id=agent_id)
-        results = await (await get_service()).search_l2_facts(
-            scope,
-            query=query,
-            min_ciar=min_ciar,
-            limit=limit,
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> dict[str, Any]:
+            nonlocal scope
+            scope = _scope(session_id=session_id, agent_id=agent_id, traceparent=traceparent)
+            results = await (await get_service()).search_l2_facts(
+                scope,
+                query=query,
+                min_ciar=min_ciar,
+                limit=limit,
+            )
+            return _response("L2 facts retrieved.", {"results": _dump_many(results)})
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.l2.search_facts",
+            "read",
+            action,
+            scope_provider=lambda: scope,
+            error_cls=ToolError,
         )
-        return _response("L2 facts retrieved.", {"results": _dump_many(results)})
 
     @mcp.tool(name="yaam.l3.search_episodes")
     async def l3_search_episodes(
@@ -164,10 +250,26 @@ def create_mcp_server(
         agent_id: str,
         query: str,
         limit: int = 10,
+        traceparent: str | None = None,
     ) -> dict[str, Any]:
-        scope = ScopeEnvelope(session_id=session_id, agent_id=agent_id)
-        results = await (await get_service()).search_l3_episodes(scope, query=query, limit=limit)
-        return _response("L3 episodes retrieved.", {"results": _dump_many(results)})
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> dict[str, Any]:
+            nonlocal scope
+            scope = _scope(session_id=session_id, agent_id=agent_id, traceparent=traceparent)
+            results = await (await get_service()).search_l3_episodes(
+                scope, query=query, limit=limit
+            )
+            return _response("L3 episodes retrieved.", {"results": _dump_many(results)})
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.l3.search_episodes",
+            "read",
+            action,
+            scope_provider=lambda: scope,
+            error_cls=ToolError,
+        )
 
     @mcp.tool(name="yaam.l3.assimilate_episode")
     async def l3_assimilate_episode(
@@ -175,17 +277,36 @@ def create_mcp_server(
         agent_id: str,
         text_to_assimilate: str,
         task_id: str | None = None,
+        traceparent: str | None = None,
         domain_tags: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        scope = ScopeEnvelope(session_id=session_id, agent_id=agent_id, task_id=task_id)
-        ack = await (await get_service()).assimilate_l3_episode(
-            scope,
-            text_to_assimilate=text_to_assimilate,
-            domain_tags=domain_tags,
-            metadata=metadata,
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> dict[str, Any]:
+            nonlocal scope
+            scope = _scope(
+                session_id=session_id,
+                agent_id=agent_id,
+                task_id=task_id,
+                traceparent=traceparent,
+            )
+            ack = await (await get_service()).assimilate_l3_episode(
+                scope,
+                text_to_assimilate=text_to_assimilate,
+                domain_tags=domain_tags,
+                metadata=metadata,
+            )
+            return _response("Episode assimilated.", {"ack": ack.model_dump(mode="json")})
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.l3.assimilate_episode",
+            "lifecycle",
+            action,
+            scope_provider=lambda: scope,
+            error_cls=ToolError,
         )
-        return _response("Episode assimilated.", {"ack": ack.model_dump(mode="json")})
 
     @mcp.tool(name="yaam.l4.search_knowledge")
     async def l4_search_knowledge(
@@ -193,10 +314,26 @@ def create_mcp_server(
         agent_id: str,
         query: str,
         limit: int = 10,
+        traceparent: str | None = None,
     ) -> dict[str, Any]:
-        scope = ScopeEnvelope(session_id=session_id, agent_id=agent_id)
-        results = await (await get_service()).search_l4_knowledge(scope, query=query, limit=limit)
-        return _response("L4 knowledge retrieved.", {"results": _dump_many(results)})
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> dict[str, Any]:
+            nonlocal scope
+            scope = _scope(session_id=session_id, agent_id=agent_id, traceparent=traceparent)
+            results = await (await get_service()).search_l4_knowledge(
+                scope, query=query, limit=limit
+            )
+            return _response("L4 knowledge retrieved.", {"results": _dump_many(results)})
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.l4.search_knowledge",
+            "read",
+            action,
+            scope_provider=lambda: scope,
+            error_cls=ToolError,
+        )
 
     @mcp.tool(name="yaam.l4.finalize_artifact")
     async def l4_finalize_artifact(
@@ -205,16 +342,35 @@ def create_mcp_server(
         title: str,
         final_artifact: str,
         task_id: str | None = None,
+        traceparent: str | None = None,
         consensus_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        scope = ScopeEnvelope(session_id=session_id, agent_id=agent_id, task_id=task_id)
-        ack = await (await get_service()).finalize_l4_artifact(
-            scope,
-            title=title,
-            final_artifact=final_artifact,
-            consensus_metadata=consensus_metadata,
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> dict[str, Any]:
+            nonlocal scope
+            scope = _scope(
+                session_id=session_id,
+                agent_id=agent_id,
+                task_id=task_id,
+                traceparent=traceparent,
+            )
+            ack = await (await get_service()).finalize_l4_artifact(
+                scope,
+                title=title,
+                final_artifact=final_artifact,
+                consensus_metadata=consensus_metadata,
+            )
+            return _response("L4 artifact finalized.", {"ack": ack.model_dump(mode="json")})
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.l4.finalize_artifact",
+            "lifecycle",
+            action,
+            scope_provider=lambda: scope,
+            error_cls=ToolError,
         )
-        return _response("L4 artifact finalized.", {"ack": ack.model_dump(mode="json")})
 
     @mcp.tool(name="yaam.ciar.explain")
     async def ciar_explain(
@@ -224,18 +380,32 @@ def create_mcp_server(
         impact: float = 0.0,
         age_decay: float = 1.0,
         recency_boost: float = 1.0,
+        traceparent: str | None = None,
     ) -> dict[str, Any]:
-        scope = ScopeEnvelope(session_id=session_id, agent_id=agent_id)
-        explanation = await (await get_service()).explain_ciar(
-            scope,
-            components={
-                "certainty": certainty,
-                "impact": impact,
-                "age_decay": age_decay,
-                "recency_boost": recency_boost,
-            },
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> dict[str, Any]:
+            nonlocal scope
+            scope = _scope(session_id=session_id, agent_id=agent_id, traceparent=traceparent)
+            explanation = await (await get_service()).explain_ciar(
+                scope,
+                components={
+                    "certainty": certainty,
+                    "impact": impact,
+                    "age_decay": age_decay,
+                    "recency_boost": recency_boost,
+                },
+            )
+            return _response("CIAR explained.", {"explanation": explanation})
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.ciar.explain",
+            "read",
+            action,
+            scope_provider=lambda: scope,
+            error_cls=ToolError,
         )
-        return _response("CIAR explained.", {"explanation": explanation})
 
     @mcp.tool(name="yaam.evidence.table")
     async def evidence_table(
@@ -243,104 +413,215 @@ def create_mcp_server(
         agent_id: str,
         query: str,
         limit: int = 10,
+        traceparent: str | None = None,
     ) -> dict[str, Any]:
-        scope = ScopeEnvelope(session_id=session_id, agent_id=agent_id)
-        table = await (await get_service()).evidence_table(scope, query=query, limit=limit)
-        return _response(
-            "Evidence table assembled.", {"evidence_table": table.model_dump(mode="json")}
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> dict[str, Any]:
+            nonlocal scope
+            scope = _scope(session_id=session_id, agent_id=agent_id, traceparent=traceparent)
+            table = await (await get_service()).evidence_table(scope, query=query, limit=limit)
+            return _response(
+                "Evidence table assembled.", {"evidence_table": table.model_dump(mode="json")}
+            )
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.evidence.table",
+            "read",
+            action,
+            scope_provider=lambda: scope,
+            error_cls=ToolError,
         )
 
     @mcp.tool(name="yaam.health.check")
     async def health_check() -> dict[str, Any]:
-        health = await (await get_service()).health_check()
-        return _response("Health checked.", {"health": health.model_dump(mode="json")})
+        async def action() -> dict[str, Any]:
+            health = await (await get_service()).health_check()
+            return _response("Health checked.", {"health": health.model_dump(mode="json")})
+
+        return await _run_mcp_async(
+            "tool",
+            "yaam.health.check",
+            "read",
+            action,
+            error_cls=ToolError,
+        )
 
     @mcp.resource("yaam://health")
     async def health_resource() -> str:
-        health = await (await get_service()).health_check()
-        return health.model_dump_json()
+        async def action() -> str:
+            health = await (await get_service()).health_check()
+            return health.model_dump_json()
+
+        return await _run_mcp_async("resource", "yaam://health", "read", action)
 
     @mcp.resource("yaam://sessions/{session_id}/context")
     async def session_context_resource(session_id: str) -> str:
-        service_instance = await get_service()
-        scope = ScopeEnvelope(session_id=session_id, agent_id="resource-reader")
-        context = await service_instance.get_context(scope)
-        return context.model_dump_json()
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> str:
+            nonlocal scope
+            service_instance = await get_service()
+            scope = _resource_scope(session_id=session_id)
+            context = await service_instance.get_context(scope)
+            return context.model_dump_json()
+
+        return await _run_mcp_async(
+            "resource",
+            "yaam://sessions/{session_id}/context",
+            "read",
+            action,
+            scope_provider=lambda: scope,
+        )
 
     @mcp.resource("yaam://sessions/{session_id}/facts")
     async def session_facts_resource(session_id: str) -> str:
-        service_instance = await get_service()
-        scope = ScopeEnvelope(session_id=session_id, agent_id="resource-reader")
-        facts = await service_instance.search_l2_facts(scope)
-        return json.dumps(_dump_many(facts))
+        scope: ScopeEnvelope | None = None
+
+        async def action() -> str:
+            nonlocal scope
+            service_instance = await get_service()
+            scope = _resource_scope(session_id=session_id)
+            facts = await service_instance.search_l2_facts(scope)
+            return json.dumps(_dump_many(facts))
+
+        return await _run_mcp_async(
+            "resource",
+            "yaam://sessions/{session_id}/facts",
+            "read",
+            action,
+            scope_provider=lambda: scope,
+        )
 
     @mcp.resource("yaam://facts/{fact_id}")
     async def fact_resource(fact_id: str) -> str:
-        fact = await (await get_service()).get_fact(_resource_scope(), fact_id)
-        return _json_or_not_found(fact, "fact_id", fact_id)
+        scope = _resource_scope()
+
+        async def action() -> str:
+            fact = await (await get_service()).get_fact(scope, fact_id)
+            return _json_or_not_found(fact, "fact_id", fact_id)
+
+        return await _run_mcp_async("resource", "yaam://facts/{fact_id}", "read", action, scope)
 
     @mcp.resource("yaam://episodes/{episode_id}")
     async def episode_resource(episode_id: str) -> str:
-        episode = await (await get_service()).get_episode(_resource_scope(), episode_id)
-        return _json_or_not_found(episode, "episode_id", episode_id)
+        scope = _resource_scope()
+
+        async def action() -> str:
+            episode = await (await get_service()).get_episode(scope, episode_id)
+            return _json_or_not_found(episode, "episode_id", episode_id)
+
+        return await _run_mcp_async(
+            "resource", "yaam://episodes/{episode_id}", "read", action, scope
+        )
 
     @mcp.resource("yaam://knowledge/{knowledge_id}")
     async def knowledge_resource(knowledge_id: str) -> str:
-        knowledge = await (await get_service()).get_knowledge(_resource_scope(), knowledge_id)
-        return _json_or_not_found(knowledge, "knowledge_id", knowledge_id)
+        scope = _resource_scope()
+
+        async def action() -> str:
+            knowledge = await (await get_service()).get_knowledge(scope, knowledge_id)
+            return _json_or_not_found(knowledge, "knowledge_id", knowledge_id)
+
+        return await _run_mcp_async(
+            "resource", "yaam://knowledge/{knowledge_id}", "read", action, scope
+        )
 
     @mcp.resource("yaam://config/ciar")
     def ciar_config_resource() -> str:
-        return json.dumps(
-            {
-                "formula": "(certainty * impact) * age_decay * recency_boost",
-                "default_age_decay_lambda": DEFAULT_AGE_DECAY_LAMBDA,
-                "default_recency_alpha": DEFAULT_RECENCY_ALPHA,
-            }
+        return _run_mcp_sync(
+            "resource",
+            "yaam://config/ciar",
+            "read",
+            lambda: json.dumps(
+                {
+                    "formula": "(certainty * impact) * age_decay * recency_boost",
+                    "default_age_decay_lambda": DEFAULT_AGE_DECAY_LAMBDA,
+                    "default_recency_alpha": DEFAULT_RECENCY_ALPHA,
+                }
+            ),
         )
 
     @mcp.resource("yaam://schemas/fact")
     def fact_schema_resource() -> str:
-        return json.dumps(Fact.model_json_schema())
+        return _run_mcp_sync(
+            "resource",
+            "yaam://schemas/fact",
+            "read",
+            lambda: json.dumps(Fact.model_json_schema()),
+        )
 
     @mcp.resource("yaam://schemas/episode")
     def episode_schema_resource() -> str:
-        return json.dumps(Episode.model_json_schema())
+        return _run_mcp_sync(
+            "resource",
+            "yaam://schemas/episode",
+            "read",
+            lambda: json.dumps(Episode.model_json_schema()),
+        )
 
     @mcp.resource("yaam://schemas/knowledge-document")
     def knowledge_schema_resource() -> str:
-        return json.dumps(KnowledgeDocument.model_json_schema())
+        return _run_mcp_sync(
+            "resource",
+            "yaam://schemas/knowledge-document",
+            "read",
+            lambda: json.dumps(KnowledgeDocument.model_json_schema()),
+        )
 
     @mcp.prompt(name="yaam.prompt.evidence_table")
     def evidence_table_prompt(query: str) -> str:
-        return (
-            "Create a concise evidence table from YAAM memory for this query. "
-            "Use source tier, source id, claim, evidence, score, and provenance columns.\n"
-            f"Query: {query}"
+        return _run_mcp_sync(
+            "prompt",
+            "yaam.prompt.evidence_table",
+            "read",
+            lambda: (
+                "Create a concise evidence table from YAAM memory for this query. "
+                "Use source tier, source id, claim, evidence, score, and provenance columns.\n"
+                f"Query: {query}"
+            ),
         )
 
     @mcp.prompt(name="yaam.prompt.memory_inspection")
     def memory_inspection_prompt(session_id: str) -> str:
-        return (
-            "Inspect YAAM memory without mutation. Summarize visible L1/L2/L3/L4 contents, "
-            "gaps, stale items, and confidence signals.\n"
-            f"Session: {session_id}"
+        scope = _resource_scope(session_id=session_id)
+        return _run_mcp_sync(
+            "prompt",
+            "yaam.prompt.memory_inspection",
+            "read",
+            lambda: (
+                "Inspect YAAM memory without mutation. Summarize visible L1/L2/L3/L4 contents, "
+                "gaps, stale items, and confidence signals.\n"
+                f"Session: {session_id}"
+            ),
+            scope=scope,
         )
 
     @mcp.prompt(name="yaam.prompt.ciar_explanation")
     def ciar_explanation_prompt(claim: str) -> str:
-        return (
-            "Explain CIAR selection or suppression using certainty, impact, age decay, "
-            "recency boost, provenance, and policy metadata.\n"
-            f"Claim: {claim}"
+        return _run_mcp_sync(
+            "prompt",
+            "yaam.prompt.ciar_explanation",
+            "read",
+            lambda: (
+                "Explain CIAR selection or suppression using certainty, impact, age decay, "
+                "recency boost, provenance, and policy metadata.\n"
+                f"Claim: {claim}"
+            ),
         )
 
     @mcp.prompt(name="yaam.prompt.retrieval_strategy")
     def retrieval_strategy_prompt(task: str) -> str:
-        return (
-            "Recommend a YAAM retrieval strategy. Pick tiers, filters, scope fields, "
-            "evidence visibility, and partial-result handling.\n"
-            f"Task: {task}"
+        return _run_mcp_sync(
+            "prompt",
+            "yaam.prompt.retrieval_strategy",
+            "read",
+            lambda: (
+                "Recommend a YAAM retrieval strategy. Pick tiers, filters, scope fields, "
+                "evidence visibility, and partial-result handling.\n"
+                f"Task: {task}"
+            ),
         )
 
     return mcp
@@ -392,8 +673,26 @@ def _dump_many(items: list[Any]) -> list[dict[str, Any]]:
     return [item.model_dump(mode="json") if hasattr(item, "model_dump") else item for item in items]
 
 
-def _resource_scope() -> ScopeEnvelope:
-    return ScopeEnvelope(session_id="*", agent_id="resource-reader")
+def _scope(
+    session_id: str,
+    agent_id: str,
+    task_id: str | None = None,
+    tenant_id: str | None = None,
+    run_id: str | None = None,
+    traceparent: str | None = None,
+) -> ScopeEnvelope:
+    return ScopeEnvelope(
+        session_id=session_id,
+        agent_id=agent_id,
+        task_id=task_id,
+        tenant_id=tenant_id,
+        run_id=run_id,
+        traceparent=traceparent,
+    )
+
+
+def _resource_scope(session_id: str = "*") -> ScopeEnvelope:
+    return _scope(session_id=session_id, agent_id="resource-reader")
 
 
 def _json_or_not_found(item: Any, id_name: str, id_value: str) -> str:
@@ -402,6 +701,298 @@ def _json_or_not_found(item: Any, id_name: str, id_value: str) -> str:
     if hasattr(item, "model_dump_json"):
         return item.model_dump_json()
     return json.dumps(item)
+
+
+async def _run_mcp_async(
+    surface: str,
+    operation: str,
+    operation_mode: str,
+    action: Callable[[], Awaitable[Any]],
+    scope: ScopeEnvelope | None = None,
+    *,
+    scope_provider: Callable[[], ScopeEnvelope | None] | None = None,
+    error_cls: type[Exception] | None = None,
+) -> Any:
+    started_at = perf_counter()
+    with start_span(
+        tracer_name="yaam.mcp",
+        span_name=f"yaam.mcp.{surface}.{operation}",
+        kind="TOOL",
+        attributes=_mcp_trace_attributes(surface, operation, operation_mode, scope),
+    ) as span:
+        try:
+            result = await action()
+        except Exception as exc:
+            active_scope = _active_scope(scope, scope_provider)
+            payload = _mcp_error_payload(exc, operation, active_scope, span)
+            set_span_error(span, exc)
+            set_span_attributes(
+                span,
+                {
+                    **_mcp_trace_attributes(surface, operation, operation_mode, active_scope),
+                    "yaam.status": "error",
+                    "yaam.error_code": payload.code,
+                    "yaam.partial": payload.partial,
+                    "yaam.latency_ms": _elapsed_ms(started_at),
+                },
+            )
+            raise _mcp_exception(payload, error_cls) from exc
+
+        active_scope = _active_scope(scope, scope_provider)
+        set_span_attributes(
+            span,
+            {
+                **_mcp_trace_attributes(surface, operation, operation_mode, active_scope),
+                **_mcp_result_trace_attributes(result),
+                "yaam.status": "success",
+                "yaam.latency_ms": _elapsed_ms(started_at),
+            },
+        )
+        return result
+
+
+def _run_mcp_sync(
+    surface: str,
+    operation: str,
+    operation_mode: str,
+    action: Callable[[], Any],
+    scope: ScopeEnvelope | None = None,
+) -> Any:
+    started_at = perf_counter()
+    with start_span(
+        tracer_name="yaam.mcp",
+        span_name=f"yaam.mcp.{surface}.{operation}",
+        kind="TOOL",
+        attributes=_mcp_trace_attributes(surface, operation, operation_mode, scope),
+    ) as span:
+        try:
+            result = action()
+        except Exception as exc:
+            payload = _mcp_error_payload(exc, operation, scope, span)
+            set_span_error(span, exc)
+            set_span_attributes(
+                span,
+                {
+                    **_mcp_trace_attributes(surface, operation, operation_mode, scope),
+                    "yaam.status": "error",
+                    "yaam.error_code": payload.code,
+                    "yaam.partial": payload.partial,
+                    "yaam.latency_ms": _elapsed_ms(started_at),
+                },
+            )
+            raise _mcp_exception(payload) from exc
+
+        set_span_attributes(
+            span,
+            {
+                **_mcp_trace_attributes(surface, operation, operation_mode, scope),
+                **_mcp_result_trace_attributes(result),
+                "yaam.status": "success",
+                "yaam.latency_ms": _elapsed_ms(started_at),
+            },
+        )
+        return result
+
+
+def _mcp_trace_attributes(
+    surface: str,
+    operation: str,
+    operation_mode: str,
+    scope: ScopeEnvelope | None = None,
+) -> dict[str, Any]:
+    attributes: dict[str, Any] = {
+        "yaam.interface": "MCP",
+        "yaam.mcp.surface": surface,
+        "yaam.operation": operation,
+        "yaam.operation_mode": operation_mode,
+    }
+    if scope is None:
+        return attributes
+    attributes.update(
+        {
+            "session.id": scope.session_id,
+            "yaam.agent_id": scope.agent_id,
+            "yaam.task_id": scope.task_id or "",
+            "yaam.tenant_id": scope.tenant_id or "",
+            "yaam.run_id": scope.run_id or "",
+            "yaam.traceparent.present": bool(scope.traceparent),
+        }
+    )
+    return attributes
+
+
+def _mcp_result_trace_attributes(result: Any) -> dict[str, Any]:
+    payload = _payload_for_trace(result)
+    attributes: dict[str, Any] = {
+        "yaam.partial": _extract_partial(payload),
+        "yaam.warning_count": _extract_warning_count(payload),
+        "yaam.result_count": _extract_result_count(payload),
+    }
+    source_ids = _extract_source_ids(payload)
+    if source_ids:
+        attributes["yaam.source_ids"] = source_ids
+    health_status = _extract_health_status(payload)
+    if health_status:
+        attributes["yaam.health.status"] = health_status
+    return attributes
+
+
+def _payload_for_trace(result: Any) -> Any:
+    if hasattr(result, "model_dump"):
+        return result.model_dump(mode="json")
+    if isinstance(result, str):
+        try:
+            return json.loads(result)
+        except json.JSONDecodeError:
+            return result
+    return result
+
+
+def _extract_partial(payload: Any) -> bool:
+    if isinstance(payload, dict):
+        for key in ("context", "evidence_table", "health"):
+            nested = payload.get(key)
+            if isinstance(nested, dict) and bool(nested.get("partial")):
+                return True
+        return bool(payload.get("partial"))
+    return False
+
+
+def _extract_warning_count(payload: Any) -> int:
+    if isinstance(payload, dict):
+        count = len(payload.get("warnings", [])) if isinstance(payload.get("warnings"), list) else 0
+        for key in ("context", "evidence_table", "health"):
+            nested = payload.get(key)
+            if isinstance(nested, dict) and isinstance(nested.get("warnings"), list):
+                count += len(nested["warnings"])
+        return count
+    return 0
+
+
+def _extract_result_count(payload: Any) -> int:
+    if isinstance(payload, list):
+        return len(payload)
+    if isinstance(payload, str):
+        return 1
+    if not isinstance(payload, dict):
+        return 1 if payload is not None else 0
+    if isinstance(payload.get("results"), list):
+        return len(payload["results"])
+    if isinstance(payload.get("items"), list):
+        return len(payload["items"])
+    if isinstance(payload.get("context"), dict) and isinstance(payload["context"].get("items"), list):
+        return len(payload["context"]["items"])
+    if isinstance(payload.get("evidence_table"), dict) and isinstance(
+        payload["evidence_table"].get("rows"), list
+    ):
+        return len(payload["evidence_table"]["rows"])
+    if "ack" in payload or "explanation" in payload or "health" in payload:
+        return 1
+    return 1 if payload else 0
+
+
+def _extract_source_ids(payload: Any) -> list[str]:
+    source_ids: list[str] = []
+    _collect_source_ids(payload, source_ids)
+    return sorted(set(source_ids))
+
+
+def _collect_source_ids(payload: Any, source_ids: list[str]) -> None:
+    if isinstance(payload, list):
+        for item in payload:
+            _collect_source_ids(item, source_ids)
+        return
+    if not isinstance(payload, dict):
+        return
+    source_id = payload.get("source_id")
+    if source_id:
+        source_ids.append(str(source_id))
+    provenance = payload.get("provenance")
+    if isinstance(provenance, dict) and provenance.get("source_id"):
+        source_ids.append(str(provenance["source_id"]))
+    ack = payload.get("ack")
+    if isinstance(ack, dict):
+        for key in ("created_id", "updated_id"):
+            if ack.get(key):
+                source_ids.append(str(ack[key]))
+    for value in payload.values():
+        if isinstance(value, dict | list):
+            _collect_source_ids(value, source_ids)
+
+
+def _extract_health_status(payload: Any) -> str | None:
+    if isinstance(payload, dict):
+        if isinstance(payload.get("health"), dict):
+            return payload["health"].get("status")
+        return payload.get("status") if "tiers" in payload else None
+    return None
+
+
+def _mcp_error_payload(
+    exc: Exception,
+    operation: str,
+    scope: ScopeEnvelope | None,
+    span: Any,
+) -> YAAMErrorPayload:
+    trace_metadata = current_trace_metadata(span)
+    trace_id = trace_metadata.get("yaam_trace_id")
+    if isinstance(exc, YAAMPermissionError):
+        payload = exc.payload
+        return payload.model_copy(
+            update={
+                "operation": payload.operation or operation,
+                "trace_id": payload.trace_id or trace_id,
+            }
+        )
+    if isinstance(exc, ValidationError):
+        return YAAMErrorPayload(
+            code="validation.invalid_scope",
+            message="MCP request scope or arguments failed validation.",
+            retryable=False,
+            operation=operation,
+            affected_tier="SYSTEM",
+            trace_id=trace_id,
+            details=redact_metadata({"errors": _json_safe(exc.errors(include_url=False))}),
+        )
+    details: dict[str, Any] = {"exception_type": type(exc).__name__}
+    if scope is not None:
+        details["scope"] = scope.model_dump(mode="json", exclude_none=True)
+    return YAAMErrorPayload(
+        code="mcp.operation_failed",
+        message="MCP operation failed.",
+        retryable=False,
+        operation=operation,
+        affected_tier="SYSTEM",
+        trace_id=trace_id,
+        details=redact_metadata(details),
+    )
+
+
+def _mcp_exception(
+    payload: YAAMErrorPayload,
+    error_cls: type[Exception] | None = None,
+) -> Exception:
+    message = json.dumps({"error": payload.model_dump(mode="json")}, separators=(",", ":"))
+    if error_cls is not None:
+        return error_cls(message)
+    return RuntimeError(message)
+
+
+def _json_safe(value: Any) -> Any:
+    return json.loads(json.dumps(value, default=str, ensure_ascii=True))
+
+
+def _active_scope(
+    scope: ScopeEnvelope | None,
+    scope_provider: Callable[[], ScopeEnvelope | None] | None,
+) -> ScopeEnvelope | None:
+    if scope is not None:
+        return scope
+    return scope_provider() if scope_provider is not None else None
+
+
+def _elapsed_ms(started_at: float) -> float:
+    return round((perf_counter() - started_at) * 1000, 3)
 
 
 if __name__ == "__main__":
