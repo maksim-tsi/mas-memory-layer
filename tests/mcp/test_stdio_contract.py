@@ -17,6 +17,7 @@ PRODUCTION_SERVER_PARAMS = StdioServerParameters(
     command=sys.executable,
     args=["-m", "src.mcp.server", "--agent-type", "full", "--agent-variant", "mcp"],
     cwd=REPO_ROOT,
+    env={**os.environ},
 )
 FIXTURE_SERVER_PARAMS = StdioServerParameters(
     command=sys.executable,
