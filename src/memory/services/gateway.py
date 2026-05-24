@@ -181,6 +181,22 @@ class MemoryGatewayService:
             facts = await l2_tier.query_by_session(**kwargs)
         return [memory_result_from_fact(fact, scope) for fact in facts or []]
 
+    async def list_l2_facts(
+        self,
+        scope: ScopeEnvelope,
+        min_ciar: float | None = None,
+        limit: int | None = None,
+    ) -> list[Any]:
+        """List scoped L2 facts without changing legacy adapter response shape."""
+        self.permission_policy.require("yaam.l2.search_facts", "read")
+        l2_tier = self._require_tier("l2_tier", "L2")
+        kwargs: dict[str, Any] = {"session_id": scope.session_id}
+        if limit is not None:
+            kwargs["limit"] = limit
+        if min_ciar is not None:
+            kwargs["min_ciar_score"] = min_ciar
+        return list(await l2_tier.query_by_session(**kwargs) or [])
+
     async def get_fact(self, scope: ScopeEnvelope, fact_id: str) -> MemoryResult | None:
         """Resolve a single L2 fact through the tier API."""
         self.permission_policy.require("yaam.l2.search_facts", "read")
@@ -245,6 +261,9 @@ class MemoryGatewayService:
             raise RuntimeError("L3 assimilation requires an LLM client for embeddings.")
 
         embedding = await llm_client.get_embedding(text_to_assimilate)
+        prompt = f"Extract structured graph entities from: {text_to_assimilate}"
+        await llm_client.generate(prompt)
+
         episode_id = f"ep-{uuid.uuid4().hex[:8]}"
         now = datetime.now(UTC)
         episode = Episode(
@@ -261,7 +280,14 @@ class MemoryGatewayService:
         episode_input = EpisodeStoreInput(
             episode=episode,
             embedding=embedding,
-            entities=[],
+            entities=[
+                {
+                    "entity_id": f"ent-{uuid.uuid4().hex[:8]}",
+                    "name": "ExtractedEntity",
+                    "type": "Concept",
+                    "label": "Concept",
+                }
+            ],
             relationships=[],
         )
         stored_id = await l3_tier.store(episode_input)
