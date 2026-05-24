@@ -1,3 +1,8 @@
+import json
+
+import pytest
+from mcp.server.fastmcp.exceptions import ToolError
+
 from src.mcp.server import (
     MCP_PROMPT_NAMES,
     MCP_RESOURCE_URIS,
@@ -6,6 +11,126 @@ from src.mcp.server import (
     create_mcp_server,
     parse_args,
 )
+from src.memory.models import SearchWeights
+from src.memory.services import (
+    ContextResponse,
+    EvidenceRow,
+    EvidenceTableResponse,
+    HealthResponse,
+    MemoryGatewayService,
+    MemoryResult,
+    PermissionPolicy,
+    Provenance,
+    ScopeEnvelope,
+)
+from src.memory.services.permissions import YAAMPermissionError
+
+
+class RecordingMCPService:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple, dict]] = []
+
+    async def query_memory(
+        self,
+        scope: ScopeEnvelope,
+        query: str,
+        limit: int = 10,
+        weights: SearchWeights | None = None,
+    ) -> list[MemoryResult]:
+        self.calls.append(("query_memory", (scope, query, limit, weights), {}))
+        return [_memory_result("L2", "fact-1", scope)]
+
+    async def get_context(
+        self,
+        scope: ScopeEnvelope,
+        min_ciar: float = 0.6,
+        max_turns: int = 20,
+        max_facts: int = 10,
+    ) -> ContextResponse:
+        self.calls.append(
+            (
+                "get_context",
+                (scope,),
+                {"min_ciar": min_ciar, "max_turns": max_turns, "max_facts": max_facts},
+            )
+        )
+        return ContextResponse(
+            session_id=scope.session_id,
+            items=[_memory_result("L2", "fact-context", scope)],
+            context_summary="Context summary.",
+            estimated_tokens=12,
+        )
+
+    async def search_l2_facts(
+        self,
+        scope: ScopeEnvelope,
+        query: str | None = None,
+        min_ciar: float | None = None,
+        limit: int = 20,
+    ) -> list[MemoryResult]:
+        self.calls.append(
+            ("search_l2_facts", (scope,), {"query": query, "min_ciar": min_ciar, "limit": limit})
+        )
+        return [_memory_result("L2", "fact-search", scope)]
+
+    async def search_l3_episodes(
+        self,
+        scope: ScopeEnvelope,
+        query: str,
+        limit: int = 10,
+    ) -> list[MemoryResult]:
+        self.calls.append(("search_l3_episodes", (scope, query, limit), {}))
+        return [_memory_result("L3", "episode-search", scope)]
+
+    async def search_l4_knowledge(
+        self,
+        scope: ScopeEnvelope,
+        query: str,
+        limit: int = 10,
+    ) -> list[MemoryResult]:
+        self.calls.append(("search_l4_knowledge", (scope, query, limit), {}))
+        return [_memory_result("L4", "knowledge-search", scope)]
+
+    async def explain_ciar(
+        self,
+        scope: ScopeEnvelope,
+        fact=None,
+        components: dict[str, float] | None = None,
+    ) -> dict:
+        self.calls.append(("explain_ciar", (scope, fact, components), {}))
+        return {"scope": scope.model_dump(mode="json"), "score": 0.42, "components": components}
+
+    async def evidence_table(
+        self,
+        scope: ScopeEnvelope,
+        query: str,
+        limit: int = 10,
+    ) -> EvidenceTableResponse:
+        self.calls.append(("evidence_table", (scope, query, limit), {}))
+        row = EvidenceRow(
+            claim="Claim one.",
+            source_tier="L2",
+            source_id="fact-evidence",
+            evidence="Evidence one.",
+            provenance=_provenance("L2", "fact-evidence", scope),
+        )
+        return EvidenceTableResponse(rows=[row], query=query, scope=scope)
+
+    async def health_check(self) -> HealthResponse:
+        self.calls.append(("health_check", (), {}))
+        return HealthResponse(status="ok", tiers={"L2": {"configured": True, "status": "ok"}})
+
+    async def get_fact(self, scope: ScopeEnvelope, fact_id: str) -> MemoryResult | None:
+        self.calls.append(("get_fact", (scope, fact_id), {}))
+        return _memory_result("L2", fact_id, scope)
+
+    async def get_episode(self, scope: ScopeEnvelope, episode_id: str) -> MemoryResult | None:
+        self.calls.append(("get_episode", (scope, episode_id), {}))
+        return _memory_result("L3", episode_id, scope)
+
+    async def get_knowledge(self, scope: ScopeEnvelope, knowledge_id: str) -> MemoryResult | None:
+        self.calls.append(("get_knowledge", (scope, knowledge_id), {}))
+        return _memory_result("L4", knowledge_id, scope)
 
 
 def test_mcp_v1_names_match_planning_freeze() -> None:
@@ -72,3 +197,307 @@ def test_parse_args_supports_documented_cli_flags() -> None:
     assert args.agent_variant == "baseline"
     assert args.port == 9000
     assert args.model == "test-model"
+
+
+@pytest.mark.asyncio
+async def test_mcp_read_tools_delegate_to_service_with_scope_and_structured_payloads() -> None:
+    service = RecordingMCPService()
+    server = create_mcp_server(service)
+
+    memory_query = await _call_tool(
+        server,
+        "yaam.memory.query",
+        {
+            "session_id": "session-a",
+            "agent_id": "agent-a",
+            "task_id": "task-a",
+            "tenant_id": "tenant-a",
+            "run_id": "run-a",
+            "query": "dock status",
+            "limit": 3,
+            "l2_weight": 0.2,
+            "l3_weight": 0.3,
+            "l4_weight": 0.5,
+        },
+    )
+    assert memory_query["summary"] == "Memory query complete."
+    assert memory_query["results"][0]["provenance"]["session_id"] == "session-a"
+    query_call = service.calls[-1]
+    scope = query_call[1][0]
+    weights = query_call[1][3]
+    assert scope.task_id == "task-a"
+    assert scope.tenant_id == "tenant-a"
+    assert weights.l2_weight == 0.2
+    assert weights.l3_weight == 0.3
+    assert weights.l4_weight == 0.5
+
+    context = await _call_tool(
+        server,
+        "yaam.memory.get_context",
+        {"session_id": "session-a", "agent_id": "agent-a", "task_id": "task-a"},
+    )
+    assert context["summary"] == "Context assembled."
+    assert context["context"]["context_summary"] == "Context summary."
+
+    l2 = await _call_tool(
+        server,
+        "yaam.l2.search_facts",
+        {"session_id": "session-a", "agent_id": "agent-a", "query": "dock", "limit": 2},
+    )
+    assert l2["results"][0]["tier"] == "L2"
+
+    l3 = await _call_tool(
+        server,
+        "yaam.l3.search_episodes",
+        {"session_id": "session-a", "agent_id": "agent-a", "query": "dock", "limit": 2},
+    )
+    assert l3["results"][0]["tier"] == "L3"
+
+    l4 = await _call_tool(
+        server,
+        "yaam.l4.search_knowledge",
+        {"session_id": "session-a", "agent_id": "agent-a", "query": "dock", "limit": 2},
+    )
+    assert l4["results"][0]["tier"] == "L4"
+
+    ciar = await _call_tool(
+        server,
+        "yaam.ciar.explain",
+        {"session_id": "session-a", "agent_id": "agent-a", "certainty": 0.7},
+    )
+    assert ciar["summary"] == "CIAR explained."
+    assert ciar["explanation"]["components"]["certainty"] == 0.7
+
+    evidence = await _call_tool(
+        server,
+        "yaam.evidence.table",
+        {"session_id": "session-a", "agent_id": "agent-a", "query": "dock"},
+    )
+    assert evidence["evidence_table"]["rows"][0]["source_id"] == "fact-evidence"
+
+    health = await _call_tool(server, "yaam.health.check", {})
+    assert health["health"]["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_mcp_mutating_tools_are_denied_by_default(mocker) -> None:
+    memory_system = mocker.Mock()
+    memory_system.l2_tier = mocker.Mock()
+    memory_system.l3_tier = mocker.Mock()
+    memory_system.l4_tier = mocker.Mock()
+    memory_system.llm_client = mocker.Mock()
+    service = MemoryGatewayService(memory_system)
+    server = create_mcp_server(service)
+
+    write_calls = [
+        (
+            "yaam.l2.store_fact",
+            {"session_id": "session-a", "agent_id": "agent-a", "content": "Fact."},
+        ),
+        (
+            "yaam.l3.assimilate_episode",
+            {
+                "session_id": "session-a",
+                "agent_id": "agent-a",
+                "text_to_assimilate": "Episode text.",
+            },
+        ),
+        (
+            "yaam.l4.finalize_artifact",
+            {
+                "session_id": "session-a",
+                "agent_id": "agent-a",
+                "title": "Final Artifact",
+                "final_artifact": "A final artifact with enough content.",
+            },
+        ),
+    ]
+
+    for tool_name, arguments in write_calls:
+        with pytest.raises(ToolError) as exc_info:
+            await _call_tool(server, tool_name, arguments)
+        assert isinstance(exc_info.value.__cause__, YAAMPermissionError)
+
+
+@pytest.mark.asyncio
+async def test_mcp_allowlisted_write_tools_persist_and_return_acknowledgements(mocker) -> None:
+    memory_system = mocker.Mock()
+    memory_system.l2_tier = mocker.Mock()
+    memory_system.l2_tier.store = mocker.AsyncMock(return_value="fact-stored")
+    memory_system.l3_tier = mocker.Mock()
+    memory_system.l3_tier.store = mocker.AsyncMock(return_value="episode-stored")
+    memory_system.l4_tier = mocker.Mock()
+    memory_system.l4_tier.store = mocker.AsyncMock(return_value="knowledge-stored")
+    memory_system.llm_client = mocker.Mock()
+    memory_system.llm_client.get_embedding = mocker.AsyncMock(return_value=[0.1] * 64)
+    memory_system.llm_client.generate = mocker.AsyncMock(return_value="ok")
+    service = MemoryGatewayService(
+        memory_system,
+        PermissionPolicy(
+            enable_writes=True,
+            enable_lifecycle=True,
+            allowlisted_tools=frozenset(
+                {
+                    "yaam.l2.store_fact",
+                    "yaam.l3.assimilate_episode",
+                    "yaam.l4.finalize_artifact",
+                }
+            ),
+        ),
+    )
+    server = create_mcp_server(service)
+
+    l2 = await _call_tool(
+        server,
+        "yaam.l2.store_fact",
+        {
+            "session_id": "session-a",
+            "agent_id": "agent-a",
+            "task_id": "task-a",
+            "content": "Fact content.",
+        },
+    )
+    assert l2["ack"]["created_id"] == "fact-stored"
+    assert l2["ack"]["provenance"]["source_tier"] == "L2"
+
+    l3 = await _call_tool(
+        server,
+        "yaam.l3.assimilate_episode",
+        {
+            "session_id": "session-a",
+            "agent_id": "agent-a",
+            "task_id": "task-a",
+            "text_to_assimilate": "A durable episode should be stored.",
+            "domain_tags": ["engineering"],
+        },
+    )
+    assert l3["ack"]["created_id"] == "episode-stored"
+    memory_system.llm_client.generate.assert_awaited_once()
+
+    l4 = await _call_tool(
+        server,
+        "yaam.l4.finalize_artifact",
+        {
+            "session_id": "session-a",
+            "agent_id": "agent-a",
+            "task_id": "task-a",
+            "title": "Final Artifact",
+            "final_artifact": "A final artifact with enough content.",
+            "consensus_metadata": {"reviewed_by": "agent-a"},
+        },
+    )
+    assert l4["ack"]["created_id"] == "knowledge-stored"
+    assert l4["ack"]["provenance"]["source_tier"] == "L4"
+
+
+@pytest.mark.asyncio
+async def test_mcp_static_resources_return_json_without_secret_shaped_keys() -> None:
+    server = create_mcp_server(RecordingMCPService())
+
+    for uri in (
+        "yaam://health",
+        "yaam://config/ciar",
+        "yaam://schemas/fact",
+        "yaam://schemas/episode",
+        "yaam://schemas/knowledge-document",
+    ):
+        resource = await server._resource_manager.get_resource(uri)
+        assert resource is not None
+        payload = json.loads(await resource.read())
+        serialized = json.dumps(payload).lower()
+        assert "api_key" not in serialized
+        assert "password" not in serialized
+        assert "secret" not in serialized
+
+    ciar_resource = await server._resource_manager.get_resource("yaam://config/ciar")
+    assert ciar_resource is not None
+    ciar = json.loads(await ciar_resource.read())
+    assert ciar["formula"] == "(certainty * impact) * age_decay * recency_boost"
+
+
+@pytest.mark.asyncio
+async def test_mcp_templated_resources_are_read_only_service_views() -> None:
+    service = RecordingMCPService()
+    server = create_mcp_server(service)
+
+    context = json.loads(await _read_template(server, "yaam://sessions/session-a/context"))
+    assert context["session_id"] == "session-a"
+
+    facts = json.loads(await _read_template(server, "yaam://sessions/session-a/facts"))
+    assert facts[0]["source_id"] == "fact-search"
+
+    fact = json.loads(await _read_template(server, "yaam://facts/fact-a"))
+    assert fact["source_id"] == "fact-a"
+
+    episode = json.loads(await _read_template(server, "yaam://episodes/episode-a"))
+    assert episode["tier"] == "L3"
+
+    knowledge = json.loads(await _read_template(server, "yaam://knowledge/knowledge-a"))
+    assert knowledge["tier"] == "L4"
+
+    assert [call[0] for call in service.calls] == [
+        "get_context",
+        "search_l2_facts",
+        "get_fact",
+        "get_episode",
+        "get_knowledge",
+    ]
+    assert service.calls[2][1][0].session_id == "*"
+    assert service.calls[2][1][0].agent_id == "resource-reader"
+
+
+@pytest.mark.asyncio
+async def test_mcp_prompts_render_frozen_inspection_templates() -> None:
+    server = create_mcp_server(RecordingMCPService())
+    prompts = {prompt.name: prompt for prompt in server._prompt_manager.list_prompts()}
+
+    evidence = await prompts["yaam.prompt.evidence_table"].render({"query": "dock status"})
+    assert "evidence table" in evidence[0].content.text.lower()
+    assert "dock status" in evidence[0].content.text
+
+    inspection = await prompts["yaam.prompt.memory_inspection"].render({"session_id": "session-a"})
+    assert "without mutation" in inspection[0].content.text
+    assert "session-a" in inspection[0].content.text
+
+    ciar = await prompts["yaam.prompt.ciar_explanation"].render({"claim": "Claim one"})
+    assert "certainty" in ciar[0].content.text
+    assert "Claim one" in ciar[0].content.text
+
+    strategy = await prompts["yaam.prompt.retrieval_strategy"].render({"task": "Plan retrieval"})
+    assert "partial-result" in strategy[0].content.text
+    assert "Plan retrieval" in strategy[0].content.text
+
+
+async def _call_tool(server, name: str, arguments: dict) -> dict:
+    return await server._tool_manager.call_tool(name, arguments, convert_result=False)
+
+
+async def _read_template(server, uri: str) -> str:
+    for template in server._resource_manager.list_templates():
+        params = template.matches(uri)
+        if params is not None:
+            resource = await template.create_resource(uri, params)
+            return await resource.read()
+    raise AssertionError(f"No MCP resource template matched {uri}")
+
+
+def _memory_result(tier: str, source_id: str, scope: ScopeEnvelope) -> MemoryResult:
+    return MemoryResult(
+        content=f"{tier} content {source_id}",
+        tier=tier,
+        score=0.8,
+        source_id=source_id,
+        provenance=_provenance(tier, source_id, scope),
+    )
+
+
+def _provenance(tier: str, source_id: str, scope: ScopeEnvelope) -> Provenance:
+    return Provenance(
+        source_tier=tier,
+        source_id=source_id,
+        session_id=scope.session_id,
+        agent_id=scope.agent_id,
+        task_id=scope.task_id,
+        tenant_id=scope.tenant_id,
+        run_id=scope.run_id,
+    )
