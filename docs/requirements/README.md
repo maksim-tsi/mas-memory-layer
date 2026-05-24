@@ -15,6 +15,13 @@ The registry is intentionally separate from implementation plans. Requirements
 describe what customer systems need; plans describe how YAAM will satisfy a
 selected subset.
 
+## YAAM 0.10 Documentation Coverage
+
+The [YAAM 0.10 documentation portal](../README.md) covers accepted
+public-interface requirements through `YAAM-REQ-0038`, including MCP v1 stdio,
+REST v2, benchmark-safe retrieval, curation records, and trace correlation.
+Deferred requirements remain tracked in the registry and release notes.
+
 ## Current Registry Artifacts
 
 | Artifact | Purpose |
@@ -91,4 +98,3 @@ When adding or changing requirements:
 4. Add security notes for every mutating or lifecycle requirement.
 5. Add acceptance evidence for every `P0` and `P1` requirement.
 6. Reference requirement IDs from implementation plans, RFCs, and reports.
-

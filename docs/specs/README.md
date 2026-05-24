@@ -18,6 +18,8 @@ YAAM subsystems. Specs are intended to be referenced by ADRs, plans, and skill d
 - `docs/specs/spec-mcp-v1-implementation.md` — Defines the MCP v1 stdio adapter,
   service boundary, public tool/resource/prompt surface, permission policy,
   response contracts, and tracing requirements.
+- `docs/reference/public-contracts.md` — Customer-readable response shapes shared
+  across MCP v1 and REST v2.
 
 ## Conventions
 

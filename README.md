@@ -6,6 +6,16 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 
 ---
 
+## Current Customer Documentation
+
+Current customer-facing release: **YAAM 0.10**.
+
+Start with the [YAAM documentation portal](docs/README.md) for user guides,
+admin/operator validation, MCP v1 stdio, REST v2, public response contracts,
+requirements coverage, and release notes.
+
+---
+
 ## 🚀 **Current Status: Phase 4 Complete | Phase 5 In Progress (Wrapper + GoodAI Interfaces Implemented)**
 
 **Overall ADR-003 Completion:** Functional implementation ~98% (all tiers + lifecycle engines + storage adapters + agent tools + integration infrastructure complete).
