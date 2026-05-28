@@ -84,6 +84,8 @@ class TypesenseAdapter(StorageAdapter):
         self.api_key = config.get("api_key")
         self.collection_name = config.get("collection_name", "declarative_memory")
         self.schema = config.get("schema")
+        self.reconcile_schema = bool(config.get("reconcile_schema", True))
+        self._schema_warnings: list[str] = []
         self.client: httpx.AsyncClient | None = None
 
         if not self.url or not self.api_key:
@@ -97,11 +99,18 @@ class TypesenseAdapter(StorageAdapter):
         if asyncio.iscoroutine(maybe_coro):
             await maybe_coro
 
+    async def _response_json(self, response: httpx.Response) -> Any:
+        """Return JSON from real httpx responses and async test doubles."""
+        json_result = response.json()
+        if asyncio.iscoroutine(json_result):
+            json_result = await json_result
+        return json_result
+
     def _get_default_schema(self) -> dict[str, Any]:
         """
         Get default schema for auto-creating collection.
 
-        Provides a flexible schema that works for benchmark and general use cases.
+        Provides a flexible schema for L4 knowledge documents plus legacy facts.
         """
         return {
             "name": self.collection_name,
@@ -110,11 +119,78 @@ class TypesenseAdapter(StorageAdapter):
                 {"name": "content", "type": "string"},
                 {"name": "session_id", "type": "string", "facet": True, "optional": True},
                 {"name": "title", "type": "string", "optional": True},
+                {"name": "knowledge_type", "type": "string", "facet": True, "optional": True},
+                {"name": "confidence_score", "type": "float", "optional": True},
+                {"name": "source_episode_ids", "type": "string[]", "optional": True},
+                {"name": "episode_count", "type": "int32", "optional": True},
+                {"name": "provenance_links", "type": "string[]", "optional": True},
+                {"name": "category", "type": "string", "facet": True, "optional": True},
+                {"name": "tags", "type": "string[]", "facet": True, "optional": True},
+                {"name": "domain", "type": "string", "facet": True, "optional": True},
+                {"name": "distilled_at", "type": "int64", "optional": True},
+                {"name": "access_count", "type": "int32", "optional": True},
+                {"name": "usefulness_score", "type": "float", "optional": True},
+                {"name": "validation_count", "type": "int32", "optional": True},
                 {"name": "timestamp", "type": "int64", "optional": True},
                 {"name": "fact_type", "type": "string", "facet": True, "optional": True},
                 {"name": "created_at", "type": "int64", "optional": True},
             ],
         }
+
+    async def _reconcile_collection_schema(self, collection_info: dict[str, Any]) -> None:
+        """Add missing fields to an existing collection without destructive changes."""
+        if not self.client or not self.reconcile_schema:
+            return
+
+        desired_schema = self.schema or self._get_default_schema()
+        desired_fields = desired_schema.get("fields", [])
+        current_fields = {
+            str(field.get("name")): field
+            for field in collection_info.get("fields", [])
+            if field.get("name")
+        }
+
+        missing_fields: list[dict[str, Any]] = []
+        incompatible_fields: list[str] = []
+        for desired_field in desired_fields:
+            field_name = str(desired_field.get("name", ""))
+            if not field_name:
+                continue
+            current_field = current_fields.get(field_name)
+            if current_field is None:
+                missing_fields.append(dict(desired_field))
+                continue
+            if current_field.get("type") != desired_field.get("type"):
+                incompatible_fields.append(
+                    f"{field_name}: current={current_field.get('type')} desired={desired_field.get('type')}"
+                )
+
+        if incompatible_fields:
+            warning = (
+                f"Typesense schema drift in {self.collection_name}: "
+                f"{'; '.join(incompatible_fields)}"
+            )
+            self._schema_warnings.append(warning)
+            logger.warning(warning)
+
+        if not missing_fields:
+            return
+
+        try:
+            response = await self.client.patch(
+                f"{self.url}/collections/{self.collection_name}",
+                json={"fields": missing_fields},
+            )
+            await self._raise_for_status(response)
+            logger.info(
+                "Typesense schema reconciled for %s: added fields=%s",
+                self.collection_name,
+                [field["name"] for field in missing_fields],
+            )
+        except Exception as e:
+            warning = f"Typesense schema reconciliation failed for {self.collection_name}: {e}"
+            self._schema_warnings.append(warning)
+            logger.warning(warning)
 
     async def connect(self) -> None:
         """Connect to Typesense and ensure collection exists"""
@@ -136,6 +212,12 @@ class TypesenseAdapter(StorageAdapter):
                     response = await self.client.post(f"{self.url}/collections", json=schema_to_use)
                     await self._raise_for_status(response)
                     logger.info(f"Created collection: {self.collection_name}")
+                else:
+                    await self._raise_for_status(response)
+                    if self.reconcile_schema:
+                        collection_info = await self._response_json(response)
+                        if isinstance(collection_info, dict):
+                            await self._reconcile_collection_schema(collection_info)
 
                 self._connected = True
                 logger.info(f"Connected to Typesense at {self.url}")
@@ -169,12 +251,7 @@ class TypesenseAdapter(StorageAdapter):
                 )
                 await self._raise_for_status(response)
 
-                # Fix: Handle both coroutine and regular dict return types
-                json_result = response.json()
-                if asyncio.iscoroutine(json_result):
-                    result = await json_result
-                else:
-                    result = json_result
+                result = await self._response_json(response)
 
                 document_id = str(result["id"])
                 logger.debug(f"Indexed document: {document_id}")
@@ -204,12 +281,7 @@ class TypesenseAdapter(StorageAdapter):
                     return None
 
                 await self._raise_for_status(response)
-                # Fix: Handle both coroutine and regular dict return types
-                json_result = response.json()
-                if asyncio.iscoroutine(json_result):
-                    result = await json_result
-                else:
-                    result = json_result
+                result = await self._response_json(response)
 
                 return dict(result)
 
@@ -239,11 +311,7 @@ class TypesenseAdapter(StorageAdapter):
                     return None
 
                 await self._raise_for_status(response)
-                json_result = response.json()
-                if asyncio.iscoroutine(json_result):
-                    result = await json_result
-                else:
-                    result = json_result
+                result = await self._response_json(response)
 
                 return dict(result)
 
@@ -353,6 +421,8 @@ class TypesenseAdapter(StorageAdapter):
                     params["filter_by"] = query["filter_by"]
                 if "sort_by" in query:
                     params["sort_by"] = query["sort_by"]
+                if "facet_by" in query:
+                    params["facet_by"] = query["facet_by"]
                 target_collection = query.get("collection_name", self.collection_name)
             else:
                 if query is None or not query_by:
@@ -374,12 +444,7 @@ class TypesenseAdapter(StorageAdapter):
                 )
                 await self._raise_for_status(response)
 
-                # Fix: Handle both coroutine and regular dict return types
-                json_result = response.json()
-                if asyncio.iscoroutine(json_result):
-                    result = await json_result
-                else:
-                    result = json_result
+                result = await self._response_json(response)
 
                 if isinstance(query, dict):
                     return [hit["document"] for hit in result.get("hits", [])]
@@ -387,6 +452,31 @@ class TypesenseAdapter(StorageAdapter):
                 return dict(result)
 
             except httpx.HTTPStatusError as e:
+                if e.response.status_code == 422 and "sort_by" in params:
+                    retry_params = dict(params)
+                    invalid_sort = retry_params.pop("sort_by")
+                    logger.warning(
+                        "Typesense search rejected sort_by=%s for collection=%s; "
+                        "retrying without sort_by",
+                        invalid_sort,
+                        target_collection,
+                    )
+                    try:
+                        response = await self.client.get(
+                            f"{self.url}/collections/{target_collection}/documents/search",
+                            params=retry_params,
+                        )
+                        await self._raise_for_status(response)
+                        result = await self._response_json(response)
+                        if isinstance(query, dict):
+                            return [hit["document"] for hit in result.get("hits", [])]
+                        return dict(result)
+                    except Exception as retry_error:
+                        logger.error(
+                            f"Typesense search retry without sort_by failed: {retry_error}",
+                            exc_info=True,
+                        )
+                        raise StorageQueryError(f"Search failed: {retry_error}") from retry_error
                 logger.error(f"Typesense search failed: {e}", exc_info=True)
                 raise StorageQueryError(f"Search failed: {e}") from e
             except Exception as e:
@@ -583,7 +673,7 @@ class TypesenseAdapter(StorageAdapter):
             response = await self.client.get(f"{self.url}/collections/{self.collection_name}")
             await self._raise_for_status(response)
 
-            collection_info = await response.json()  # Fix: Await the json() coroutine
+            collection_info = await self._response_json(response)
             latency_ms = (time.perf_counter() - start_time) * 1000
 
             # Determine health status based on latency
@@ -593,6 +683,8 @@ class TypesenseAdapter(StorageAdapter):
                 status = "degraded"
             else:
                 status = "unhealthy"
+            if self._schema_warnings and status == "healthy":
+                status = "degraded"
 
             return {
                 "status": status,
@@ -601,6 +693,8 @@ class TypesenseAdapter(StorageAdapter):
                 "collection_exists": True,
                 "collection_name": self.collection_name,
                 "document_count": collection_info.get("num_documents", 0),
+                "schema_status": "degraded" if self._schema_warnings else "ok",
+                "schema_warnings": list(self._schema_warnings),
                 "details": f'Typesense collection "{self.collection_name}" is accessible',
                 "timestamp": datetime.now(UTC).isoformat(),
             }
@@ -641,11 +735,12 @@ class TypesenseAdapter(StorageAdapter):
         try:
             response = await self.client.get(f"{self.url}/collections/{self.collection_name}")
             await self._raise_for_status(response)
-            collection = response.json()
+            collection = await self._response_json(response)
             return {
                 "document_count": collection.get("num_documents", 0),
                 "collection_name": self.collection_name,
                 "schema_fields": len(collection.get("fields", [])),
+                "schema_status": "degraded" if self._schema_warnings else "ok",
             }
         except Exception as e:
             logger.error(f"Failed to get backend metrics: {e}")

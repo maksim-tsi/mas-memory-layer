@@ -15,6 +15,7 @@ import logging
 import os
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, ClassVar, cast
 
 from src.llm.providers.base import BaseProvider, LLMResponse, ProviderHealth
@@ -28,6 +29,22 @@ PHOENIX_SERVICE_NAME = "mas-memory-layer"
 
 _PHOENIX_INITIALIZED = False
 _PHOENIX_PROJECT_NAME: str | None = None
+
+_GOOGLE_GENAI_OPENINFERENCE_MIN_VERSION = "1.57.0"
+_OPENAI_OPENINFERENCE_MIN_VERSION = "2.8.0"
+
+
+def _package_version_at_least(package_name: str, minimum_version: str) -> bool:
+    """Return whether an installed package is new enough for explicit instrumentation."""
+    try:
+        from packaging.version import Version
+
+        return Version(version(package_name)) >= Version(minimum_version)
+    except PackageNotFoundError:
+        return False
+    except Exception as e:
+        logger.debug("Could not inspect package version for %s: %s", package_name, e)
+        return False
 
 
 # Phoenix/OpenTelemetry auto-instrumentation (optional)
@@ -78,12 +95,20 @@ def _init_phoenix_instrumentation() -> None:
         try:
             # Check if google.genai is actually installed first to avoid "Could not import" warning from instrumentor
             if importlib.util.find_spec("google.genai"):
-                from openinference.instrumentation.google_genai import GoogleGenAIInstrumentor
+                if _package_version_at_least(
+                    "google-genai", _GOOGLE_GENAI_OPENINFERENCE_MIN_VERSION
+                ):
+                    from openinference.instrumentation.google_genai import GoogleGenAIInstrumentor
 
-                instrumentor = GoogleGenAIInstrumentor()
-                if not getattr(instrumentor, "_is_instrumented_by_opentelemetry", False):
-                    instrumentor.instrument(tracer_provider=tracer_provider)
-                    logger.info("Google GenAI instrumentation enabled (explicit)")
+                    instrumentor = GoogleGenAIInstrumentor()
+                    if not getattr(instrumentor, "_is_instrumented_by_opentelemetry", False):
+                        instrumentor.instrument(tracer_provider=tracer_provider)
+                        logger.info("Google GenAI instrumentation enabled (explicit)")
+                else:
+                    logger.info(
+                        "Skipping Google GenAI instrumentation: google-genai must be >=%s",
+                        _GOOGLE_GENAI_OPENINFERENCE_MIN_VERSION,
+                    )
             else:
                 logger.debug("google.genai module not found; skipping instrumentation")
 
@@ -97,12 +122,18 @@ def _init_phoenix_instrumentation() -> None:
 
         # Explicitly instrument OpenAI SDK (which powers OpenRouter calls)
         try:
-            from openinference.instrumentation.openai import OpenAIInstrumentor
+            if _package_version_at_least("openai", _OPENAI_OPENINFERENCE_MIN_VERSION):
+                from openinference.instrumentation.openai import OpenAIInstrumentor
 
-            instrumentor = OpenAIInstrumentor()
-            if not getattr(instrumentor, "_is_instrumented_by_opentelemetry", False):
-                instrumentor.instrument(tracer_provider=tracer_provider)
-                logger.info("OpenAI instrumentation enabled")
+                instrumentor = OpenAIInstrumentor()
+                if not getattr(instrumentor, "_is_instrumented_by_opentelemetry", False):
+                    instrumentor.instrument(tracer_provider=tracer_provider)
+                    logger.info("OpenAI instrumentation enabled")
+            else:
+                logger.info(
+                    "Skipping OpenAI instrumentation: openai must be >=%s",
+                    _OPENAI_OPENINFERENCE_MIN_VERSION,
+                )
         except ImportError:
             logger.debug(
                 "openinference-instrumentation-openai not installed; OpenAI calls will not be traced"

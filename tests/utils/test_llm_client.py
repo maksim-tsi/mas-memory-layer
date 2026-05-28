@@ -1,5 +1,6 @@
 import pytest
 
+import src.llm.client as client_module
 from src.utils.llm_client import (
     BaseProvider,
     LLMClient,
@@ -151,3 +152,19 @@ def test_provider_config_defaults() -> None:
     assert config.enabled is True
     assert config.priority == 0
     assert config.timeout == 15.0
+
+
+def test_instrumentation_version_guard_accepts_compatible_package(monkeypatch) -> None:
+    """Instrumentation guard should allow SDK versions required by OpenInference."""
+
+    monkeypatch.setattr(client_module, "version", lambda _: "2.8.1")
+
+    assert client_module._package_version_at_least("openai", "2.8.0") is True
+
+
+def test_instrumentation_version_guard_rejects_stale_package(monkeypatch) -> None:
+    """Instrumentation guard should skip stale SDKs before importing instrumentors."""
+
+    monkeypatch.setattr(client_module, "version", lambda _: "1.14.0")
+
+    assert client_module._package_version_at_least("openai", "2.8.0") is False
