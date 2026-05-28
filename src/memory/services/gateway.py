@@ -9,6 +9,7 @@ from typing import Any
 
 from src.memory.ciar_formula import calculate_ciar_score
 from src.memory.models import Episode, EpisodeStoreInput, Fact, KnowledgeDocument, SearchWeights
+from src.memory.namespace import normalize_project_id, project_scoped_session_id
 from src.memory.services.contracts import (
     ContextResponse,
     ContradictionReviewResponse,
@@ -61,9 +62,11 @@ class MemoryGatewayService:
         self,
         memory_system: Any,
         permission_policy: PermissionPolicy | None = None,
+        project_id: str | None = None,
     ) -> None:
         self.memory_system = memory_system
         self.permission_policy = permission_policy or PermissionPolicy()
+        self.project_id = normalize_project_id(project_id)
 
     async def query_memory(
         self,
@@ -84,8 +87,9 @@ class MemoryGatewayService:
             attributes=self._trace_attributes(scope, "yaam.memory.query", {"input.value": query}),
         ) as span:
             try:
+                storage_scope = self._storage_scope(scope)
                 raw_results = await self.memory_system.query_memory(
-                    session_id=scope.session_id,
+                    session_id=storage_scope.session_id,
                     query=query,
                     limit=limit,
                     weights=weights,
@@ -137,8 +141,9 @@ class MemoryGatewayService:
     ) -> ContextResponse:
         """Assemble bounded context with provenance-bearing result items."""
         self.permission_policy.require("yaam.memory.get_context", "read")
+        storage_scope = self._storage_scope(scope)
         context = await self.memory_system.get_context_block(
-            session_id=scope.session_id,
+            session_id=storage_scope.session_id,
             min_ciar=min_ciar,
             max_turns=max_turns,
             max_facts=max_facts,
@@ -200,11 +205,12 @@ class MemoryGatewayService:
         """Persist an explicitly authorized L2 fact."""
         self.permission_policy.require("yaam.l2.store_fact", "write")
         l2_tier = self._require_tier("l2_tier", "L2")
+        storage_scope = self._storage_scope(scope)
         fact_id = str(uuid.uuid4())
-        fact_metadata = self._write_metadata(scope, metadata)
+        fact_metadata = self._write_metadata(storage_scope, metadata)
         fact = Fact(
             fact_id=fact_id,
-            session_id=scope.session_id,
+            session_id=storage_scope.session_id,
             content=content,
             fact_type="event",
             ciar_score=calculate_ciar_score(1.0, 1.0, 1.0, 1.0),
@@ -242,14 +248,15 @@ class MemoryGatewayService:
         """Search or list scoped L2 facts."""
         self.permission_policy.require("yaam.l2.search_facts", "read")
         l2_tier = self._require_tier("l2_tier", "L2")
+        storage_scope = self._storage_scope(scope)
         if query and hasattr(l2_tier, "search_facts"):
             facts = await l2_tier.search_facts(
                 query=query,
-                session_id=scope.session_id,
+                session_id=storage_scope.session_id,
                 limit=limit,
             )
         else:
-            kwargs: dict[str, Any] = {"session_id": scope.session_id, "limit": limit}
+            kwargs: dict[str, Any] = {"session_id": storage_scope.session_id, "limit": limit}
             if min_ciar is not None:
                 kwargs["min_ciar_score"] = min_ciar
             facts = await l2_tier.query_by_session(**kwargs)
@@ -264,7 +271,8 @@ class MemoryGatewayService:
         """List scoped L2 facts without changing legacy adapter response shape."""
         self.permission_policy.require("yaam.l2.search_facts", "read")
         l2_tier = self._require_tier("l2_tier", "L2")
-        kwargs: dict[str, Any] = {"session_id": scope.session_id}
+        storage_scope = self._storage_scope(scope)
+        kwargs: dict[str, Any] = {"session_id": storage_scope.session_id}
         if limit is not None:
             kwargs["limit"] = limit
         if min_ciar is not None:
@@ -275,6 +283,7 @@ class MemoryGatewayService:
         """Resolve a single L2 fact through the tier API."""
         self.permission_policy.require("yaam.l2.search_facts", "read")
         l2_tier = self._require_tier("l2_tier", "L2")
+        storage_scope = self._storage_scope(scope)
         fact = await l2_tier.retrieve(fact_id)
         if fact is None:
             return None
@@ -282,7 +291,7 @@ class MemoryGatewayService:
         if (
             scope.session_id != "*"
             and result.provenance
-            and result.provenance.session_id not in {None, scope.session_id}
+            and result.provenance.session_id not in {None, scope.session_id, storage_scope.session_id}
         ):
             return None
         return result
@@ -297,8 +306,9 @@ class MemoryGatewayService:
         self.permission_policy.require("yaam.l3.search_episodes", "read")
         if not getattr(self.memory_system, "l3_tier", None):
             return []
+        storage_scope = self._storage_scope(scope)
         episodes = await self.memory_system._query_l3_episodes(
-            session_id=scope.session_id,
+            session_id=storage_scope.session_id,
             query=query,
             limit=limit,
         )
@@ -308,6 +318,7 @@ class MemoryGatewayService:
         """Resolve a single L3 episode through the tier API."""
         self.permission_policy.require("yaam.l3.search_episodes", "read")
         l3_tier = self._require_tier("l3_tier", "L3")
+        storage_scope = self._storage_scope(scope)
         episode = await l3_tier.retrieve(episode_id)
         if episode is None:
             return None
@@ -315,7 +326,7 @@ class MemoryGatewayService:
         if (
             scope.session_id != "*"
             and result.provenance
-            and result.provenance.session_id not in {None, scope.session_id}
+            and result.provenance.session_id not in {None, scope.session_id, storage_scope.session_id}
         ):
             return None
         return result
@@ -330,6 +341,7 @@ class MemoryGatewayService:
         """Persist an explicitly authorized L3 episode."""
         self.permission_policy.require("yaam.l3.assimilate_episode", "lifecycle")
         l3_tier = self._require_tier("l3_tier", "L3")
+        storage_scope = self._storage_scope(scope)
         llm_client = getattr(self.memory_system, "llm_client", None)
         if not llm_client:
             raise RuntimeError("L3 assimilation requires an LLM client for embeddings.")
@@ -342,14 +354,15 @@ class MemoryGatewayService:
         now = datetime.now(UTC)
         episode = Episode(
             episode_id=episode_id,
-            session_id=scope.session_id,
+            session_id=storage_scope.session_id,
+            project_id=self.project_id,
             summary=text_to_assimilate[:100],
             time_window_start=now,
             time_window_end=now,
             fact_valid_from=now,
             source_observation_timestamp=now,
             topics=domain_tags or [],
-            metadata=self._write_metadata(scope, metadata),
+            metadata=self._write_metadata(storage_scope, metadata),
         )
         episode_input = EpisodeStoreInput(
             episode=episode,
@@ -397,6 +410,7 @@ class MemoryGatewayService:
         """Resolve a single L4 knowledge document through the tier API."""
         self.permission_policy.require("yaam.l4.search_knowledge", "read")
         l4_tier = self._require_tier("l4_tier", "L4")
+        storage_scope = self._storage_scope(scope)
         document = await l4_tier.retrieve(knowledge_id)
         if document is None:
             return None
@@ -404,7 +418,7 @@ class MemoryGatewayService:
         if (
             scope.session_id != "*"
             and result.provenance
-            and result.provenance.session_id not in {None, scope.session_id}
+            and result.provenance.session_id not in {None, scope.session_id, storage_scope.session_id}
         ):
             return None
         return result
@@ -419,11 +433,13 @@ class MemoryGatewayService:
         """Persist an explicitly authorized final L4 knowledge artifact."""
         self.permission_policy.require("yaam.l4.finalize_artifact", "lifecycle")
         l4_tier = self._require_tier("l4_tier", "L4")
+        storage_scope = self._storage_scope(scope)
         knowledge_id = f"kd-{uuid.uuid4().hex[:8]}"
-        document_metadata = self._write_metadata(scope, consensus_metadata)
+        document_metadata = self._write_metadata(storage_scope, consensus_metadata)
         document = KnowledgeDocument(
             knowledge_id=knowledge_id,
-            session_id=scope.session_id,
+            session_id=storage_scope.session_id,
+            project_id=self.project_id,
             title=title,
             content=final_artifact,
             metadata=document_metadata,
@@ -721,6 +737,7 @@ class MemoryGatewayService:
             config={
                 "writes_enabled": self.permission_policy.enable_writes,
                 "lifecycle_enabled": self.permission_policy.enable_lifecycle,
+                "project_id": self.project_id,
             },
             warnings=warnings,
         )
@@ -783,10 +800,11 @@ class MemoryGatewayService:
         created_id: str,
     ) -> WriteAck:
         l2_tier = self._require_tier("l2_tier", "L2")
-        record_metadata = self._write_metadata(scope, metadata)
+        storage_scope = self._storage_scope(scope)
+        record_metadata = self._write_metadata(storage_scope, metadata)
         fact = Fact(
             fact_id=created_id,
-            session_id=scope.session_id,
+            session_id=storage_scope.session_id,
             content=content,
             fact_type="event",
             ciar_score=calculate_ciar_score(1.0, 1.0, 1.0, 1.0),
@@ -833,8 +851,24 @@ class MemoryGatewayService:
             "run_id": scope.run_id,
             "traceparent": scope.traceparent,
             "source": "mcp_v1_service",
+            "project_id": self.project_id,
+            "client_session_id": scope.metadata.get("client_session_id"),
         }
         return redact_metadata({key: value for key, value in merged.items() if value is not None})
+
+    def _storage_scope(self, scope: ScopeEnvelope) -> ScopeEnvelope:
+        if scope.session_id == "*":
+            return scope.model_copy(update={"metadata": {**scope.metadata, "project_id": self.project_id}})
+        return scope.model_copy(
+            update={
+                "session_id": project_scoped_session_id(scope.session_id, self.project_id),
+                "metadata": {
+                    **scope.metadata,
+                    "client_session_id": scope.session_id,
+                    "project_id": self.project_id,
+                },
+            }
+        )
 
     def _trace_attributes(
         self, scope: ScopeEnvelope, operation: str, extra: dict[str, Any] | None = None
@@ -848,6 +882,7 @@ class MemoryGatewayService:
             "yaam.operation": operation,
             "yaam.tenant_id": scope.tenant_id or "",
             "yaam.run_id": scope.run_id or "",
+            "yaam.project_id": self.project_id,
         }
         if extra:
             attributes.update(extra)

@@ -117,7 +117,9 @@ class TypesenseAdapter(StorageAdapter):
             "fields": [
                 {"name": "id", "type": "string"},
                 {"name": "content", "type": "string"},
+                {"name": "project_id", "type": "string", "facet": True, "optional": True},
                 {"name": "session_id", "type": "string", "facet": True, "optional": True},
+                {"name": "client_session_id", "type": "string", "facet": True, "optional": True},
                 {"name": "title", "type": "string", "optional": True},
                 {"name": "knowledge_type", "type": "string", "facet": True, "optional": True},
                 {"name": "confidence_score", "type": "float", "optional": True},

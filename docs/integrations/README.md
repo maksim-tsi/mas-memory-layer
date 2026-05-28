@@ -68,9 +68,10 @@ cat >> .env << EOF
 OPENROUTER_API_KEY=your-openrouter-api-key-here
 OPENROUTER_MODEL=tencent/hy3-preview
 OPENROUTER_EMBEDDING_MODEL=qwen/qwen3-embedding-8b
+YAAM_PROJECT_ID=test
 EMBEDDING_DIMENSIONS=4096
-MAS_L3_COLLECTION=episodes_qwen_v2
-MAS_L4_COLLECTION=knowledge_base_v2
+MAS_L3_COLLECTION=yaam-test-episodes
+MAS_L4_COLLECTION=yaam-test
 MAS_V2_MODE=true
 GOOGLE_API_KEY=your-google-api-key-here
 GROQ_API_KEY=your-groq-api-key-here
@@ -121,11 +122,13 @@ set -a && . ./.env && set +a && ./.venv/bin/python scripts/debug/check_tier_coll
 ```
 
 Expected introspection output pattern:
-- `Adapter collection: episodes_qwen_v2 vector_size: 4096`
-- `Tier collection: episodes_qwen_v2 vector_size: 4096`
+- `Adapter collection: yaam-test-episodes vector_size: 4096`
+- `Tier collection: yaam-test-episodes vector_size: 4096`
 
 Production REST/MCP runtime uses OpenRouter API embeddings
 (`qwen/qwen3-embedding-8b`) and does not install the local SentenceTransformer/Torch stack.
+`YAAM_PROJECT_ID` controls physical/logical DBMS namespace: `scm-bench` maps
+to Typesense `yaam-scm-bench`, while test runs use `yaam-test`.
 Use `poetry install --with local-embeddings` only for legacy/offline embedding experiments.
 
 **See ADR-006** for detailed task-to-provider mappings and fallback logic.

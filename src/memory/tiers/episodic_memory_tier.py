@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Any
 
 from src.memory.models import Episode, EpisodeStoreInput
+from src.memory.namespace import normalize_project_id, qdrant_episodes_collection_name
 from src.memory.tiers.base_tier import BaseTier, TierOperationError
 from src.storage.metrics.collector import MetricsCollector
 from src.storage.metrics.timer import OperationTimer
@@ -34,7 +35,7 @@ class EpisodicMemoryTier(BaseTier[Episode]):
     3. Bi-temporal properties for temporal reasoning
     """
 
-    COLLECTION_NAME = "episodes"
+    COLLECTION_NAME = qdrant_episodes_collection_name()
     VECTOR_SIZE = 768  # Gemini text-embedding-004 default dimension
 
     def __init__(
@@ -50,8 +51,11 @@ class EpisodicMemoryTier(BaseTier[Episode]):
 
         self.qdrant = qdrant_adapter
         self.neo4j = neo4j_adapter
+        self.project_id = normalize_project_id(config.get("project_id") if config else None)
         self.collection_name = (
-            config.get("collection_name", self.COLLECTION_NAME) if config else self.COLLECTION_NAME
+            config.get("collection_name", qdrant_episodes_collection_name(self.project_id))
+            if config
+            else qdrant_episodes_collection_name(self.project_id)
         )
 
         # Collection versioning strategy: use _v2 for independent indices
@@ -93,6 +97,7 @@ class EpisodicMemoryTier(BaseTier[Episode]):
             # Collection might already exist or require recreation; bubble up unexpected errors
             if "already exists" not in str(e).lower():
                 raise
+        await self._ensure_neo4j_project_indexes()
 
     async def store(self, data: EpisodeStoreInput | Episode | dict[str, Any]) -> str:
         """
@@ -129,6 +134,8 @@ class EpisodicMemoryTier(BaseTier[Episode]):
 
             # Extract components
             episode: Episode = payload.episode
+            episode.project_id = episode.project_id or self.project_id
+            episode.metadata.setdefault("project_id", self.project_id)
             embedding = payload.embedding
             entities = payload.entities
             relationships = payload.relationships
@@ -197,11 +204,13 @@ class EpisodicMemoryTier(BaseTier[Episode]):
         async with OperationTimer(self.metrics, "l3_retrieve"):
             start_time = time.perf_counter()
             query = """
-            MATCH (e:Episode {episodeId: $episode_id})
+            MATCH (e:Episode {projectId: $project_id, episodeId: $episode_id})
             RETURN e
             """
 
-            result = await self.neo4j.execute_query(query, {"episode_id": episode_id})
+            result = await self.neo4j.execute_query(
+                query, {"episode_id": episode_id, "project_id": self.project_id}
+            )
 
             if not result:
                 latency_ms = (time.perf_counter() - start_time) * 1000
@@ -235,6 +244,11 @@ class EpisodicMemoryTier(BaseTier[Episode]):
                 importance_score=props["importanceScore"],
                 vector_id=props.get("vectorId"),
                 graph_node_id=episode_id,
+                project_id=props.get("projectId") or self.project_id,
+                metadata={
+                    "project_id": props.get("projectId") or self.project_id,
+                    "client_session_id": props.get("clientSessionId"),
+                },
             )
 
             latency_ms = (time.perf_counter() - start_time) * 1000
@@ -270,11 +284,12 @@ class EpisodicMemoryTier(BaseTier[Episode]):
         async with OperationTimer(self.metrics, "l3_search_similar"):
             start_time = time.perf_counter()
             # Search Qdrant
+            scoped_filters = {**(filters or {}), "project_id": self.project_id}
             results = await self.qdrant.search(
                 collection_name=self.collection_name,
                 query_vector=query_embedding,
                 limit=limit,
-                filter_dict=filters,
+                filter_dict=scoped_filters,
             )
 
             # Convert to Episode objects
@@ -302,6 +317,8 @@ class EpisodicMemoryTier(BaseTier[Episode]):
                     topics=payload.get("topics", []),
                     vector_id=str(result["id"]),
                     graph_node_id=payload.get("graph_node_id"),
+                    project_id=payload.get("project_id") or self.project_id,
+                    metadata=payload.get("metadata", {}),
                 )
                 # Attach similarity score
                 score = result["score"]
@@ -312,7 +329,7 @@ class EpisodicMemoryTier(BaseTier[Episode]):
             latency_ms = (time.perf_counter() - start_time) * 1000
             await self._emit_tier_access(
                 operation="QUERY",
-                session_id=filters.get("session_id", "unknown") if filters else "unknown",
+                session_id=scoped_filters.get("session_id", "unknown"),
                 status="HIT",
                 latency_ms=latency_ms,
                 item_count=len(episodes),
@@ -355,12 +372,14 @@ class EpisodicMemoryTier(BaseTier[Episode]):
             List of entity dictionaries
         """
         query = """
-        MATCH (e:Episode {episodeId: $episode_id})-[r:MENTIONS]->(entity:Entity)
+        MATCH (e:Episode {projectId: $project_id, episodeId: $episode_id})-[r:MENTIONS]->(entity:Entity)
         RETURN entity, r
         ORDER BY r.confidence DESC
         """
 
-        results = await self.neo4j.execute_query(query, {"episode_id": episode_id})
+        results = await self.neo4j.execute_query(
+            query, {"episode_id": episode_id, "project_id": self.project_id}
+        )
 
         entities = []
         for row in results:
@@ -397,9 +416,13 @@ class EpisodicMemoryTier(BaseTier[Episode]):
         MATCH (e:Episode)
         WHERE e.factValidFrom <= $query_time
           AND (e.factValidTo IS NULL OR e.factValidTo > $query_time)
+          AND e.projectId = $project_id
         """
 
-        params: dict[str, Any] = {"query_time": query_time.isoformat()}
+        params: dict[str, Any] = {
+            "query_time": query_time.isoformat(),
+            "project_id": self.project_id,
+        }
 
         if session_id:
             query += " AND e.sessionId = $session_id"
@@ -436,6 +459,11 @@ class EpisodicMemoryTier(BaseTier[Episode]):
                 ),
                 importance_score=props["importanceScore"],
                 graph_node_id=props["episodeId"],
+                project_id=props.get("projectId") or self.project_id,
+                metadata={
+                    "project_id": props.get("projectId") or self.project_id,
+                    "client_session_id": props.get("clientSessionId"),
+                },
             )
             episodes.append(episode)
 
@@ -474,10 +502,12 @@ class EpisodicMemoryTier(BaseTier[Episode]):
 
             # Delete from Neo4j (cascade deletes relationships)
             delete_query = """
-            MATCH (e:Episode {episodeId: $episode_id})
+            MATCH (e:Episode {projectId: $project_id, episodeId: $episode_id})
             DETACH DELETE e
             """
-            await self.neo4j.execute_query(delete_query, {"episode_id": episode_id})
+            await self.neo4j.execute_query(
+                delete_query, {"episode_id": episode_id, "project_id": self.project_id}
+            )
 
             latency_ms = (time.perf_counter() - start_time) * 1000
             await self._emit_tier_access(
@@ -507,7 +537,8 @@ class EpisodicMemoryTier(BaseTier[Episode]):
         start_time = time.perf_counter()
         # Build Cypher query dynamically
         query = "MATCH (e:Episode)\nWHERE 1=1"
-        params = {"limit": limit}
+        query += " AND e.projectId = $project_id"
+        params = {"limit": limit, "project_id": self.project_id}
 
         if filters:
             if "session_id" in filters:
@@ -543,6 +574,11 @@ class EpisodicMemoryTier(BaseTier[Episode]):
                     props["sourceObservationTimestamp"]
                 ),
                 importance_score=props["importanceScore"],
+                project_id=props.get("projectId") or self.project_id,
+                metadata={
+                    "project_id": props.get("projectId") or self.project_id,
+                    "client_session_id": props.get("clientSessionId"),
+                },
             )
             episodes.append(episode)
 
@@ -567,8 +603,8 @@ class EpisodicMemoryTier(BaseTier[Episode]):
         neo4j_health = await self.neo4j.health_check()
 
         # Get statistics
-        episode_count_query = "MATCH (e:Episode) RETURN count(e) as count"
-        result = await self.neo4j.execute_query(episode_count_query, {})
+        episode_count_query = "MATCH (e:Episode {projectId: $project_id}) RETURN count(e) as count"
+        result = await self.neo4j.execute_query(episode_count_query, {"project_id": self.project_id})
         episode_count = result[0]["count"] if result else 0
 
         return {
@@ -585,6 +621,16 @@ class EpisodicMemoryTier(BaseTier[Episode]):
 
     # Private helper methods
 
+    async def _ensure_neo4j_project_indexes(self) -> None:
+        """Create non-destructive project-scoped lookup indexes."""
+        for query in (
+            "CREATE INDEX episode_project_episode_id IF NOT EXISTS "
+            "FOR (e:Episode) ON (e.projectId, e.episodeId)",
+            "CREATE INDEX entity_project_entity_id IF NOT EXISTS "
+            "FOR (entity:Entity) ON (entity.projectId, entity.entityId)",
+        ):
+            await self.neo4j.execute_query(query, {})
+
     async def _store_in_qdrant(self, episode: Episode, embedding: list[float]) -> str:
         """Store episode vector in Qdrant."""
         point_id = str(uuid.uuid4())
@@ -595,6 +641,7 @@ class EpisodicMemoryTier(BaseTier[Episode]):
             "content": episode.summary,
             "session_id": episode.session_id,
             "episode_id": episode.episode_id,
+            "project_id": episode.project_id or self.project_id,
             "metadata": episode.to_qdrant_payload(),
         }
 
@@ -611,27 +658,32 @@ class EpisodicMemoryTier(BaseTier[Episode]):
         """Store episode graph in Neo4j with bi-temporal properties."""
         # Create episode node
         create_episode = """
-        MERGE (e:Episode {episodeId: $episode_id})
+        MERGE (e:Episode {projectId: $project_id, episodeId: $episode_id})
         SET e += $properties
         RETURN e.episodeId as id
         """
 
         await self.neo4j.execute_query(
             create_episode,
-            {"episode_id": episode.episode_id, "properties": episode.to_neo4j_properties()},
+            {
+                "episode_id": episode.episode_id,
+                "project_id": episode.project_id or self.project_id,
+                "properties": episode.to_neo4j_properties(),
+            },
             session_id=episode.session_id,
         )
 
         # Create entity nodes and relationships
         for entity in entities:
             create_entity = """
-            MERGE (entity:Entity {entityId: $entity_id})
+            MERGE (entity:Entity {projectId: $project_id, entityId: $entity_id})
             SET entity.name = $name,
                 entity.type = $type,
-                entity.properties = $properties
+                entity.properties = $properties,
+                entity.projectId = $project_id
             
             WITH entity
-            MATCH (e:Episode {episodeId: $episode_id})
+            MATCH (e:Episode {projectId: $project_id, episodeId: $episode_id})
             MERGE (e)-[r:MENTIONS]->(entity)
             SET r.factValidFrom = $fact_valid_from,
                 r.factValidTo = $fact_valid_to,
@@ -643,6 +695,7 @@ class EpisodicMemoryTier(BaseTier[Episode]):
                 create_entity,
                 {
                     "entity_id": entity["entity_id"],
+                    "project_id": episode.project_id or self.project_id,
                     "name": entity["name"],
                     "type": entity["type"],
                     "properties": json.dumps(entity.get("properties", {})),
@@ -663,12 +716,16 @@ class EpisodicMemoryTier(BaseTier[Episode]):
         """Update cross-references between Qdrant and Neo4j."""
         # Update Neo4j node with Qdrant vector ID
         update_query = """
-        MATCH (e:Episode {episodeId: $episode_id})
+        MATCH (e:Episode {projectId: $project_id, episodeId: $episode_id})
         SET e.vectorId = $vector_id
         """
 
         await self.neo4j.execute_query(
             update_query,
-            {"episode_id": episode.episode_id, "vector_id": episode.vector_id},
+            {
+                "episode_id": episode.episode_id,
+                "project_id": episode.project_id or self.project_id,
+                "vector_id": episode.vector_id,
+            },
             session_id=episode.session_id,
         )

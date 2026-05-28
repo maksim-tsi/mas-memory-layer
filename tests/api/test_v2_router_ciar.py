@@ -140,7 +140,7 @@ async def test_v2_l2_retrieve_keeps_legacy_fact_response_shape(mocker):
     assert body["status"] == "success"
     assert body["facts"][0]["fact_id"] == "fact-1"
     assert body["facts"][0]["content"] == "Legacy clients still receive facts."
-    l2_tier.query_by_session.assert_awaited_once_with(session_id="session-1")
+    l2_tier.query_by_session.assert_awaited_once_with(session_id="test:session-1")
 
 
 @pytest.mark.asyncio

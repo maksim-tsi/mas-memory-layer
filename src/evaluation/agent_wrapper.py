@@ -31,6 +31,13 @@ from src.memory.engines.fact_extractor import FactExtractor
 from src.memory.engines.promotion_engine import PromotionEngine
 from src.memory.engines.topic_segmenter import TopicSegmenter
 from src.memory.models import TurnData
+from src.memory.namespace import (
+    DEFAULT_PROJECT_ID,
+    normalize_project_id,
+    project_scoped_session_id,
+    qdrant_episodes_collection_name,
+    typesense_collection_name,
+)
 from src.memory.tiers import (
     ActiveContextTier,
     EpisodicMemoryTier,
@@ -49,9 +56,9 @@ logger = logging.getLogger(__name__)
 RUNTIME_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "runtime.yaml"
 DEFAULT_OPENROUTER_MODEL = "tencent/hy3-preview"
 DEFAULT_OPENROUTER_EMBEDDING_MODEL = "qwen/qwen3-embedding-8b"
-DEFAULT_L3_COLLECTION = "episodes_qwen_v2"
 DEFAULT_L3_VECTOR_SIZE = 4096
-DEFAULT_L4_COLLECTION = "knowledge_base_v2"
+DEFAULT_L3_COLLECTION = qdrant_episodes_collection_name(DEFAULT_PROJECT_ID)
+DEFAULT_L4_COLLECTION = typesense_collection_name(DEFAULT_PROJECT_ID)
 
 
 class RateLimiter:
@@ -158,6 +165,7 @@ class WrapperConfig:
     redis_url: str
     postgres_url: str
     session_prefix: str
+    project_id: str = DEFAULT_PROJECT_ID
     window_size: int = 20
     ttl_hours: int = 24
     min_ciar: float = 0.6
@@ -176,6 +184,7 @@ class RuntimeSettings:
 
     openrouter_model: str
     openrouter_embedding_model: str
+    project_id: str
     l3_collection_name: str
     l3_vector_size: int
     l4_collection_name: str
@@ -185,6 +194,23 @@ def load_runtime_settings(config_path: Path | None = None) -> RuntimeSettings:
     """Load non-secret runtime settings with environment overrides."""
     path = config_path or Path(os.environ.get("YAAM_RUNTIME_CONFIG", RUNTIME_CONFIG_PATH))
     raw = _load_runtime_config(path)
+    project_id = normalize_project_id(
+        os.environ.get("YAAM_PROJECT_ID") or _nested_str(raw, ("project", "id"), DEFAULT_PROJECT_ID)
+    )
+    explicit_l3_collection = os.environ.get("MAS_L3_COLLECTION")
+    explicit_l4_collection = os.environ.get("MAS_L4_COLLECTION")
+    config_l3_collection = _nested_str(raw, ("memory", "l3", "collection_name"), "")
+    config_l4_collection = _nested_str(raw, ("memory", "l4", "collection_name"), "")
+    l3_collection = explicit_l3_collection or (
+        qdrant_episodes_collection_name(project_id)
+        if os.environ.get("YAAM_PROJECT_ID") or not config_l3_collection
+        else config_l3_collection
+    )
+    l4_collection = explicit_l4_collection or (
+        typesense_collection_name(project_id)
+        if os.environ.get("YAAM_PROJECT_ID") or not config_l4_collection
+        else config_l4_collection
+    )
     return RuntimeSettings(
         openrouter_model=os.environ.get("OPENROUTER_MODEL")
         or _nested_str(raw, ("llm", "openrouter_model"), DEFAULT_OPENROUTER_MODEL),
@@ -194,16 +220,15 @@ def load_runtime_settings(config_path: Path | None = None) -> RuntimeSettings:
             ("llm", "openrouter_embedding_model"),
             DEFAULT_OPENROUTER_EMBEDDING_MODEL,
         ),
-        l3_collection_name=os.environ.get("MAS_L3_COLLECTION")
-        or _nested_str(raw, ("memory", "l3", "collection_name"), DEFAULT_L3_COLLECTION),
+        project_id=project_id,
+        l3_collection_name=l3_collection,
         l3_vector_size=_read_int_override(
             "EMBEDDING_DIMENSIONS",
             raw,
             ("memory", "l3", "vector_size"),
             DEFAULT_L3_VECTOR_SIZE,
         ),
-        l4_collection_name=os.environ.get("MAS_L4_COLLECTION")
-        or _nested_str(raw, ("memory", "l4", "collection_name"), DEFAULT_L4_COLLECTION),
+        l4_collection_name=l4_collection,
     )
 
 
@@ -211,6 +236,7 @@ def apply_runtime_env_defaults(settings: RuntimeSettings) -> None:
     """Expose config defaults to providers that still read environment values."""
     os.environ.setdefault("OPENROUTER_MODEL", settings.openrouter_model)
     os.environ.setdefault("OPENROUTER_EMBEDDING_MODEL", settings.openrouter_embedding_model)
+    os.environ.setdefault("YAAM_PROJECT_ID", settings.project_id)
     os.environ.setdefault("MAS_L3_COLLECTION", settings.l3_collection_name)
     os.environ.setdefault("EMBEDDING_DIMENSIONS", str(settings.l3_vector_size))
     os.environ.setdefault("MAS_L4_COLLECTION", settings.l4_collection_name)
@@ -267,15 +293,22 @@ class AgentWrapperState:
     agent_variant: str
     session_prefix: str
     rate_limiter: RateLimiter
+    project_id: str = DEFAULT_PROJECT_ID
     l3_tier: EpisodicMemoryTier | None = None
     l4_tier: SemanticMemoryTier | None = None
     sessions: set[str] = field(default_factory=set)
 
     def apply_prefix(self, session_id: str) -> str:
         prefix = f"{self.session_prefix}:"
-        if session_id.startswith(prefix):
-            return session_id
-        return f"{self.session_prefix}:{session_id}"
+        project_prefix = f"{self.project_id}:"
+        if session_id.startswith(project_prefix):
+            without_project = session_id[len(project_prefix) :]
+            prefixed_session = (
+                without_project if without_project.startswith(prefix) else f"{prefix}{without_project}"
+            )
+            return project_scoped_session_id(prefixed_session, self.project_id)
+        prefixed_session = session_id if session_id.startswith(prefix) else f"{prefix}{session_id}"
+        return project_scoped_session_id(prefixed_session, self.project_id)
 
     def track_session(self, session_id: str) -> None:
         self.sessions.add(session_id)
@@ -388,11 +421,12 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
         config={
             "collection_name": config.l3_collection_name,
             "vector_size": config.l3_vector_size,
+            "project_id": config.project_id,
         },
     )
     semantic_tier = SemanticMemoryTier(
         typesense_adapter=typesense_adapter,
-        config={"collection_name": config.l4_collection_name},
+        config={"collection_name": config.l4_collection_name, "project_id": config.project_id},
     )
 
     await episodic_tier.initialize()
@@ -453,6 +487,7 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
         agent_type=config.agent_type,
         agent_variant=config.agent_variant,
         session_prefix=config.session_prefix,
+        project_id=config.project_id,
         rate_limiter=rate_limiter,
     )
 
@@ -715,6 +750,7 @@ def build_config(args: argparse.Namespace) -> WrapperConfig:
         redis_url=redis_url,
         postgres_url=postgres_url,
         session_prefix=session_prefix,
+        project_id=runtime_settings.project_id,
         window_size=window_size,
         ttl_hours=ttl_hours,
         min_ciar=min_ciar,

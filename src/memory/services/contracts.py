@@ -238,7 +238,7 @@ def memory_result_from_fact(fact: Any, scope: ScopeEnvelope | None = None) -> Me
     """Normalize an L2 fact into the public memory result contract."""
     metadata = model_metadata(fact)
     source_id = str(_get_value(fact, "fact_id", "")) or None
-    session_id = _get_value(fact, "session_id", None)
+    session_id = metadata.get("client_session_id") or _get_value(fact, "session_id", None)
     provenance = Provenance(
         source_tier="L2",
         source_id=source_id or "unknown",
@@ -266,7 +266,7 @@ def memory_result_from_episode(episode: Any, scope: ScopeEnvelope | None = None)
     """Normalize an L3 episode into the public memory result contract."""
     metadata = model_metadata(episode)
     source_id = str(_get_value(episode, "episode_id", "")) or None
-    session_id = _get_value(episode, "session_id", None)
+    session_id = metadata.get("client_session_id") or _get_value(episode, "session_id", None)
     similarity_score = metadata.get("similarity_score")
     score = (
         float(similarity_score)
@@ -300,7 +300,7 @@ def memory_result_from_knowledge(document: Any, scope: ScopeEnvelope | None = No
     """Normalize an L4 knowledge document into the public memory result contract."""
     metadata = model_metadata(document)
     source_id = str(_get_value(document, "knowledge_id", "")) or None
-    session_id = _get_value(document, "session_id", None)
+    session_id = metadata.get("client_session_id") or _get_value(document, "session_id", None)
     search_score = metadata.get("search_score")
     score = (
         float(search_score)
@@ -345,7 +345,7 @@ def memory_result_from_unified(
     provenance = Provenance(
         source_tier=tier,
         source_id=str(source_id or "unknown"),
-        session_id=scope.session_id if scope else metadata.get("session_id"),
+        session_id=scope.session_id if scope else metadata.get("client_session_id") or metadata.get("session_id"),
         agent_id=metadata.get("agent_id") or (scope.agent_id if scope else None),
         task_id=metadata.get("task_id") or (scope.task_id if scope else None),
         tenant_id=scope.tenant_id if scope else None,

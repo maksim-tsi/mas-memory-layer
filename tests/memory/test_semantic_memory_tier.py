@@ -92,6 +92,7 @@ class TestSemanticMemoryTierStore:
         assert doc["title"] == "User prefers morning meetings"
         assert doc["confidence_score"] == 0.85
         assert "scheduling" in doc["tags"]
+        assert doc["project_id"] == "test"
 
     @pytest.mark.asyncio
     async def test_store_from_dict(self, semantic_tier):

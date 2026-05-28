@@ -65,7 +65,9 @@ async def test_store_l2_fact_persists_when_allowlisted(mocker) -> None:
     assert ack.provenance is not None
     assert ack.provenance.agent_id == "agent-a"
     stored_fact = l2_tier.store.await_args.args[0]
-    assert stored_fact.session_id == "session-a"
+    assert stored_fact.session_id == "test:session-a"
+    assert stored_fact.metadata["client_session_id"] == "session-a"
+    assert stored_fact.metadata["project_id"] == "test"
     assert stored_fact.metadata["password"] == "[REDACTED]"
     assert stored_fact.metadata["task_id"] == "task-a"
 

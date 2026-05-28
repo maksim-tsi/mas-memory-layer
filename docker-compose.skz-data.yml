@@ -8,6 +8,7 @@ services:
   mas-agent:
     environment:
       DATA_NODE_IP: "192.168.107.187"
+      YAAM_PROJECT_ID: "${YAAM_PROJECT_ID:-test}"
 
       REDIS_HOST: "192.168.107.187"
       REDIS_PORT: "6379"
@@ -38,6 +39,7 @@ services:
   yaam-mcp:
     environment:
       DATA_NODE_IP: "192.168.107.187"
+      YAAM_PROJECT_ID: "${YAAM_PROJECT_ID:-test}"
 
       REDIS_HOST: "192.168.107.187"
       REDIS_PORT: "6379"

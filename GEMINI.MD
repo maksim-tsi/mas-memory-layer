@@ -91,7 +91,9 @@ Production YAAM REST/MCP runtime uses provider API embeddings and remote service
 - Embedding default: OpenRouter `qwen/qwen3-embedding-8b`
 - Effective vector size: `4096`
 - L3 vector backend: Qdrant through `qdrant-client`
-- Active L3 collection: `episodes_qwen_v2`
+- Project namespace default: `YAAM_PROJECT_ID=test`
+- Active L3 collection: `yaam-test-episodes`
+- Active L4 Typesense collection: `yaam-test`
 
 `sentence-transformers`, Torch, Transformers, Triton, and CUDA wheels are not production runtime
 dependencies. They are available only for the legacy/offline local embedding path:

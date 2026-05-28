@@ -193,13 +193,17 @@ traceparent: 00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01
 ### Embedding Dimensions
 
 The current production REST/MCP runtime uses OpenRouter API embeddings via
-`qwen/qwen3-embedding-8b`. The active L3 Qdrant collection is
-`episodes_qwen_v2` and must be initialized with **4096 dimensions**:
+`qwen/qwen3-embedding-8b`. Shared deployments must set `YAAM_PROJECT_ID`;
+the default test namespace derives `yaam-test-episodes` for L3 Qdrant and
+`yaam-test` for L4 Typesense. The L3 collection must be initialized with
+**4096 dimensions**:
 
 ```bash
+YAAM_PROJECT_ID=test
 OPENROUTER_EMBEDDING_MODEL=qwen/qwen3-embedding-8b
 EMBEDDING_DIMENSIONS=4096
-MAS_L3_COLLECTION=episodes_qwen_v2
+MAS_L3_COLLECTION=yaam-test-episodes
+MAS_L4_COLLECTION=yaam-test
 ```
 
 The legacy local SentenceTransformer/Torch embedding path is optional and not part of the
@@ -369,9 +373,11 @@ export QDRANT_API_KEY="your-qdrant-api-key"
 export TYPESENSE_API_KEY="your-typesense-api-key"
 
 # ===== Embedding Configuration =====
+export YAAM_PROJECT_ID="test"
 export OPENROUTER_EMBEDDING_MODEL="qwen/qwen3-embedding-8b"
 export EMBEDDING_DIMENSIONS="4096"  # Must match Qdrant collection
-export MAS_L3_COLLECTION="episodes_qwen_v2"
+export MAS_L3_COLLECTION="yaam-test-episodes"
+export MAS_L4_COLLECTION="yaam-test"
 
 # ===== L1 Configuration (if enabled) =====
 export L1_WINDOW_SIZE="20"

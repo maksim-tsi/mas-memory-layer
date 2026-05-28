@@ -975,7 +975,11 @@ async def create_service_from_env(
     """Initialize YAAM runtime state and wrap it in the shared memory service."""
     args = config_args or parse_args([])
     state = await initialize_state(build_config(args))
-    service = MemoryGatewayService(state.memory_system, PermissionPolicy.from_env())
+    service = MemoryGatewayService(
+        state.memory_system,
+        PermissionPolicy.from_env(),
+        project_id=getattr(state, "project_id", None),
+    )
     service._mcp_state = state
     return service
 

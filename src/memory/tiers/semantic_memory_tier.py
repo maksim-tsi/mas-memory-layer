@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from src.memory.models import KnowledgeDocument
+from src.memory.namespace import normalize_project_id, typesense_collection_name
 from src.memory.tiers.base_tier import BaseTier
 from src.storage.metrics.collector import MetricsCollector
 from src.storage.metrics.timer import OperationTimer
@@ -42,8 +43,13 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
         super().__init__(storage_adapters, metrics_collector, config, telemetry_stream)
 
         self.typesense = typesense_adapter
+        self.project_id = normalize_project_id(
+            config.get("project_id") if config else os.environ.get("YAAM_PROJECT_ID")
+        )
         self.collection_name = (
-            config.get("collection_name", self.COLLECTION_NAME) if config else self.COLLECTION_NAME
+            config.get("collection_name", typesense_collection_name(self.project_id))
+            if config
+            else typesense_collection_name(self.project_id)
         )
 
         # Collection versioning strategy: use _v2 for independent indices
@@ -85,6 +91,9 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
                 knowledge = data
 
             document = knowledge.to_typesense_document()
+            document["project_id"] = self.project_id
+            knowledge.project_id = knowledge.project_id or self.project_id
+            knowledge.metadata.setdefault("project_id", self.project_id)
 
             # Prefer explicit index_document when available (tests mock this)
             index_func = getattr(self.typesense, "index_document", None)
@@ -162,6 +171,11 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
                 access_count=result["access_count"],
                 usefulness_score=result["usefulness_score"],
                 validation_count=result["validation_count"],
+                project_id=result.get("project_id") or self.project_id,
+                metadata={
+                    "project_id": result.get("project_id") or self.project_id,
+                    "client_session_id": result.get("client_session_id"),
+                },
             )
 
             # Update access tracking
@@ -206,6 +220,8 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
             start_time = time.perf_counter()
             # Build filter string
             filter_terms: list[str] = []
+            if filter_by is None:
+                filter_terms.append(f"project_id:={(filters or {}).get('project_id', self.project_id)}")
             if filter_by is None and filters:
                 if "knowledge_type" in filters:
                     filter_terms.append(f"knowledge_type:={filters['knowledge_type']}")
@@ -250,6 +266,11 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
                     access_count=doc["access_count"],
                     usefulness_score=doc["usefulness_score"],
                     validation_count=doc["validation_count"],
+                    project_id=doc.get("project_id") or self.project_id,
+                    metadata={
+                        "project_id": doc.get("project_id") or self.project_id,
+                        "client_session_id": doc.get("client_session_id"),
+                    },
                 )
                 # Attach search score
                 score = hit.get("text_match", 0)

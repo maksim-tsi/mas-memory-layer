@@ -76,6 +76,7 @@ def _memory_service_from_state(state: AgentWrapperState) -> MemoryGatewayService
     return MemoryGatewayService(
         memory_system=memory_system,
         permission_policy=_rest_v2_permission_policy(),
+        project_id=getattr(state, "project_id", None),
     )
 
 

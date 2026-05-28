@@ -389,7 +389,7 @@ class TestEpisodicMemoryTierSearch:
 
         # Verify filters passed to Qdrant
         call_args = episodic_tier.qdrant.search.call_args
-        assert call_args.kwargs["filter_dict"] == filters
+        assert call_args.kwargs["filter_dict"] == {**filters, "project_id": "test"}
 
 
 # ============================================

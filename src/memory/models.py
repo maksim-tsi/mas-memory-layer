@@ -256,6 +256,7 @@ class Episode(BaseModel):
 
     episode_id: str
     session_id: str
+    project_id: str | None = None
 
     # Content
     summary: str = Field(..., min_length=10, max_length=10000)
@@ -297,6 +298,8 @@ class Episode(BaseModel):
         return {
             "episode_id": self.episode_id,
             "session_id": self.session_id,
+            "project_id": self.project_id or self.metadata.get("project_id"),
+            "client_session_id": self.metadata.get("client_session_id"),
             "summary": self.summary,
             "narrative": self.narrative,
             "source_fact_ids": self.source_fact_ids,
@@ -316,6 +319,8 @@ class Episode(BaseModel):
         return {
             "episodeId": self.episode_id,
             "sessionId": self.session_id,
+            "projectId": self.project_id or self.metadata.get("project_id"),
+            "clientSessionId": self.metadata.get("client_session_id"),
             "summary": self.summary,
             "narrative": self.narrative or "",
             "factCount": self.fact_count,
@@ -332,6 +337,7 @@ class Episode(BaseModel):
             # Duplicate snake_case properties for compatibility with legacy queries
             "session_id": self.session_id,
             "episode_id": self.episode_id,
+            "project_id": self.project_id or self.metadata.get("project_id"),
         }
 
 
@@ -367,6 +373,7 @@ class KnowledgeDocument(BaseModel):
 
     knowledge_id: str
     session_id: str | None = None
+    project_id: str | None = None
 
     # Content
     title: str = Field(..., min_length=5, max_length=500)
@@ -403,6 +410,8 @@ class KnowledgeDocument(BaseModel):
         return {
             "id": self.knowledge_id,
             "session_id": self.session_id or "",
+            "project_id": self.project_id or self.metadata.get("project_id", ""),
+            "client_session_id": self.metadata.get("client_session_id", self.session_id or ""),
             "title": self.title,
             "content": self.content,
             "knowledge_type": self.knowledge_type,
