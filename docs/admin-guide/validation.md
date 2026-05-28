@@ -48,6 +48,30 @@ YAAM_MCP_ALLOWLISTED_TOOLS=yaam.l2.store_fact,yaam.l3.assimilate_episode,yaam.l4
 Live validation should use synthetic scope identifiers such as
 `mcp-live-contract-*` or `rest-live-contract-*`.
 
+## MCP Streamable HTTP Validation
+
+Streamable HTTP uses the same MCP surface as stdio and is intended for shared
+remote consumer access.
+
+Deterministic local Streamable HTTP validation is included in:
+
+```bash
+./.venv/bin/pytest tests/mcp/test_streamable_http_contract.py -v
+```
+
+Live Streamable HTTP validation requires the dedicated MCP service to be
+running and intentionally exposed:
+
+```bash
+YAAM_MCP_RUN_LIVE_HTTP_CONTRACT=1 \
+YAAM_MCP_HTTP_URL=http://192.168.107.187:8003/mcp \
+./.venv/bin/pytest tests/mcp/test_streamable_http_contract.py::test_mcp_streamable_http_live_read_contract_is_env_gated -v
+```
+
+The live HTTP check performs discovery, calls `yaam.health.check`, reads
+`yaam://config/ciar`, and renders `yaam.prompt.memory_inspection`. It is
+read-only.
+
 ## REST Smoke Checks
 
 REST smoke checks should cover:
@@ -78,6 +102,9 @@ provider keys or database credentials.
 Customers should validate:
 
 - MCP discovery, health, resources, prompts, and representative read tools.
+- MCP stdio when the consumer launches YAAM as a subprocess.
+- MCP Streamable HTTP when the consumer connects to the shared `skz-data-lv`
+  runtime.
 - REST guarded reads through `/v2/memory/context` and `/v2/memory/query`.
 - Maintainer-only curation write/list flows.
 - Post-run trace correlation write/list flows.

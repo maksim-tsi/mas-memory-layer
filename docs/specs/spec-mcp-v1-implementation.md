@@ -18,7 +18,16 @@ expose LangChain tools as customer contracts, and must not replace
 
 ## 2. Transport And Dependency
 
-MCP v1 uses the official Python MCP SDK with FastMCP and stdio transport first.
+MCP v1 uses the official Python MCP SDK with FastMCP. YAAM supports two
+transports over the same MCP surface and service layer:
+
+- **stdio**: the reference/local MCP-host transport. This remains the default
+  because it is the simplest subprocess integration for Codex, Claude, and
+  similar agent hosts.
+- **Streamable HTTP**: the shared lab/production transport for consumer systems
+  that should connect to a centrally operated YAAM MCP runtime rather than
+  launching their own subprocess.
+
 The dependency target is `mcp>=1.12.4,<1.27.1` for the current release. The
 upper bound preserves compatibility with the repository's existing
 `pydantic==2.8.2` pin; `mcp>=1.27.1` requires `pydantic>=2.11` and is deferred
@@ -30,9 +39,28 @@ The runnable entrypoint must be:
 ./.venv/bin/python -m src.mcp.server --agent-type full --agent-variant baseline
 ```
 
+The stdio default can be made explicit:
+
+```bash
+./.venv/bin/python -m src.mcp.server --transport stdio --agent-type full --agent-variant mcp
+```
+
+The Streamable HTTP shared-runtime entrypoint is:
+
+```bash
+./.venv/bin/python -m src.mcp.server \
+  --transport streamable-http \
+  --agent-type full \
+  --agent-variant mcp \
+  --mcp-host 0.0.0.0 \
+  --mcp-port 8081 \
+  --mcp-path /mcp
+```
+
 The module must also support default configuration from the same environment
-variables used by the API Wall and wrapper runtime. Streamable HTTP is not part
-of MCP v1 implementation and remains a follow-on transport.
+variables used by the API Wall and wrapper runtime. Streamable HTTP is a
+transport extension only; it must expose the same tools, resources, prompts,
+permissions, and service-layer contracts as stdio.
 
 ## 3. Scope Envelope
 
@@ -228,6 +256,8 @@ propagated into downstream YAAM service calls when available.
 MCP v1 is implemented when:
 
 1. The MCP stdio server starts and shuts down cleanly.
+1. The MCP Streamable HTTP server starts, exposes `/mcp`, and supports SDK
+   client discovery.
 2. SDK client tests can discover all v1 tools, resources, and prompts.
 3. Read tools return structured data, provenance, and compact text summaries.
 4. Resources are read-only and redacted.

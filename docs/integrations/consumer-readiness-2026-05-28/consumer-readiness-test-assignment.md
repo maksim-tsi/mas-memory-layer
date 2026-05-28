@@ -27,20 +27,22 @@ specific run:
 YAAM base URL: http://192.168.107.187:8002
 Health check:  GET  /health
 REST v2 API:   POST /v2/memory/*
+MCP stdio:     ./.venv/bin/python -m src.mcp.server --transport stdio --agent-type full --agent-variant mcp
+MCP HTTP:      http://192.168.107.187:8003/mcp
 ```
 
 The active REST contract is `/v2/memory/*`. Do not use the older `/v2/semantic/*` examples as the
 active endpoint contract.
 
-MCP is an intended readiness target, but the current repository state treats MCP as a provider-side
-implementation dependency. Until YAAM MCP v0.1 is deployed and an MCP endpoint is announced,
-consumer reports should record MCP as:
+MCP is an executable readiness target. YAAM supports two MCP v1 transports over the same tool,
+resource, prompt, permission, and response contracts:
 
-```text
-blocked: provider implementation pending
-```
+- stdio for MCP hosts that launch YAAM as a subprocess;
+- Streamable HTTP for consumer systems that connect to the shared `skz-data-lv` runtime.
 
-This is not a consumer failure.
+If `http://192.168.107.187:8003/mcp` is unavailable during a scheduled readiness run, record the
+MCP HTTP result as a deployment blocker and still run the stdio checks when the consumer host can
+launch the YAAM checkout or container locally.
 
 ## 3. Documentation References
 
@@ -154,6 +156,37 @@ Finalize:
 
 Expected result: HTTP `201`, `status: success`, and a `knowledge_id`.
 
+### MCP v1 Surface
+
+Required MCP readiness checks:
+
+- discover tools, resources, and prompts;
+- call `yaam.health.check`;
+- read `yaam://config/ciar`;
+- render `yaam.prompt.memory_inspection`;
+- verify a default write denial for `yaam.l2.store_fact` when write gates are disabled.
+
+Core MCP v1 tools:
+
+```text
+yaam.memory.query
+yaam.memory.get_context
+yaam.l2.store_fact
+yaam.l2.search_facts
+yaam.l3.search_episodes
+yaam.l3.assimilate_episode
+yaam.l4.search_knowledge
+yaam.l4.finalize_artifact
+yaam.ciar.explain
+yaam.evidence.table
+yaam.contradiction.review
+yaam.health.check
+yaam.curation.record_decision
+yaam.curation.list_decisions
+yaam.trace.record_correlation
+yaam.trace.lookup
+```
+
 ## 5. Required Test Tasks
 
 Each consumer system must execute the following checks against its actual integration environment:
@@ -168,7 +201,7 @@ Each consumer system must execute the following checks against its actual integr
 | CR-006 | Run L4 finalize with a short representative artifact. | Status code and `knowledge_id`. |
 | CR-007 | Execute at least one negative scenario. | Expected `400`, `501`, or `502` classification and whether handling is acceptable. |
 | CR-008 | Map the consumer's own requirements to observed YAAM behavior. | Requirement coverage table with evidence. |
-| CR-009 | Assess MCP readiness from the consumer perspective. | `blocked: provider implementation pending` unless an MCP endpoint is supplied. |
+| CR-009 | Assess MCP readiness from the consumer perspective. | MCP discovery/read/prompt evidence and default write-denial evidence. |
 
 Consumers may add domain-specific scenarios beyond this list. Those scenarios are especially useful
 when they exercise requirements not covered by the generic smoke checks.
@@ -262,7 +295,7 @@ blockers or limitations.>
 | CR-006 | pass/fail/blocked |  |  |
 | CR-007 | pass/fail/blocked |  |  |
 | CR-008 | pass/fail/blocked |  |  |
-| CR-009 | blocked: provider implementation pending |  |  |
+| CR-009 | pass/fail/blocked |  |  |
 
 ## Requirement Coverage
 
@@ -295,4 +328,3 @@ Do not include secrets, tokens, API keys, passwords, or full `.env` contents.>
 Reports must not include secrets, tokens, database passwords, provider keys, private `.env` content,
 or unredacted authorization headers. Include enough request and response evidence to reproduce a
 finding, but redact all sensitive values before submitting the report.
-

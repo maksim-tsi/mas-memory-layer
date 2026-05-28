@@ -1,20 +1,48 @@
-# MCP v1 Stdio Guide
+# MCP v1 Guide
 
 YAAM MCP v1 exposes memory read, evidence, curation, trace correlation, and
-gated write/lifecycle operations over the Model Context Protocol stdio
-transport. It is intended for agent hosts and tool runtimes that launch YAAM as
-a subprocess and exchange JSON-RPC over standard input/output.
+gated write/lifecycle operations over Model Context Protocol transports. The
+same tools, resources, prompts, permission gates, and response contracts are
+available through both supported transports:
 
-## Launch
+- **stdio** for local MCP hosts that launch YAAM as a subprocess.
+- **Streamable HTTP** for shared lab or production MCP runtimes operated on a
+  server such as `skz-data-lv`.
+
+## Launch With Stdio
 
 From the repository root, use the project virtual environment:
 
 ```bash
-./.venv/bin/python -m src.mcp.server --agent-type full --agent-variant mcp
+./.venv/bin/python -m src.mcp.server --transport stdio --agent-type full --agent-variant mcp
 ```
 
 The process is a stdio server. It should be launched by an MCP host, not used
 as an interactive terminal command.
+
+## Launch With Streamable HTTP
+
+For shared remote access, run the same MCP server with Streamable HTTP:
+
+```bash
+./.venv/bin/python -m src.mcp.server \
+  --transport streamable-http \
+  --agent-type full \
+  --agent-variant mcp \
+  --mcp-host 0.0.0.0 \
+  --mcp-port 8081 \
+  --mcp-path /mcp
+```
+
+The lab deployment publishes this as:
+
+```text
+http://192.168.107.187:8003/mcp
+```
+
+Use Streamable HTTP when the consumer system should connect to a centrally
+operated YAAM MCP runtime instead of managing a local checkout, virtual
+environment, and backend configuration.
 
 ## Scope Envelope
 

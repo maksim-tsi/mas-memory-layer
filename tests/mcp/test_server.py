@@ -56,6 +56,8 @@ def test_create_mcp_server_registers_fastmcp_capabilities() -> None:
     server = create_mcp_server()
 
     assert server.name == "yaam-mcp-v1"
+    assert server.settings.stateless_http is False
+    assert server.settings.json_response is False
     assert [tool.name for tool in server._tool_manager.list_tools()] == list(MCP_TOOL_NAMES)
     assert [prompt.name for prompt in server._prompt_manager.list_prompts()] == list(
         MCP_PROMPT_NAMES
@@ -87,6 +89,14 @@ def test_parse_args_supports_documented_cli_flags() -> None:
             "9000",
             "--model",
             "test-model",
+            "--transport",
+            "streamable-http",
+            "--mcp-host",
+            "0.0.0.0",
+            "--mcp-port",
+            "8081",
+            "--mcp-path",
+            "/mcp",
         ]
     )
 
@@ -94,6 +104,33 @@ def test_parse_args_supports_documented_cli_flags() -> None:
     assert args.agent_variant == "baseline"
     assert args.port == 9000
     assert args.model == "test-model"
+    assert args.transport == "streamable-http"
+    assert args.mcp_host == "0.0.0.0"
+    assert args.mcp_port == 8081
+    assert args.mcp_path == "/mcp"
+
+
+def test_create_mcp_server_configures_streamable_http_transport() -> None:
+    args = parse_args(
+        [
+            "--transport",
+            "streamable-http",
+            "--mcp-host",
+            "0.0.0.0",
+            "--mcp-port",
+            "8081",
+            "--mcp-path",
+            "/mcp",
+        ]
+    )
+    server = create_mcp_server(config_args=args)
+
+    assert server.settings.host == "0.0.0.0"
+    assert server.settings.port == 8081
+    assert server.settings.streamable_http_path == "/mcp"
+    assert server.settings.stateless_http is True
+    assert server.settings.json_response is True
+    assert [tool.name for tool in server._tool_manager.list_tools()] == list(MCP_TOOL_NAMES)
 
 
 @pytest.mark.asyncio

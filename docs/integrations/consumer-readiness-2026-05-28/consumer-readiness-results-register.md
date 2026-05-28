@@ -109,7 +109,7 @@ Acceptable verification evidence:
 - a maintainer-run smoke check against `http://192.168.107.187:8002`;
 - a targeted contract or integration test result;
 - a documentation diff plus consumer acknowledgement for docs-only findings;
-- an MCP contract test once MCP v0.1 exists.
+- an MCP stdio or Streamable HTTP contract test result.
 
 For REST v2 findings, record the endpoint, request shape, status code, and sanitized response. For
 observability findings, record the trace id or Phoenix evidence path. For security findings, record
@@ -122,7 +122,7 @@ evidence.
 
 | Finding ID | Priority | Category | Title | Status | Notes |
 | --- | --- | --- | --- | --- | --- |
-| CF-KNOWN-001 | P1 | MCP | MCP v0.1 endpoint is not yet implemented/deployed for consumer testing. | accepted | Tracked by `mcp-readiness-implementation-spec.md`; consumers should report this as provider-side blocker, not a consumer defect. |
+| CF-KNOWN-001 | P1 | MCP | MCP Streamable HTTP deployment and live validation must be completed before remote consumer testing. | accepted | MCP v1 stdio exists; shared HTTP endpoint is tracked by `mcp-readiness-implementation-spec.md`. |
 | CF-KNOWN-002 | P2 | documentation | Older RFC examples mention `/v2/semantic/*`, while active implementation uses `/v2/memory/*`. | accepted | Assignment states `/v2/memory/*` as active contract; docs alignment may still be needed later. |
 
 ## 8. Report Intake Checklist
@@ -137,4 +137,3 @@ For each received report:
 - Rank priority and category.
 - Identify owner and next action for `P0` and `P1` issues.
 - Record any unresolved question in the finding notes rather than losing it in chat history.
-

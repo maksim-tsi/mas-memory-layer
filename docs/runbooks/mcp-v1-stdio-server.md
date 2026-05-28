@@ -1,4 +1,4 @@
-# Runbook: MCP v1 Stdio Server
+# Runbook: MCP v1 Server
 
 **Status:** Active  
 **Date:** 2026-05-24  
@@ -8,9 +8,9 @@
 ## 1. Purpose
 
 This runbook defines the repeatable procedure for launching and validating the
-YAAM MCP v1 stdio adapter. MCP v1 is a generic, service-backed interface over
-YAAM memory services. It does not replace the API Wall or REST Semantic Gateway
-v2 routes.
+YAAM MCP v1 adapter over stdio and Streamable HTTP. MCP v1 is a generic,
+service-backed interface over YAAM memory services. It does not replace the API
+Wall or REST Semantic Gateway v2 routes.
 
 The default operational posture is read-only. Mutating and lifecycle tools are
 available only when server-side environment flags explicitly enable writes,
@@ -47,7 +47,31 @@ An MCP host should launch the command as a stdio subprocess. The server writes
 MCP protocol messages over stdio and should not be inspected with an ordinary
 terminal prompt as an interactive CLI.
 
-## 4. Expected MCP Surface
+## 4. Start The Streamable HTTP Server
+
+Use Streamable HTTP when consumer systems need to connect to a shared YAAM MCP
+runtime:
+
+```bash
+./.venv/bin/python -m src.mcp.server \
+  --transport streamable-http \
+  --agent-type full \
+  --agent-variant mcp \
+  --mcp-host 0.0.0.0 \
+  --mcp-port 8081 \
+  --mcp-path /mcp
+```
+
+The lab Compose runtime publishes this service at:
+
+```text
+http://192.168.107.187:8003/mcp
+```
+
+Streamable HTTP exposes the same tools, resources, prompts, permissions, and
+service-layer contracts as stdio.
+
+## 5. Expected MCP Surface
 
 Tools:
 
@@ -88,7 +112,7 @@ Prompts:
 - `yaam.prompt.ciar_explanation`
 - `yaam.prompt.retrieval_strategy`
 
-## 5. Permission Configuration
+## 6. Permission Configuration
 
 Read tools, resources, and prompts are enabled by default. Writes and lifecycle
 operations require server-side configuration:
@@ -121,7 +145,7 @@ Default-denied writes return a structured MCP-visible YAAM error payload with:
 For default write denial, the expected code is
 `permission.writes_disabled` and `affected_tier` is `SYSTEM`.
 
-## 6. Local Contract Validation
+## 7. Local Contract Validation
 
 Run deterministic MCP stdio tests without live external services:
 
@@ -141,7 +165,25 @@ Run the repository verification sequence:
 ./.venv/bin/pytest tests/ -v
 ```
 
-## 7. Live Read Validation
+## 8. Streamable HTTP Contract Validation
+
+The deterministic Streamable HTTP contract test starts a fixture-backed MCP
+server and validates discovery, representative read operations, resource reads,
+prompt rendering, and default write denial:
+
+```bash
+./.venv/bin/pytest tests/mcp/test_streamable_http_contract.py -v
+```
+
+Live Streamable HTTP validation is read-only and environment-gated:
+
+```bash
+YAAM_MCP_RUN_LIVE_HTTP_CONTRACT=1 \
+YAAM_MCP_HTTP_URL=http://192.168.107.187:8003/mcp \
+./.venv/bin/pytest tests/mcp/test_streamable_http_contract.py::test_mcp_streamable_http_live_read_contract_is_env_gated -v
+```
+
+## 9. Live Read Validation
 
 Live production-server read checks are opt-in:
 
@@ -154,7 +196,7 @@ The live read test starts the production stdio server, performs discovery,
 calls `yaam.health.check`, reads `yaam://config/ciar`, and renders
 `yaam.prompt.memory_inspection`. The test remains read-only.
 
-## 8. Live Write And Lifecycle Validation
+## 10. Live Write And Lifecycle Validation
 
 Live write validation is intentionally separate because it persists synthetic
 test records through the configured YAAM backends and L3 lifecycle validation
@@ -181,12 +223,15 @@ Each call must return a structured `WriteAck` with `status=success`,
 `operation`, `created_id`, and provenance fields for source tier, session,
 agent, and task.
 
-## 9. Troubleshooting
+## 11. Troubleshooting
 
 - If discovery fails, confirm the MCP SDK dependency is installed in the active
   repository virtual environment.
 - If the stdio process exits during startup, run the server command directly
   and inspect only non-secret configuration errors.
+- If Streamable HTTP discovery fails, confirm the MCP URL includes `/mcp`, the
+  `yaam-mcp` service is running, and port `8003` is reachable from the
+  consumer host.
 - If write tools return `permission.writes_disabled`, set
   `YAAM_MCP_ENABLE_WRITES=true`.
 - If lifecycle tools return `permission.lifecycle_disabled`, set

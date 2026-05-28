@@ -11,6 +11,8 @@ validating YAAM 0.10.
 - Storage backends and LLM provider configuration are supplied through the
   local environment.
 - MCP stdio is normally launched by an MCP host as a subprocess.
+- MCP Streamable HTTP is used for shared lab or production access from remote
+  consumer systems.
 - REST v2 is used by service-to-service and benchmark integrations.
 
 ## Configuration Areas
@@ -21,7 +23,7 @@ validating YAAM 0.10.
   [connectivity cheatsheet](../IAC/connectivity-cheatsheet.md).
 - LLM provider configuration:
   [LLM provider guide](../llm_provider_guide.md).
-- MCP stdio operation:
+- MCP operation:
   [MCP v1 stdio runbook](../runbooks/mcp-v1-stdio-server.md).
 - Validation:
   [admin validation guide](validation.md).
@@ -40,6 +42,26 @@ YAAM_MCP_ALLOWLISTED_TOOLS=yaam.l2.store_fact,yaam.l3.assimilate_episode,yaam.l4
 REST v2 authorization and role checks are separate from MCP stdio launch flags.
 Do not assume enabling an MCP tool changes REST behavior.
 
+## MCP Streamable HTTP Runtime
+
+For shared consumer testing, run the dedicated `yaam-mcp` Compose service. The
+service uses the same MCP tool surface as stdio and publishes Streamable HTTP on:
+
+```text
+http://192.168.107.187:8003/mcp
+```
+
+The service should remain read-only by default:
+
+```bash
+YAAM_MCP_ENABLE_WRITES=false
+YAAM_MCP_ENABLE_LIFECYCLE=false
+YAAM_MCP_ALLOWLISTED_TOOLS=
+```
+
+Do not expose write or lifecycle tools to consumer systems unless the validation
+run explicitly requires synthetic writes and the target tools are allowlisted.
+
 ## Secret Handling Policy
 
 Do not expose or paste:
@@ -55,9 +77,9 @@ Use secret names in documentation and support tickets, not secret values.
 
 ## Support Boundaries
 
-Supported public surfaces for YAAM 0.10 are MCP v1 stdio, REST v2, API Wall
-benchmark/chat flows, documented validation commands, and the public contracts
-reference.
+Supported public surfaces for YAAM 0.10 are MCP v1 stdio, MCP v1 Streamable
+HTTP, REST v2, API Wall benchmark/chat flows, documented validation commands,
+and the public contracts reference.
 
 Unsupported surfaces include direct database mutation, arbitrary SQL/Cypher,
 undocumented provider-specific traces, and customer-specific SCM-Cert-Bench MCP

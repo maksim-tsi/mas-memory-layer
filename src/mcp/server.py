@@ -90,7 +90,16 @@ def create_mcp_server(
             f"YAAM MCP v1 requires the official Python SDK dependency: {MCP_SDK_REQUIREMENT}."
         ) from exc
 
-    mcp = FastMCP("yaam-mcp-v1")
+    args = config_args or parse_args([])
+    streamable_http = args.transport == "streamable-http"
+    mcp = FastMCP(
+        "yaam-mcp-v1",
+        host=args.mcp_host,
+        port=args.mcp_port,
+        streamable_http_path=args.mcp_path,
+        stateless_http=streamable_http,
+        json_response=streamable_http,
+    )
     runtime_service = service
 
     async def get_service() -> MemoryGatewayService:
@@ -950,6 +959,18 @@ async def run_stdio(config_args: argparse.Namespace | None = None) -> None:
             await shutdown_state(state)
 
 
+async def run_streamable_http(config_args: argparse.Namespace | None = None) -> None:
+    """Run the MCP server over Streamable HTTP."""
+    server = create_mcp_server(config_args=config_args)
+    try:
+        await server.run_streamable_http_async()
+    finally:
+        service = getattr(server, "_service", None)
+        state = getattr(service, "_mcp_state", None)
+        if state is not None:
+            await shutdown_state(state)
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse MCP runtime arguments with environment-backed defaults."""
     parser = argparse.ArgumentParser(description="Run the YAAM MCP v1 stdio server.")
@@ -957,12 +978,38 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--agent-variant", default=os.environ.get("YAAM_AGENT_VARIANT", "mcp"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("YAAM_PORT", "8000")))
     parser.add_argument("--model", default=os.environ.get("YAAM_MODEL", "gpt-4o-mini"))
+    parser.add_argument(
+        "--transport",
+        choices=("stdio", "streamable-http"),
+        default=os.environ.get("YAAM_MCP_TRANSPORT", "stdio"),
+        help="MCP transport to run. Defaults to stdio for MCP host subprocess use.",
+    )
+    parser.add_argument(
+        "--mcp-host",
+        default=os.environ.get("YAAM_MCP_HOST", "127.0.0.1"),
+        help="Host for Streamable HTTP MCP transport.",
+    )
+    parser.add_argument(
+        "--mcp-port",
+        type=int,
+        default=int(os.environ.get("YAAM_MCP_PORT", "8081")),
+        help="Port for Streamable HTTP MCP transport.",
+    )
+    parser.add_argument(
+        "--mcp-path",
+        default=os.environ.get("YAAM_MCP_PATH", "/mcp"),
+        help="Path for Streamable HTTP MCP transport.",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     """CLI entrypoint for `python -m src.mcp.server`."""
-    asyncio.run(run_stdio(parse_args(argv)))
+    args = parse_args(argv)
+    if args.transport == "streamable-http":
+        asyncio.run(run_streamable_http(args))
+    else:
+        asyncio.run(run_stdio(args))
 
 
 def _response(summary: str, structured: dict[str, Any]) -> dict[str, Any]:
