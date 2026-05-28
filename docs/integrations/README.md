@@ -121,8 +121,12 @@ set -a && . ./.env && set +a && ./.venv/bin/python scripts/debug/check_tier_coll
 ```
 
 Expected introspection output pattern:
-- `Adapter collection: episodes_v2 vector_size: 1024`
-- `Tier collection: episodes_v2 vector_size: 1024`
+- `Adapter collection: episodes_qwen_v2 vector_size: 4096`
+- `Tier collection: episodes_qwen_v2 vector_size: 4096`
+
+Production REST/MCP runtime uses OpenRouter API embeddings
+(`qwen/qwen3-embedding-8b`) and does not install the local SentenceTransformer/Torch stack.
+Use `poetry install --with local-embeddings` only for legacy/offline embedding experiments.
 
 **See ADR-006** for detailed task-to-provider mappings and fallback logic.
 

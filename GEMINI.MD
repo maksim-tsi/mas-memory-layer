@@ -83,6 +83,23 @@ All development work must adhere to these five principles:
 
 **Testing**: `pytest`, `pytest-asyncio`
 
+## Runtime Dependency Posture
+
+Production YAAM REST/MCP runtime uses provider API embeddings and remote services:
+
+- Generation default: OpenRouter `tencent/hy3-preview`
+- Embedding default: OpenRouter `qwen/qwen3-embedding-8b`
+- Effective vector size: `4096`
+- L3 vector backend: Qdrant through `qdrant-client`
+- Active L3 collection: `episodes_qwen_v2`
+
+`sentence-transformers`, Torch, Transformers, Triton, and CUDA wheels are not production runtime
+dependencies. They are available only for the legacy/offline local embedding path:
+`poetry install --with local-embeddings`.
+
+Do not add the local embedding stack back to the main dependency group or production image without
+explicit dependency and lockfile approval.
+
 ## Python Execution Protocol
 
 **CRITICAL ENVIRONMENT RULE**: The terminal operates in a **stateless shell**. You **MUST NOT** use `source .venv/bin/activate` because activation will be lost on the very next command.

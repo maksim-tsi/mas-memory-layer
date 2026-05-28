@@ -32,9 +32,13 @@ set -a && . ./.env && set +a && ./.venv/bin/python scripts/debug/check_tier_coll
 Expected V2 output pattern when OpenRouter embeddings are configured:
 
 ```text
-Adapter collection: episodes_v2 vector_size: 1024
-Tier collection: episodes_v2 vector_size: 1024
+Adapter collection: episodes_qwen_v2 vector_size: 4096
+Tier collection: episodes_qwen_v2 vector_size: 4096
 ```
+
+Production REST/MCP runtime uses provider API embeddings and does not install
+`sentence-transformers`, Torch, Transformers, Triton, or CUDA wheels. Install
+`poetry install --with local-embeddings` only when debugging the legacy/offline local embedding path.
 
 ## Note
 

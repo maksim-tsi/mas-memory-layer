@@ -32,6 +32,10 @@ For V2 memory APIs, the runtime also uses provider-level embeddings via
 `LLMClient.get_embedding()`, with OpenRouter configured by
 `OPENROUTER_EMBEDDING_MODEL`.
 
+Production REST/MCP runtime does not install the local SentenceTransformer/Torch stack. Local
+embeddings are reserved for legacy/offline experiments through the optional Poetry group:
+`poetry install --with local-embeddings`.
+
 ## Providers and Default Models
 
 Each provider has a specific default model configured based on current best practices and requirements.

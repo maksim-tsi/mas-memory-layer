@@ -30,6 +30,8 @@ YAAM and the GoodAI benchmark use isolated Poetry environments:
    - Location: repository root  
    - Command: `poetry install --with test,dev`  
    - Virtualenv: `.venv/`
+   - Optional legacy/offline embeddings: add `--with local-embeddings` only when explicitly testing
+     the local SentenceTransformer path. Production REST/MCP runtime does not install this group.
 
 2. **Benchmark environment (GoodAI LTM Benchmark for YAAM)**
    - Location: external checkout of `git@github.com-skazo4ny:maksim-tsi/goodai-ltm-benchmark-yaam.git`
@@ -46,6 +48,16 @@ Run the appropriate Poetry install command from the correct directory.
 ```bash
 poetry install --with test,dev
 ```
+
+Do not install the optional local embedding stack by default. Use it only for legacy/offline
+SentenceTransformer experiments:
+
+```bash
+poetry install --with test,dev,local-embeddings
+```
+
+Production YAAM runtime uses provider API embeddings, currently OpenRouter
+`qwen/qwen3-embedding-8b` with `EMBEDDING_DIMENSIONS=4096`, and Qdrant through `qdrant-client`.
 
 **Benchmark environment:**
 ```bash

@@ -11,8 +11,9 @@ encyclopedia. If you need detail, follow the pointers in **Where to look**.
 
 1. `AGENTS.MD` (this file): canonical workflow + safety invariants.
 2. `.github/copilot-instructions.md`: Copilot entrypoint; must not contradict `AGENTS.MD`.
-3. `.github/instructions/*.md`: path-scoped implementation guidelines (source/tests/docs/scripts).
-4. `docs/`: system-of-record for architecture, ADRs, plans, and runbooks.
+3. `GEMINI.MD`: Gemini CLI entrypoint; must not contradict `AGENTS.MD`.
+4. `.github/instructions/*.md`: path-scoped implementation guidelines (source/tests/docs/scripts).
+5. `docs/`: system-of-record for architecture, ADRs, plans, and runbooks.
 
 If you find a conflict between any of the above, **stop** and ask the user to resolve it, then record
 the resolution in `docs/lessons-learned.md`.
@@ -37,6 +38,7 @@ agents or other CLIs.
 - Benchmark isolation (“API Wall”): `docs/ADR/009-decoupling-benchmark-api-wall.md`
 - Environment expectations: `docs/environment-guide.md`
 - Requirements registry: `docs/requirements/README.md`
+- Runtime dependency posture: `docs/reports/2026-05-28-yaam-runtime-dependency-hardening-validation-report.md`
 - Coding patterns (src): `.github/instructions/source.instructions.md`
 - Testing patterns (tests): `.github/instructions/testing.instructions.md`
 - Documentation patterns (docs): `.github/instructions/documentation.instructions.md`
@@ -100,6 +102,15 @@ memory policy, CIAR, Evidence Table, lifecycle behavior, or customer-specific in
 `docs/requirements/README.md` and cite the relevant `YAAM-REQ-*` IDs in plans, reports, and PR
 summaries. If a new customer requirement is discovered, add or link it in the requirements registry
 before implementing against it.
+
+### 9) Runtime dependency posture
+
+Production YAAM REST/MCP runtime uses provider API embeddings, currently OpenRouter
+`qwen/qwen3-embedding-8b` with 4096-dimensional vectors, and Qdrant through `qdrant-client`.
+Do not reintroduce `sentence-transformers`, Torch, Transformers, Triton, or CUDA wheels into the
+main dependency/runtime image unless the user explicitly approves that dependency and lockfile
+change. Local SentenceTransformer embeddings are a legacy/offline path only and require
+`poetry install --with local-embeddings`.
 
 ## Environment Verification Sequence (Required before lint/tests)
 

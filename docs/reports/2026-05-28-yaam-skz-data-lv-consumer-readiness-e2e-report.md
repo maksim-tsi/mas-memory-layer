@@ -1,5 +1,10 @@
 # YAAM skz-data-lv Consumer Readiness E2E Report
 
+> Superseded follow-up: the L3 vector dimension blocker, deprecated OpenRouter default, and MCP
+> `ClosedResourceError` log-noise findings in this report were addressed later on 2026-05-28.
+> Current evidence is captured in
+> `docs/reports/2026-05-28-yaam-runtime-dependency-hardening-validation-report.md`.
+
 **Date:** 2026-05-28
 **Runner:** Codex from MacBook workspace
 **Remote host:** `skz-data-lv` via `ssh skz-data-local`

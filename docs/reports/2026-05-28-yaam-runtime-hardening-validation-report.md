@@ -1,5 +1,10 @@
 # YAAM Runtime Hardening Validation Report
 
+> Superseded follow-up: this report captured the first runtime hardening pass before dependency
+> slimming. The remaining Docker and MCP log-noise items were addressed later on 2026-05-28.
+> Current evidence is captured in
+> `docs/reports/2026-05-28-yaam-runtime-dependency-hardening-validation-report.md`.
+
 Date: 2026-05-28
 Branch: `dev-tests`
 Commit validated: `f83df5c`
@@ -170,8 +175,7 @@ After cleanup:
 
 | Priority | Area | Item |
 | --- | --- | --- |
-| P1 | Docker | Split production dependencies so API/MCP runtime does not install local `sentence-transformers`, Torch, Triton, and CUDA wheels when OpenRouter embeddings are the production path. This requires explicit dependency/lockfile approval. |
-| P2 | MCP HTTP logs | Investigate whether MCP SDK Streamable HTTP `anyio.ClosedResourceError` on client close can be downgraded, suppressed, or avoided through session handling. |
+| Closed | Docker | Addressed by `docs/reports/2026-05-28-yaam-runtime-dependency-hardening-validation-report.md`: local embedding/Torch/CUDA dependencies moved to optional `local-embeddings`, production images validated at 660 MB. |
+| Closed | MCP HTTP logs | Addressed by `docs/reports/2026-05-28-yaam-runtime-dependency-hardening-validation-report.md`: benign Streamable HTTP `ClosedResourceError` session-close noise is narrowly suppressed. |
 | P2 | Observability | Move Phoenix tracing from `SimpleSpanProcessor` to `BatchSpanProcessor` for production-like runtime. |
 | P3 | Compose | Remove obsolete Compose `version` field to silence startup warnings. |
-

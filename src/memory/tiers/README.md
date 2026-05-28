@@ -47,6 +47,9 @@ tier = WorkingMemoryTier(
 
 The L3/L4 tiers support environment-driven collection isolation for embedding migrations.
 
+- Current production REST/MCP runtime uses OpenRouter API embeddings:
+  `qwen/qwen3-embedding-8b`, `EMBEDDING_DIMENSIONS=4096`, and
+  `MAS_L3_COLLECTION=episodes_qwen_v2`.
 - `MAS_V2_MODE=true` enables automatic `_v2` suffixing for tier collections.
     - L3 default: `episodes` -> `episodes_v2`
     - L4 default: `knowledge_base` -> `knowledge_base_v2`
@@ -57,3 +60,7 @@ The L3/L4 tiers support environment-driven collection isolation for embedding mi
 
 This configuration prevents dimensionality collisions when changing embedding providers
 (for example, migrating from 768-dimension embeddings to 4096-dimension embeddings).
+
+Qdrant remains a production L3 backend through `qdrant-client`. Local SentenceTransformer embeddings
+are a legacy/offline path only and require `poetry install --with local-embeddings`; do not treat the
+local embedding stack as required for production L3.
