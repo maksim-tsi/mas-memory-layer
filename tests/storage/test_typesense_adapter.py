@@ -1160,6 +1160,51 @@ class TestTypesenseAdapterSchemaAndSearch:
         assert results == [{"id": "doc1", "content": "Test"}]
         assert "sort_by" not in mock_httpx_client.get.call_args_list[1].kwargs["params"]
 
+    async def test_search_retry_failure_logs_without_traceback(self, mock_httpx_client, caplog):
+        """Test degraded retry failure logs compactly without exception traceback."""
+        bad_response = Mock()
+        bad_response.status_code = 422
+        bad_response.raise_for_status = Mock(
+            side_effect=httpx.HTTPStatusError(
+                "Invalid sort_by", request=Mock(), response=bad_response
+            )
+        )
+        retry_response = Mock()
+        retry_response.status_code = 422
+        retry_response.raise_for_status = Mock(
+            side_effect=httpx.HTTPStatusError(
+                "Invalid wildcard query", request=Mock(), response=retry_response
+            )
+        )
+        mock_httpx_client.get = AsyncMock(side_effect=[bad_response, retry_response])
+
+        config = {
+            "url": "http://localhost:8108",
+            "api_key": "test_key",
+            "collection_name": "test_collection",
+        }
+        adapter = TypesenseAdapter(config)
+        adapter._connected = True
+        adapter.client = mock_httpx_client
+
+        with pytest.raises(StorageQueryError):
+            await adapter.search(
+                {
+                    "q": "*",
+                    "query_by": "content",
+                    "sort_by": "usefulness_score:desc",
+                    "limit": 10,
+                }
+            )
+
+        retry_logs = [
+            record
+            for record in caplog.records
+            if "retry without sort_by failed" in record.getMessage()
+        ]
+        assert retry_logs
+        assert retry_logs[0].exc_info is None
+
     async def test_search_empty_results(self, mock_httpx_client):
         """Test search returning empty results."""
         # Mock empty search response

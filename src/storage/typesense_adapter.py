@@ -474,9 +474,8 @@ class TypesenseAdapter(StorageAdapter):
                             return [hit["document"] for hit in result.get("hits", [])]
                         return dict(result)
                     except Exception as retry_error:
-                        logger.error(
-                            f"Typesense search retry without sort_by failed: {retry_error}",
-                            exc_info=True,
+                        logger.warning(
+                            "Typesense search retry without sort_by failed: %s", retry_error
                         )
                         raise StorageQueryError(f"Search failed: {retry_error}") from retry_error
                 logger.error(f"Typesense search failed: {e}", exc_info=True)
