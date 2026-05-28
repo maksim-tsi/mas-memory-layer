@@ -381,8 +381,14 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
         """Check health of Typesense."""
         typesense_health = await self.typesense.health_check()
 
-        # Get statistics
-        stats = await self.get_statistics()
+        if "document_count" in typesense_health:
+            stats = {
+                "total_documents": typesense_health.get("document_count", 0),
+                "avg_confidence": 0.0,
+                "avg_usefulness": 0.0,
+            }
+        else:
+            stats = await self.get_statistics()
 
         return {
             "tier": "L4_semantic_memory",

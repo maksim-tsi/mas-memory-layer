@@ -532,6 +532,22 @@ class TestSemanticMemoryTierHealthCheck:
         assert health["statistics"]["total_documents"] == 1
 
     @pytest.mark.asyncio
+    async def test_health_check_uses_typesense_document_count_without_sample_search(
+        self, semantic_tier
+    ):
+        """Test health check avoids wildcard statistics search when count is available."""
+        semantic_tier.typesense.health_check = AsyncMock(
+            return_value={"status": "healthy", "document_count": 7}
+        )
+        semantic_tier.typesense.search = AsyncMock()
+
+        health = await semantic_tier.health_check()
+
+        assert health["status"] == "healthy"
+        assert health["statistics"]["total_documents"] == 7
+        semantic_tier.typesense.search.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_health_check_unhealthy(self, semantic_tier):
         """Test health check when Typesense is unhealthy."""
         semantic_tier.typesense.health_check = AsyncMock(return_value={"status": "unhealthy"})
