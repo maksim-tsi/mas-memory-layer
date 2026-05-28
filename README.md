@@ -436,7 +436,8 @@ See [`docs/metrics_usage.md`](docs/metrics_usage.md) for complete metrics docume
 - OpenRouter connectivity and V2 collection/vector validation re-test after env changes (see [LLM Provider Results](docs/llm_provider_guide.md))
 
 **LLM Infrastructure:**
-- Multi-provider `LLMClient` with OpenRouter, Gemini, Groq, and Mistral providers; V2 API defaults to OpenRouter (`x-ai/grok-4.1-fast`) with embeddings via `qwen/qwen3-embedding-8b` and `EMBEDDING_DIMENSIONS=1024`.
+- Multi-provider `LLMClient` with OpenRouter, Gemini, Groq, and Mistral providers; V2 API defaults to OpenRouter (`tencent/hy3-preview`) with embeddings via `qwen/qwen3-embedding-8b` and `EMBEDDING_DIMENSIONS=4096`.
+- Local SentenceTransformer embeddings are an optional legacy/offline path (`poetry install --with local-embeddings`); production REST/MCP runtime uses provider API embeddings and Qdrant as the L3 storage service.
 
 **See**: 
 - [ADR-006: Free-Tier LLM Provider Strategy](docs/ADR/006-free-tier-llm-strategy.md)

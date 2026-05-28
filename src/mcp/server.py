@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import json
+import logging
 import os
 from collections.abc import Awaitable, Callable, Sequence
 from time import perf_counter
@@ -69,6 +70,8 @@ MCP_PROMPT_NAMES = (
     "yaam.prompt.retrieval_strategy",
 )
 
+MCP_STREAMABLE_HTTP_LOGGER = "mcp.server.streamable_http"
+
 
 def create_mcp_server(
     service: MemoryGatewayService | None = None,
@@ -92,6 +95,9 @@ def create_mcp_server(
 
     args = config_args or parse_args([])
     streamable_http = args.transport == "streamable-http"
+    if streamable_http:
+        _install_streamable_http_closed_resource_filter()
+
     mcp = FastMCP(
         "yaam-mcp-v1",
         host=args.mcp_host,
@@ -934,6 +940,33 @@ def create_mcp_server(
         )
 
     return mcp
+
+
+class _StreamableHTTPClosedResourceFilter(logging.Filter):
+    """Suppress benign MCP SDK noise emitted when HTTP clients close sessions."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name != MCP_STREAMABLE_HTTP_LOGGER:
+            return True
+        if record.getMessage() != "Error in message router":
+            return True
+        if record.exc_info is None:
+            return True
+        exc_type = record.exc_info[0]
+        if exc_type is None:
+            return True
+        is_closed_resource = (
+            getattr(exc_type, "__name__", "") == "ClosedResourceError"
+            and getattr(exc_type, "__module__", "").startswith("anyio")
+        )
+        return not is_closed_resource
+
+
+def _install_streamable_http_closed_resource_filter() -> None:
+    logger = logging.getLogger(MCP_STREAMABLE_HTTP_LOGGER)
+    if any(isinstance(item, _StreamableHTTPClosedResourceFilter) for item in logger.filters):
+        return
+    logger.addFilter(_StreamableHTTPClosedResourceFilter())
 
 
 async def create_service_from_env(

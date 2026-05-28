@@ -22,7 +22,6 @@ psycopg-pool = "3.2.7"
 
 # Vector Store Client
 qdrant-client = "1.9.2"
-sentence-transformers = "3.0.1"
 
 # Graph Store Client
 neo4j = "5.22.0"
@@ -77,6 +76,12 @@ optional = true
 mypy = "1.19.1"
 ruff = ">=0.4.0"
 types-pyyaml = "^6.0.12.20250915"
+
+[tool.poetry.group.local-embeddings]
+optional = true
+
+[tool.poetry.group.local-embeddings.dependencies]
+sentence-transformers = "3.0.1"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

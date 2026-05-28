@@ -1,5 +1,7 @@
 import json
+import logging
 
+import anyio
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
@@ -7,7 +9,9 @@ from src.mcp.server import (
     MCP_PROMPT_NAMES,
     MCP_RESOURCE_URIS,
     MCP_SDK_REQUIREMENT,
+    MCP_STREAMABLE_HTTP_LOGGER,
     MCP_TOOL_NAMES,
+    _StreamableHTTPClosedResourceFilter,
     create_mcp_server,
     parse_args,
 )
@@ -131,6 +135,48 @@ def test_create_mcp_server_configures_streamable_http_transport() -> None:
     assert server.settings.stateless_http is True
     assert server.settings.json_response is True
     assert [tool.name for tool in server._tool_manager.list_tools()] == list(MCP_TOOL_NAMES)
+
+
+def test_streamable_http_closed_resource_filter_is_narrow() -> None:
+    log_filter = _StreamableHTTPClosedResourceFilter()
+
+    closed_record = _mcp_sdk_log_record(anyio.ClosedResourceError)
+    assert log_filter.filter(closed_record) is False
+
+    runtime_record = _mcp_sdk_log_record(RuntimeError)
+    assert log_filter.filter(runtime_record) is True
+
+    unrelated_record = logging.LogRecord(
+        name=MCP_STREAMABLE_HTTP_LOGGER,
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=1,
+        msg="Unexpected MCP transport error",
+        args=(),
+        exc_info=(anyio.ClosedResourceError, anyio.ClosedResourceError(), None),
+    )
+    assert log_filter.filter(unrelated_record) is True
+
+
+def test_streamable_http_server_installs_closed_resource_filter_once() -> None:
+    logger = logging.getLogger(MCP_STREAMABLE_HTTP_LOGGER)
+    original_filters = list(logger.filters)
+    logger.filters = [
+        item for item in logger.filters if not isinstance(item, _StreamableHTTPClosedResourceFilter)
+    ]
+    try:
+        args = parse_args(["--transport", "streamable-http"])
+        create_mcp_server(config_args=args)
+        create_mcp_server(config_args=args)
+
+        installed = [
+            item
+            for item in logger.filters
+            if isinstance(item, _StreamableHTTPClosedResourceFilter)
+        ]
+        assert len(installed) == 1
+    finally:
+        logger.filters = original_filters
 
 
 @pytest.mark.asyncio
@@ -640,6 +686,18 @@ async def test_mcp_resources_and_prompts_emit_spans(mocker) -> None:
 
 async def _call_tool(server, name: str, arguments: dict) -> dict:
     return await server._tool_manager.call_tool(name, arguments, convert_result=False)
+
+
+def _mcp_sdk_log_record(exc_type: type[BaseException]) -> logging.LogRecord:
+    return logging.LogRecord(
+        name=MCP_STREAMABLE_HTTP_LOGGER,
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=1,
+        msg="Error in message router",
+        args=(),
+        exc_info=(exc_type, exc_type(), None),
+    )
 
 
 async def _read_template(server, uri: str) -> str:

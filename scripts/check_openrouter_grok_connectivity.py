@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check OpenRouter connectivity for the default Grok model.
+"""Check OpenRouter connectivity for the configured default model.
 
 This script is intentionally small and non-secret: it loads OPENROUTER_API_KEY
 from the environment or local .env, but never prints the key value.
@@ -22,7 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-DEFAULT_MODEL = "x-ai/grok-4.1-fast"
+DEFAULT_MODEL = "tencent/hy3-preview"
 
 
 def load_local_env() -> None:
@@ -44,7 +44,7 @@ def load_local_env() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Validate OpenRouter connectivity and Grok task fitness."
+        description="Validate OpenRouter connectivity and CIAR task fitness."
     )
     parser.add_argument("--model", default=os.getenv("OPENROUTER_MODEL", DEFAULT_MODEL))
     parser.add_argument("--timeout", type=float, default=45.0)
@@ -147,7 +147,7 @@ async def run_check(args: argparse.Namespace) -> dict[str, Any]:
         error = sanitize_error(exc)
         recommendation = None
         if "grok 4.1 fast is deprecated" in error.lower() or "grok-4.3" in error.lower():
-            recommendation = "Use --model x-ai/grok-4.3 or update OPENROUTER_MODEL."
+            recommendation = "Use --model tencent/hy3-preview or update OPENROUTER_MODEL."
         return {
             "ok": False,
             "provider": "openrouter",

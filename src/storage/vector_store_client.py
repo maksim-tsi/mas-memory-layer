@@ -4,12 +4,18 @@ import uuid
 from typing import Any
 
 from qdrant_client import QdrantClient, models
-from sentence_transformers import SentenceTransformer
+
+LOCAL_EMBEDDINGS_EXTRA = "local-embeddings"
+DEFAULT_SENTENCE_TRANSFORMER_MODEL = "all-MiniLM-L6-v2"
 
 
 class QdrantVectorStore:
     def __init__(
-        self, host: str, port: int, collection_name: str, model_name: str = "all-MiniLM-L6-v2"
+        self,
+        host: str,
+        port: int,
+        collection_name: str,
+        model_name: str = DEFAULT_SENTENCE_TRANSFORMER_MODEL,
     ):
         """
         Initializes the connection to the Qdrant database.
@@ -22,7 +28,7 @@ class QdrantVectorStore:
         """
         self.client = QdrantClient(host=host, port=port)
         self.collection_name = collection_name
-        self.encoder = SentenceTransformer(model_name)
+        self.encoder = _load_sentence_transformer(model_name)
         self._create_collection_if_not_exists()
 
     def _create_collection_if_not_exists(self):
@@ -104,3 +110,16 @@ class QdrantVectorStore:
             collection_name=self.collection_name,
             points_selector=models.PointIdsList(points=ids),
         )
+
+
+def _load_sentence_transformer(model_name: str) -> Any:
+    try:
+        from sentence_transformers import SentenceTransformer
+    except ImportError as exc:
+        raise RuntimeError(
+            "QdrantVectorStore uses local SentenceTransformer embeddings, which are "
+            "optional and not installed in the production YAAM runtime. Install them "
+            f"with `poetry install --with {LOCAL_EMBEDDINGS_EXTRA}`, or use the "
+            "production QdrantAdapter/EpisodicMemoryTier path with API embeddings."
+        ) from exc
+    return SentenceTransformer(model_name)

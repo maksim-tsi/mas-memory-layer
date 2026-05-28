@@ -102,7 +102,7 @@ Unit tests for the demo output behaviors are provided at `tests/utils/test_llm_c
 - `scripts/test_gemini.py` - Small script to validate Google Gemini connectivity and basic generation flows.
 - `scripts/test_groq.py` - Small script to validate Groq connectivity and basic generation flows.
 - `scripts/test_mistral.py` - Small script to validate Mistral connectivity and basic generation flows.
-- `scripts/check_openrouter_grok_connectivity.py` - Small script to validate OpenRouter connectivity for `x-ai/grok-4.1-fast` and smoke-test CIAR experiment task fitness without printing secrets.
+- `scripts/check_openrouter_grok_connectivity.py` - Legacy-named script to validate OpenRouter connectivity for the configured default model (`tencent/hy3-preview`) and smoke-test CIAR experiment task fitness without printing secrets.
 - `scripts/experiments/analyze_ciar_policy_runs.py` - Aggregates CIAR policy experiment artifact directories into JSON/Markdown comparison summaries for default-policy analysis.
 - `scripts/experiments/run_ciar_regression_pack.py` - Runs the canonical local CIAR regression pack: repo venv check, ruff, and focused CIAR tests without live providers or `.env` loading.
 - `scripts/experiments/run_ciar_challenge_with_env.py` - Loads CIAR live-run keys from `.env` into `os.environ`, prints only key names/presence, optionally forces skz-data-lv service endpoints, selects a CIAR `--promotion-policy-mode`, and runs the CIAR challenge harness as a child process.
