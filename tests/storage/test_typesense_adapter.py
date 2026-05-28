@@ -1080,6 +1080,7 @@ class TestTypesenseAdapterSchemaAndSearch:
             patched_names = {field["name"] for field in patch_payload["fields"]}
             assert "usefulness_score" in patched_names
             assert "confidence_score" in patched_names
+            assert "id" not in patched_names
             await adapter.disconnect()
 
     async def test_connect_reports_incompatible_schema_without_patch(self, mock_httpx_client):

@@ -156,6 +156,8 @@ class TypesenseAdapter(StorageAdapter):
             field_name = str(desired_field.get("name", ""))
             if not field_name:
                 continue
+            if field_name == "id":
+                continue
             current_field = current_fields.get(field_name)
             if current_field is None:
                 missing_fields.append(dict(desired_field))
