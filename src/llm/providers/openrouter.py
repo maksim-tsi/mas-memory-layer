@@ -27,7 +27,7 @@ class OpenRouterProvider(BaseProvider):
         self.client = self.AsyncOpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
 
     async def generate(self, prompt: str, model: str | None = None, **kwargs) -> LLMResponse:
-        model = model or os.getenv("OPENROUTER_MODEL", "x-ai/grok-4.1-fast")
+        model = model or os.getenv("OPENROUTER_MODEL", "tencent/hy3-preview")
 
         system_instruction = kwargs.get("system_instruction")
         response_schema = kwargs.get("response_schema")

@@ -487,6 +487,8 @@ def build_config_from_env() -> agent_wrapper.WrapperConfig:
     agent_type = os.environ.get("MAS_AGENT_TYPE") or os.environ.get("AGENT_TYPE") or "full"
     os.environ["AGENT_TYPE"] = agent_type
     agent_variant = os.environ.get("MAS_AGENT_VARIANT", "baseline")
+    runtime_settings = agent_wrapper.load_runtime_settings()
+    agent_wrapper.apply_runtime_env_defaults(runtime_settings)
 
     redis_url = agent_wrapper._read_env_or_raise("REDIS_URL")
     postgres_url = agent_wrapper._read_env_or_raise("POSTGRES_URL")
@@ -509,6 +511,11 @@ def build_config_from_env() -> agent_wrapper.WrapperConfig:
         window_size=window_size,
         ttl_hours=ttl_hours,
         min_ciar=min_ciar,
+        openrouter_model=runtime_settings.openrouter_model,
+        openrouter_embedding_model=runtime_settings.openrouter_embedding_model,
+        l3_collection_name=runtime_settings.l3_collection_name,
+        l3_vector_size=runtime_settings.l3_vector_size,
+        l4_collection_name=runtime_settings.l4_collection_name,
     )
 
 

@@ -152,6 +152,7 @@ class LLMClient:
     # Model-to-provider routing map
     MODEL_ROUTING: ClassVar[dict[str, list[str]]] = {
         "x-ai/grok-4.1-fast": ["openrouter"],
+        "tencent/hy3-preview": ["openrouter"],
         "qwen/qwen3-embedding-8b": ["openrouter"],
         "gemini-3-flash-preview": ["google", "gemini", "openrouter"],  # Try both possible names
         "gemini-3-pro-preview": ["google-pro", "google", "gemini", "openrouter"],

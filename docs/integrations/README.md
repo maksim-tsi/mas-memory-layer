@@ -66,9 +66,11 @@ Register and get free API keys from all providers:
 # Add to .env file (or copy from .env.example)
 cat >> .env << EOF
 OPENROUTER_API_KEY=your-openrouter-api-key-here
-OPENROUTER_MODEL=x-ai/grok-4.1-fast
+OPENROUTER_MODEL=tencent/hy3-preview
 OPENROUTER_EMBEDDING_MODEL=qwen/qwen3-embedding-8b
-EMBEDDING_DIMENSIONS=1024
+EMBEDDING_DIMENSIONS=4096
+MAS_L3_COLLECTION=episodes_qwen_v2
+MAS_L4_COLLECTION=knowledge_base_v2
 MAS_V2_MODE=true
 GOOGLE_API_KEY=your-google-api-key-here
 GROQ_API_KEY=your-groq-api-key-here
@@ -104,8 +106,8 @@ See **Week 4-5** in the [Implementation Plan](../plan/implementation_master_plan
 
 | Task | Primary Provider | Fallback 1 | Fallback 2 | Rationale |
 |------|------------------|------------|------------|-----------|
-| **V2 Chat/Reasoning** | OpenRouter (`x-ai/grok-4.1-fast`) | Gemini | Groq/Mistral | Unified API path with stable routing |
-| **V2 Embeddings** | OpenRouter (`qwen/qwen3-embedding-8b`) | Gemini embeddings | - | Aligns L3 vector dimensions to 1024 |
+| **V2 Chat/Reasoning** | OpenRouter (`tencent/hy3-preview`) | Gemini | Groq/Mistral | Unified API path with stable routing |
+| **V2 Embeddings** | OpenRouter (`qwen/qwen3-embedding-8b`) | Gemini embeddings | - | Aligns L3 vector dimensions to 4096 |
 | **Development/Testing** | Groq (Llama 8B) | OpenRouter | Gemini | Fast turnaround with fallback coverage |
 
 ## V2 Verification Sequence

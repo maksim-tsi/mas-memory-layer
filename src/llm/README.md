@@ -37,7 +37,7 @@ For V2 memory APIs, the runtime also uses provider-level embeddings via
 Each provider has a specific default model configured based on current best practices and requirements.
 
 ### OpenRouter (`openrouter.py`)
-- **Default Generation Model**: `x-ai/grok-4.1-fast`
+- **Default Generation Model**: `tencent/hy3-preview`
 - **Default Embedding Model**: `qwen/qwen3-embedding-8b`
 - **Use Case**: Default V2 API generation and embedding path.
 - **Provider Class**: `OpenRouterProvider`

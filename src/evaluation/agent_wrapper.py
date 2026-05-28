@@ -12,10 +12,12 @@ from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Literal
 
 import redis
 import uvicorn
+import yaml
 from fastapi import FastAPI, HTTPException, Query
 
 from src.agents.base_agent import BaseAgent
@@ -43,6 +45,13 @@ from src.storage.redis_adapter import RedisAdapter
 from src.storage.typesense_adapter import TypesenseAdapter
 
 logger = logging.getLogger(__name__)
+
+RUNTIME_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "runtime.yaml"
+DEFAULT_OPENROUTER_MODEL = "tencent/hy3-preview"
+DEFAULT_OPENROUTER_EMBEDDING_MODEL = "qwen/qwen3-embedding-8b"
+DEFAULT_L3_COLLECTION = "episodes_qwen_v2"
+DEFAULT_L3_VECTOR_SIZE = 4096
+DEFAULT_L4_COLLECTION = "knowledge_base_v2"
 
 
 class RateLimiter:
@@ -154,6 +163,95 @@ class WrapperConfig:
     min_ciar: float = 0.6
     promotion_policy_mode: str = "hybrid_gate"
     contradiction_policy_mode: str = "off"
+    openrouter_model: str = DEFAULT_OPENROUTER_MODEL
+    openrouter_embedding_model: str = DEFAULT_OPENROUTER_EMBEDDING_MODEL
+    l3_collection_name: str = DEFAULT_L3_COLLECTION
+    l3_vector_size: int = DEFAULT_L3_VECTOR_SIZE
+    l4_collection_name: str = DEFAULT_L4_COLLECTION
+
+
+@dataclass(frozen=True)
+class RuntimeSettings:
+    """Non-secret runtime defaults loaded from config/runtime.yaml and env."""
+
+    openrouter_model: str
+    openrouter_embedding_model: str
+    l3_collection_name: str
+    l3_vector_size: int
+    l4_collection_name: str
+
+
+def load_runtime_settings(config_path: Path | None = None) -> RuntimeSettings:
+    """Load non-secret runtime settings with environment overrides."""
+    path = config_path or Path(os.environ.get("YAAM_RUNTIME_CONFIG", RUNTIME_CONFIG_PATH))
+    raw = _load_runtime_config(path)
+    return RuntimeSettings(
+        openrouter_model=os.environ.get("OPENROUTER_MODEL")
+        or _nested_str(raw, ("llm", "openrouter_model"), DEFAULT_OPENROUTER_MODEL),
+        openrouter_embedding_model=os.environ.get("OPENROUTER_EMBEDDING_MODEL")
+        or _nested_str(
+            raw,
+            ("llm", "openrouter_embedding_model"),
+            DEFAULT_OPENROUTER_EMBEDDING_MODEL,
+        ),
+        l3_collection_name=os.environ.get("MAS_L3_COLLECTION")
+        or _nested_str(raw, ("memory", "l3", "collection_name"), DEFAULT_L3_COLLECTION),
+        l3_vector_size=_read_int_override(
+            "EMBEDDING_DIMENSIONS",
+            raw,
+            ("memory", "l3", "vector_size"),
+            DEFAULT_L3_VECTOR_SIZE,
+        ),
+        l4_collection_name=os.environ.get("MAS_L4_COLLECTION")
+        or _nested_str(raw, ("memory", "l4", "collection_name"), DEFAULT_L4_COLLECTION),
+    )
+
+
+def apply_runtime_env_defaults(settings: RuntimeSettings) -> None:
+    """Expose config defaults to providers that still read environment values."""
+    os.environ.setdefault("OPENROUTER_MODEL", settings.openrouter_model)
+    os.environ.setdefault("OPENROUTER_EMBEDDING_MODEL", settings.openrouter_embedding_model)
+    os.environ.setdefault("MAS_L3_COLLECTION", settings.l3_collection_name)
+    os.environ.setdefault("EMBEDDING_DIMENSIONS", str(settings.l3_vector_size))
+    os.environ.setdefault("MAS_L4_COLLECTION", settings.l4_collection_name)
+
+
+def _load_runtime_config(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as handle:
+        loaded = yaml.safe_load(handle) or {}
+    if not isinstance(loaded, dict):
+        raise ValueError(f"Runtime config must be a mapping: {path}")
+    return loaded
+
+
+def _nested_value(raw: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    current: Any = raw
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _nested_str(raw: dict[str, Any], keys: tuple[str, ...], default: str) -> str:
+    value = _nested_value(raw, keys)
+    return str(value) if value not in (None, "") else default
+
+
+def _read_int_override(
+    env_name: str,
+    raw: dict[str, Any],
+    keys: tuple[str, ...],
+    default: int,
+) -> int:
+    raw_value = os.environ.get(env_name)
+    if raw_value in (None, ""):
+        raw_value = _nested_value(raw, keys)
+    if raw_value in (None, ""):
+        return default
+    return int(raw_value)
 
 
 @dataclass
@@ -263,8 +361,8 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
     qdrant_adapter = QdrantAdapter(
         {
             "url": _read_env_or_raise("QDRANT_URL"),
-            "collection_name": "episodes",
-            "vector_size": 768,
+            "collection_name": config.l3_collection_name,
+            "vector_size": config.l3_vector_size,
         }
     )
     neo4j_adapter = Neo4jAdapter(
@@ -280,15 +378,22 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
         {
             "url": _read_env_or_raise("TYPESENSE_URL"),
             "api_key": os.environ.get("TYPESENSE_API_KEY", "mas-typesense-key"),
-            "collection_name": "knowledge_base",
+            "collection_name": config.l4_collection_name,
         }
     )
 
     episodic_tier = EpisodicMemoryTier(
         qdrant_adapter=qdrant_adapter,
         neo4j_adapter=neo4j_adapter,
+        config={
+            "collection_name": config.l3_collection_name,
+            "vector_size": config.l3_vector_size,
+        },
     )
-    semantic_tier = SemanticMemoryTier(typesense_adapter=typesense_adapter)
+    semantic_tier = SemanticMemoryTier(
+        typesense_adapter=typesense_adapter,
+        config={"collection_name": config.l4_collection_name},
+    )
 
     await episodic_tier.initialize()
     await semantic_tier.initialize()
@@ -589,6 +694,8 @@ def build_config(args: argparse.Namespace) -> WrapperConfig:
     """Build wrapper configuration from CLI args and environment variables."""
 
     os.environ["AGENT_TYPE"] = args.agent_type
+    runtime_settings = load_runtime_settings()
+    apply_runtime_env_defaults(runtime_settings)
 
     redis_url = _read_env_or_raise("REDIS_URL")
     postgres_url = _read_env_or_raise("POSTGRES_URL")
@@ -613,6 +720,11 @@ def build_config(args: argparse.Namespace) -> WrapperConfig:
         min_ciar=min_ciar,
         promotion_policy_mode=promotion_policy_mode,
         contradiction_policy_mode=contradiction_policy_mode,
+        openrouter_model=runtime_settings.openrouter_model,
+        openrouter_embedding_model=runtime_settings.openrouter_embedding_model,
+        l3_collection_name=runtime_settings.l3_collection_name,
+        l3_vector_size=runtime_settings.l3_vector_size,
+        l4_collection_name=runtime_settings.l4_collection_name,
     )
 
 
