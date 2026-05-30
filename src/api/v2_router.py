@@ -519,12 +519,19 @@ async def semantic_query(request: Request, payload: L3SemanticQueryRequest) -> d
             )
 
         _log_with_trace(logging.INFO, f"Querying knowledge for agent {payload.agent_id}.")
-        llm_client = state.memory_system.llm_client
+        service = _memory_service_from_state(state)
+        scope = _scope_from_request(
+            request,
+            session_id=payload.session_id,
+            agent_id=payload.agent_id,
+        )
 
         try:
-            _ = await llm_client.get_embedding(payload.nl_query)
-            prompt = f"Translate to Cypher query: {payload.nl_query}"
-            await llm_client.generate(prompt)
+            results = await service.search_l3_episodes(
+                scope=scope,
+                query=payload.nl_query,
+                limit=payload.top_k,
+            )
         except Exception as exc:
             logger.exception("LLM Provider failed during query")
             raise HTTPException(
@@ -532,11 +539,9 @@ async def semantic_query(request: Request, payload: L3SemanticQueryRequest) -> d
                 detail=f"502 Bad Gateway: YAAM internal LLM pipeline failed - {exc}",
             ) from exc
 
-        # In a fully integrated system we would call l3_tier.search(embedding, cypher_query)
-        # Simulating standard response adherence below.
         return {
             "status": "success",
-            "results": [],
+            "results": [result.model_dump(mode="json") for result in results],
             "provenance": {"agent_id": payload.agent_id, "session_id": payload.session_id},
         }
 

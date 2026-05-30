@@ -13,7 +13,7 @@ import json
 import time
 import uuid
 import warnings
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from src.memory.models import Episode, EpisodeStoreInput
@@ -296,7 +296,14 @@ class EpisodicMemoryTier(BaseTier[Episode]):
             episodes = []
             max_similarity = 0.0
             for result in results:
-                payload = result["payload"]
+                payload = self._normalize_search_payload(result)
+                time_window_start = self._parse_payload_datetime(payload.get("time_window_start"))
+                time_window_end = self._parse_payload_datetime(
+                    payload.get("time_window_end"), time_window_start
+                )
+                fact_valid_from = self._parse_payload_datetime(
+                    payload.get("fact_valid_from"), time_window_start
+                )
                 episode = Episode(
                     episode_id=payload["episode_id"],
                     session_id=payload["session_id"],
@@ -304,14 +311,14 @@ class EpisodicMemoryTier(BaseTier[Episode]):
                     narrative=payload.get("narrative"),
                     source_fact_ids=payload.get("source_fact_ids", []),
                     fact_count=payload["fact_count"],
-                    time_window_start=datetime.fromisoformat(payload["time_window_start"]),
-                    time_window_end=datetime.fromisoformat(payload["time_window_end"]),
-                    fact_valid_from=datetime.fromisoformat(payload["fact_valid_from"]),
-                    fact_valid_to=datetime.fromisoformat(payload["fact_valid_to"])
+                    time_window_start=time_window_start,
+                    time_window_end=time_window_end,
+                    fact_valid_from=fact_valid_from,
+                    fact_valid_to=self._parse_payload_datetime(payload.get("fact_valid_to"))
                     if payload.get("fact_valid_to")
                     else None,
-                    source_observation_timestamp=datetime.fromisoformat(
-                        payload.get("source_observation_timestamp", payload["time_window_start"])
+                    source_observation_timestamp=self._parse_payload_datetime(
+                        payload.get("source_observation_timestamp"), time_window_start
                     ),
                     importance_score=payload["importance_score"],
                     topics=payload.get("topics", []),
@@ -341,6 +348,53 @@ class EpisodicMemoryTier(BaseTier[Episode]):
 
             return episodes
         raise AssertionError("Unreachable: search_similar should return or raise.")
+
+    @staticmethod
+    def _parse_payload_datetime(value: Any, fallback: datetime | None = None) -> datetime:
+        """Parse persisted ISO timestamps while tolerating legacy sparse payloads."""
+        if isinstance(value, datetime):
+            return value
+        if value:
+            return datetime.fromisoformat(str(value))
+        return fallback or datetime.now(UTC)
+
+    def _normalize_search_payload(self, result: dict[str, Any]) -> dict[str, Any]:
+        """Normalize Qdrant search results from raw payload or adapter-flattened shapes."""
+        raw_payload = result.get("payload") or {}
+        metadata = dict(raw_payload.get("metadata") or result.get("metadata") or {})
+
+        if raw_payload:
+            payload = {**metadata, **raw_payload}
+        else:
+            payload = {
+                key: value
+                for key, value in result.items()
+                if key not in {"id", "vector", "score", "metadata"}
+            }
+            payload = {**metadata, **payload}
+
+        payload["metadata"] = metadata
+        payload.setdefault("episode_id", result.get("episode_id") or metadata.get("episode_id"))
+        payload.setdefault("session_id", result.get("session_id") or metadata.get("session_id"))
+        payload.setdefault(
+            "summary",
+            result.get("content") or metadata.get("summary") or metadata.get("narrative") or "",
+        )
+        payload.setdefault("narrative", metadata.get("narrative"))
+        payload.setdefault("source_fact_ids", metadata.get("source_fact_ids", []))
+        payload.setdefault("fact_count", metadata.get("fact_count", 0))
+        payload.setdefault("time_window_start", metadata.get("time_window_start"))
+        payload.setdefault("time_window_end", metadata.get("time_window_end"))
+        payload.setdefault("fact_valid_from", metadata.get("fact_valid_from"))
+        payload.setdefault("fact_valid_to", metadata.get("fact_valid_to"))
+        payload.setdefault(
+            "source_observation_timestamp", metadata.get("source_observation_timestamp")
+        )
+        payload.setdefault("importance_score", metadata.get("importance_score", 0.5))
+        payload.setdefault("topics", metadata.get("topics", []))
+        payload.setdefault("graph_node_id", metadata.get("graph_node_id"))
+        payload.setdefault("project_id", result.get("project_id") or metadata.get("project_id"))
+        return payload
 
     async def query_graph(
         self, cypher_query: str, parameters: dict[str, Any] | None = None

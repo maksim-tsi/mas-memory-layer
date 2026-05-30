@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import httpx
 import pytest
 from fastapi import FastAPI
@@ -5,7 +7,7 @@ from fastapi import FastAPI
 from src.api.v2_router import router
 from src.evaluation.agent_wrapper import AgentWrapperState
 from src.memory.ciar_formula import calculate_ciar_score
-from src.memory.models import Fact
+from src.memory.models import Episode, Fact
 
 
 def _build_app(mocker, *, memory_system=None, l2_tier=None, l3_tier=None, l4_tier=None):
@@ -196,6 +198,61 @@ async def test_v2_l3_assimilate_uses_shared_service_and_preserves_provider_failu
 
     assert failure.status_code == 502
     assert "YAAM internal LLM pipeline failed" in failure.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_v2_l3_query_returns_shared_service_results(mocker):
+    now = datetime.now(UTC)
+    l3_tier = mocker.Mock()
+    memory_system = mocker.Mock()
+    memory_system.l3_tier = l3_tier
+    memory_system._query_l3_episodes = mocker.AsyncMock(
+        return_value=[
+            Episode(
+                episode_id="ep-1",
+                session_id="test:session-1",
+                summary="L3 query returns real retrieved episodes.",
+                fact_count=1,
+                time_window_start=now,
+                time_window_end=now,
+                fact_valid_from=now,
+                source_observation_timestamp=now,
+                importance_score=0.8,
+                metadata={
+                    "client_session_id": "session-1",
+                    "similarity_score": 0.93,
+                    "agent_id": "agent-1",
+                },
+            )
+        ]
+    )
+    app = _build_app(mocker, memory_system=memory_system, l3_tier=l3_tier)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/v2/memory/l3/query",
+            json={
+                "session_id": "session-1",
+                "agent_id": "agent-1",
+                "nl_query": "retrieved episodes",
+                "top_k": 3,
+                "filters": {},
+            },
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "success"
+    assert body["results"][0]["tier"] == "L3"
+    assert body["results"][0]["source_id"] == "ep-1"
+    assert body["results"][0]["content"] == "L3 query returns real retrieved episodes."
+    assert body["results"][0]["provenance"]["session_id"] == "session-1"
+    memory_system._query_l3_episodes.assert_awaited_once_with(
+        session_id="test:session-1",
+        query="retrieved episodes",
+        limit=3,
+    )
 
 
 @pytest.mark.asyncio

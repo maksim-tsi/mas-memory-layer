@@ -377,6 +377,48 @@ class TestEpisodicMemoryTierSearch:
         episodic_tier.qdrant.search.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_search_similar_accepts_flattened_qdrant_adapter_results(
+        self, episodic_tier, sample_embedding
+    ):
+        """Real QdrantAdapter.search() returns payload fields flattened at top level."""
+        now = datetime.now(UTC)
+        episodic_tier.qdrant.search = AsyncMock(
+            return_value=[
+                {
+                    "id": "vector_001",
+                    "score": 0.91,
+                    "content": "Flattened adapter episode summary",
+                    "metadata": {
+                        "episode_id": "ep_flat_001",
+                        "session_id": "agentic-scm-tra26:readiness-session",
+                        "project_id": "agentic-scm-tra26",
+                        "client_session_id": "readiness-session",
+                        "summary": "Flattened adapter episode summary",
+                        "time_window_start": now.isoformat(),
+                        "time_window_end": now.isoformat(),
+                        "fact_valid_from": now.isoformat(),
+                        "fact_valid_to": None,
+                        "topics": ["readiness"],
+                        "importance_score": 0.7,
+                    },
+                    "episode_id": "ep_flat_001",
+                    "session_id": "agentic-scm-tra26:readiness-session",
+                    "project_id": "agentic-scm-tra26",
+                }
+            ]
+        )
+
+        results = await episodic_tier.search_similar(query_embedding=sample_embedding, limit=5)
+
+        assert len(results) == 1
+        assert results[0].episode_id == "ep_flat_001"
+        assert results[0].session_id == "agentic-scm-tra26:readiness-session"
+        assert results[0].summary == "Flattened adapter episode summary"
+        assert results[0].project_id == "agentic-scm-tra26"
+        assert results[0].metadata["client_session_id"] == "readiness-session"
+        assert results[0].metadata["similarity_score"] == 0.91
+
+    @pytest.mark.asyncio
     async def test_search_with_filters(self, episodic_tier, sample_embedding):
         """Test similarity search with filters."""
         episodic_tier.qdrant.search = AsyncMock(return_value=[])
