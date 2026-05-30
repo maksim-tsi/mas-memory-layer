@@ -119,6 +119,13 @@ class TestEpisodicMemoryTierStore:
         """Test storing episode in both Qdrant and Neo4j."""
         # Setup
         episodic_tier.neo4j.execute_query = AsyncMock(return_value=[{"id": "ep_001"}])
+        sample_episode.metadata.update(
+            {
+                "domain": "skill_factory",
+                "run_id": "skill-run-001",
+                "qa_status": "failed",
+            }
+        )
 
         # Store episode
         payload = EpisodeStoreInput(
@@ -132,6 +139,10 @@ class TestEpisodicMemoryTierStore:
         # Verify
         assert episode_id == "ep_001"
         episodic_tier.qdrant.upsert.assert_called_once()
+        qdrant_payload = episodic_tier.qdrant.upsert.call_args.args[0]
+        assert qdrant_payload["metadata"]["domain"] == "skill_factory"
+        assert qdrant_payload["metadata"]["run_id"] == "skill-run-001"
+        assert qdrant_payload["metadata"]["metadata"]["qa_status"] == "failed"
         # Neo4j should be called at least twice (create episode + link indexes)
         assert episodic_tier.neo4j.execute_query.call_count >= 2
 

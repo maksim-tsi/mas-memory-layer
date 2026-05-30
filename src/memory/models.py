@@ -295,7 +295,7 @@ class Episode(BaseModel):
 
     def to_qdrant_payload(self) -> dict[str, Any]:
         """Convert to Qdrant payload format."""
-        return {
+        payload = {
             "episode_id": self.episode_id,
             "session_id": self.session_id,
             "project_id": self.project_id or self.metadata.get("project_id"),
@@ -313,6 +313,10 @@ class Episode(BaseModel):
             "graph_node_id": self.graph_node_id,
             "consolidated_at": self.consolidated_at.isoformat(),
         }
+        for key, value in self.metadata.items():
+            payload.setdefault(key, value)
+        payload["metadata"] = dict(self.metadata)
+        return payload
 
     def to_neo4j_properties(self) -> dict[str, Any]:
         """Convert to Neo4j node properties."""
