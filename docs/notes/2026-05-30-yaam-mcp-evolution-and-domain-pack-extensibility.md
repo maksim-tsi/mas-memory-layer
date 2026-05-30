@@ -48,6 +48,47 @@ This separation became a core design decision. The API Wall was not expanded int
 
 This decision also preserved the "mechanism versus policy" boundary that had been present in the earlier architecture. Storage adapters remained mechanisms. Public interfaces, scope envelopes, permission policy, evidence assembly, CIAR explanation, and domain views live above the storage layer.
 
+```mermaid
+flowchart TB
+    subgraph Consumers["Research consumers and agent hosts"]
+        Bench["Benchmarks and chat clients"]
+        Services["Backend and batch services"]
+        Agents["MCP-capable agent hosts"]
+    end
+
+    subgraph Interfaces["Public YAAM interfaces"]
+        ApiWall["API Wall<br/>OpenAI-compatible boundary"]
+        Rest["REST v2<br/>/v2/memory service API"]
+        Mcp["MCP v1<br/>tools, resources, prompts"]
+    end
+
+    subgraph Policy["Shared policy and service layer"]
+        Scope["Scope envelope<br/>session/task/run/project"]
+        ServicesLayer["Memory, retrieval, evidence,<br/>CIAR, curation services"]
+        Permissions["Permissions, redaction,<br/>partial results, provenance"]
+    end
+
+    subgraph Mechanism["Storage mechanisms"]
+        L1["Redis L1"]
+        L2["PostgreSQL L2"]
+        L3["Qdrant + Neo4j L3"]
+        L4["Typesense L4"]
+    end
+
+    Bench --> ApiWall
+    Services --> Rest
+    Agents --> Mcp
+    ApiWall --> Scope
+    Rest --> Scope
+    Mcp --> Scope
+    Scope --> ServicesLayer
+    ServicesLayer --> Permissions
+    ServicesLayer --> L1
+    ServicesLayer --> L2
+    ServicesLayer --> L3
+    ServicesLayer --> L4
+```
+
 ## 3. Requirements Intake From Research Consumers
 
 The requirements analysis in [docs/requirements/2026-05-24-customer-requirements-analysis.md](../requirements/2026-05-24-customer-requirements-analysis.md) gathered input from six research or benchmark consumers:
@@ -102,6 +143,23 @@ The final strategy is documented in [docs/specs/spec-mcp-v1-implementation.md](.
 - `streamable-http` as the shared deployment transport for consumer systems connecting to a centrally operated YAAM runtime, such as the `skz-data-lv` endpoint used during readiness testing.
 
 Both transports expose the same tools, resources, prompts, permissions, and service-layer contracts. Streamable HTTP is therefore a deployment extension, not a second semantic API.
+
+```mermaid
+flowchart LR
+    LocalHost["Local MCP host<br/>subprocess integration"] --> Stdio["stdio transport"]
+    RemoteConsumer["Remote research consumer<br/>shared lab network"] --> Http["Streamable HTTP transport"]
+
+    Stdio --> Factory["FastMCP server factory"]
+    Http --> Factory
+
+    Factory --> Surface["One MCP surface<br/>tools, resources, prompts"]
+    Surface --> Policy["Same permission policy<br/>read default, allowlisted writes"]
+    Surface --> ServiceLayer["Same YAAM service layer"]
+
+    ServiceLayer --> Runtime["Project-scoped YAAM runtime"]
+
+    Note["No transport-specific semantics"] -.-> Surface
+```
 
 ## 5. MCP v1 Architecture
 
@@ -205,6 +263,51 @@ The pack relies on canonical metadata supplied through existing L2/L3/L4/curatio
 ```
 
 This design is important because it avoids a false tradeoff between genericity and usefulness. YAAM can remain a shared memory substrate while presenting domain-specific read views to projects that need them. The domain pack is additive, read-only, service-backed, and namespace-gated. It does not change generic tool semantics, write gates, storage contracts, or REST behavior.
+
+```mermaid
+flowchart TB
+    subgraph Generic["Generic MCP core"]
+        Tools["Generic tools<br/>query, context, L2/L3/L4, evidence, CIAR"]
+        Resources["Generic resources<br/>sessions, facts, episodes, knowledge, health"]
+        Prompts["Generic prompts<br/>evidence, inspection, CIAR, retrieval strategy"]
+    end
+
+    subgraph Activation["Domain pack activation"]
+        Project["YAAM_PROJECT_ID=scm-skill-factory"]
+        Packs["YAAM_MCP_DOMAIN_PACKS=auto"]
+        Decision{"Enable<br/>skill-factory pack?"}
+    end
+
+    subgraph SkillPack["Skill Factory MCP domain pack"]
+        SkillResources["Read-only resources<br/>skills, CTTs, runs, QA status, active-tool status"]
+        SkillPrompt["Prompt<br/>repair pattern summary"]
+        Metadata["Canonical metadata<br/>skill_name, ctt_id, run_id, qa_status"]
+    end
+
+    subgraph OtherConsumers["Other consumers"]
+        TRA["agentic-scm-tra26"]
+        Cognitive["scm-cognitive-sandwich"]
+    end
+
+    Tools --> ServiceLayer["Shared YAAM service layer"]
+    Resources --> ServiceLayer
+    Prompts --> ServiceLayer
+
+    Project --> Decision
+    Packs --> Decision
+    Decision -- yes --> SkillResources
+    Decision -- yes --> SkillPrompt
+    Metadata --> SkillResources
+    SkillResources --> ServiceLayer
+    SkillPrompt --> ServiceLayer
+
+    TRA --> Generic
+    Cognitive --> Generic
+    Decision -- no --> Generic
+
+    Safety["No fork, no write-gate change,<br/>no generic semantic drift"] -.-> Generic
+    Safety -.-> SkillPack
+```
 
 For the future paper, this is a strong case study: a consumer found a real domain gap; the architecture absorbed the gap as an optional interface extension rather than as a fork.
 
@@ -330,4 +433,3 @@ The next evidence package for a journal article should include:
 | `agentic-scm-tra26` | `pass` | [TRA readiness report](../integrations/consumer-readiness-2026-05-30/reports/20260530T153445Z-agentic-scm-tra26-full-synthetic-report.md) |
 | `scm-skill-factory` | `pass-with-findings` | [Skill Factory readiness report](../integrations/consumer-readiness-2026-05-30/reports/2026-05-30-scm-skill-factory-readiness-report.md) |
 | Consumer wave register | living register | [Results register](../integrations/consumer-readiness-2026-05-30/consumer-readiness-results-register.md) |
-
