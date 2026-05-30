@@ -26,6 +26,7 @@ Triage status values: `new`, `triaged`, `accepted`, `deferred`, `in-progress`, `
 | Run ID | Date | Consumer | Project namespace | Consumer host | YAAM endpoint | MCP endpoint | Report path | Overall verdict | Triage status | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | CRUN-20260530-001 | 2026-05-30 | `agentic-scm-tra26` | `agentic-scm-tra26` | MacBook/local network | `http://192.168.107.187:8002` | `http://192.168.107.187:8003/mcp` | `reports/20260530T153445Z-agentic-scm-tra26-full-synthetic-report.md` | `pass` | `triaged` | Full synthetic readiness passed; evidence JSON copied as `reports/20260530T153445Z-agentic-scm-tra26-full-synthetic-results.json`. |
+| CRUN-20260530-002 | 2026-05-30 | `scm-skill-factory` | `scm-skill-factory` | MacBook/local network | `http://192.168.107.187:8002` | `http://192.168.107.187:8003/mcp` | `reports/2026-05-30-scm-skill-factory-readiness-report.md` | `pass-with-findings` | `triaged` | Full synthetic readiness passed; report-only evidence copied. Findings are expected Skill Factory domain-view gaps, not runtime blockers. |
 
 ### CRUN-20260530-001 Identifiers
 
@@ -36,16 +37,28 @@ Triage status values: `new`, `triaged`, `accepted`, `deferred`, `in-progress`, `
 - Traceparent: `00-abcdefabcdefabcdefabcdefabcdefab-fedcbafedcbafedc-01`
 - Finished at: `2026-05-30T15:35:58.732795+00:00`
 
-## 3. CRUN-20260530-001 Coverage Evaluation
+### CRUN-20260530-002 Identifiers
 
-### Verdict
+- Run timestamp: `2026-05-30T17:54:35Z`
+- Consumer branch: `dev-eval`
+- Consumer commit: `fd93046` (`chore: prepare YAAM readiness baseline`)
+- Consumer runtime: MacBook / macOS, project venv Python 3.13
+- Phoenix project name reported by consumer: `scm-skill-factory`
+- Full write-enabled command: `./.venv/bin/python scripts/verify_yaam.py --include-writes`
+- Completion: `YAAM readiness verification completed in 10.89s`
+
+## 3. Consumer Coverage Evaluation
+
+### CRUN-20260530-001: `agentic-scm-tra26`
+
+#### Verdict
 
 `agentic-scm-tra26` passed the full synthetic readiness run. This is not merely a formal smoke test:
 it exercised persisted writes, scoped reads, namespace isolation, L3 retrieval after assimilation,
 L4 finalization, MCP read surfaces, evidence table generation, and default denial for MCP write
 tools.
 
-### Business Value Demonstrated
+#### Business Value Demonstrated
 
 The run demonstrates that TRA can use YAAM to:
 
@@ -56,7 +69,7 @@ The run demonstrates that TRA can use YAAM to:
 - inspect memory context and evidence through MCP without direct storage access;
 - rely on guarded MCP mutation defaults unless an explicit write window is opened.
 
-### Covered Well
+#### Covered Well
 
 | Area | Evidence |
 | --- | --- |
@@ -70,7 +83,7 @@ The run demonstrates that TRA can use YAAM to:
 | MCP guarded mutation | `yaam.l2.store_fact` returned structured `permission.writes_disabled` as expected. |
 | Negative validation | Missing L2 content was rejected with HTTP 400. |
 
-### Partially Covered
+#### Partially Covered
 
 | Area | Gap |
 | --- | --- |
@@ -86,25 +99,80 @@ The run demonstrates that TRA can use YAAM to:
 - Provider or DBMS degradation, retry, and failover behavior.
 - Phoenix trace correlation evidence across TRA and YAAM spans.
 
+### CRUN-20260530-002: `scm-skill-factory`
+
+#### Verdict
+
+`scm-skill-factory` passed the full synthetic readiness run. The result is strong enough to proceed
+with the first project-specific YAAM integration test, but the right register verdict is
+`pass-with-findings` because the consumer identified expected domain-specific gaps for Skill Factory
+views and prompts.
+
+This is not merely a formal connectivity check. The run exercised REST health/context, MCP
+discovery/read paths, Phoenix API reachability, OpenRouter/Qwen runtime configuration, L2/L3/L4
+synthetic writes, curation writes, evidence, CIAR, and default write-safety behavior.
+
+#### Business Value Demonstrated
+
+The run demonstrates that Skill Factory can use YAAM to:
+
+- assemble pre-generation memory context with leakage-guard metadata;
+- store and retrieve scoped L2 facts for skill-generation or repair sessions;
+- assimilate and query L3 repair episodes;
+- finalize durable L4 artifacts;
+- write and list maintainer curation decisions;
+- inspect CIAR and evidence through MCP without direct storage coupling;
+- run against the isolated `scm-skill-factory` namespace.
+
+#### Covered Well
+
+| Area | Evidence |
+| --- | --- |
+| Runtime configuration | Consumer reported `OPENROUTER_MODEL=tencent/hy3-preview`, Qwen embeddings, and 4096 dimensions. |
+| REST health/context | `/health` passed and context returned `leakage_guard_passed=True`. |
+| MCP discovery/read | 16 tools, 5 resources, 5 templates, and 4 prompts were discovered; health, evidence, and CIAR reads passed. |
+| L2 store/retrieve/isolation | Synthetic L2 write, same-scope retrieval, and isolation checks passed. |
+| L3 assimilation/query | Synthetic repair episode assimilation and query checks passed. |
+| L4 finalize | Synthetic artifact finalization returned a knowledge id. |
+| Curation | Synthetic maintainer curation decision write and list checks passed. |
+| Phoenix reachability | Phoenix API was reachable and listed 65 projects. |
+
+#### Partially Covered
+
+| Area | Gap |
+| --- | --- |
+| Skill Factory domain views | Generic YAAM primitives passed, but dedicated views by skill, CTT, QA status, repair history, and active-tool status are still expected follow-ups. |
+| MCP domain resources | `yaam://skills/{skill_name}` and `yaam://ctts/{ctt_id}` are missing or partial. |
+| Domain prompt support | `yaam.prompt.repair_pattern_summary` is missing or partial. |
+| Phoenix trace correlation | Phoenix API reachability was proven, but no specific span export or trace correlation evidence was included. |
+
+#### Not Covered
+
+- A normal end-to-end Skill Factory production workflow using YAAM inside skill creation, QA, repair,
+  and replay loops.
+- Multi-run learning across separate Skill Factory sessions and artifacts.
+- Direct validation that the expected Skill Factory domain views exist as first-class MCP resources.
+- Provider/DBMS degradation and retry behavior.
+
 ## 4. Requirement Coverage Snapshot
 
-| Requirement | Coverage from CRUN-20260530-001 | Status |
+| Requirement | Coverage from consumer runs | Status |
 | --- | --- | --- |
-| `YAAM-REQ-0001` distinct REST/MCP surfaces | REST and MCP were both exercised independently. | covered |
-| `YAAM-REQ-0002` MCP memory query | `yaam.memory.query` returned an L3 result. | covered |
-| `YAAM-REQ-0003` MCP context assembly | `yaam.memory.get_context` returned scoped context. | covered |
-| `YAAM-REQ-0005` scoped L2 fact store/retrieve | L2 write/read and isolation passed. | covered |
-| `YAAM-REQ-0006` L3 episode assimilation | Assimilation returned `ep-b2e83405`. | covered |
-| `YAAM-REQ-0007` L3 semantic query | L3 retrieval returned the assimilated episode. | covered |
-| `YAAM-REQ-0008` L4 final artifact storage | Finalize returned `kd-6c832092`; direct readback not tested. | partial |
-| `YAAM-REQ-0009` provenance on reads/writes | Responses contained source/provenance fields. | covered |
-| `YAAM-REQ-0011` read-only MCP defaults | Read tools succeeded without writes. | covered |
-| `YAAM-REQ-0012` allowlisted MCP mutation | Default write denial was proven; allowlisted write window not tested. | partial |
-| `YAAM-REQ-0014` trace context/Phoenix audit | `traceparent` propagated in requests; Phoenix evidence not included. | partial |
-| `YAAM-REQ-0015` health/config inspection | REST health and MCP health succeeded. | covered |
-| `YAAM-REQ-0016` Evidence Table generation | `yaam.evidence.table` succeeded. | covered |
-| `YAAM-REQ-0034` performance budgets | Most calls were fast; L3 assimilate took about 61.7s and needs tracking. | partial |
-| `YAAM-REQ-0038` trace/artifact correlation metadata | Trace/session/task metadata was present; cross-system trace evidence not included. | partial |
+| `YAAM-REQ-0001` distinct REST/MCP surfaces | Both TRA and Skill Factory exercised REST and MCP independently. | covered |
+| `YAAM-REQ-0002` MCP memory query | TRA exercised `yaam.memory.query`; Skill Factory exercised MCP read tools and evidence/CIAR. | covered |
+| `YAAM-REQ-0003` MCP context assembly | TRA used `yaam.memory.get_context`; Skill Factory REST context returned leakage guard metadata. | covered |
+| `YAAM-REQ-0005` scoped L2 fact store/retrieve | Both runs passed L2 write/read/isolation. | covered |
+| `YAAM-REQ-0006` L3 episode assimilation | Both runs passed L3 assimilation. | covered |
+| `YAAM-REQ-0007` L3 semantic query | Both runs passed L3 query after synthetic assimilation. | covered |
+| `YAAM-REQ-0008` L4 final artifact storage | Both runs passed L4 finalize; direct L4 search/readback still needs stronger evidence. | partial |
+| `YAAM-REQ-0009` provenance on reads/writes | Responses and reports include scope/provenance evidence for synthetic paths. | covered |
+| `YAAM-REQ-0011` read-only MCP defaults | Read paths succeeded; TRA explicitly validated default write denial. | covered |
+| `YAAM-REQ-0012` allowlisted MCP mutation | Default write safety is validated; mutating MCP allowlist window remains untested by consumers. | partial |
+| `YAAM-REQ-0014` trace context/Phoenix audit | TRA included `traceparent`; Skill Factory proved Phoenix API reachability. Span export/correlation evidence is still missing. | partial |
+| `YAAM-REQ-0015` health/config inspection | REST health and MCP health/config paths succeeded. | covered |
+| `YAAM-REQ-0016` Evidence Table generation | Both reports include evidence/CIAR read success. | covered |
+| `YAAM-REQ-0034` performance budgets | TRA exposed L3 latency to monitor; Skill Factory completed full verifier in 10.89s. | partial |
+| `YAAM-REQ-0038` trace/artifact correlation metadata | Session/task/project metadata is present; cross-system trace evidence remains partial. | partial |
 
 ## 5. Findings Backlog
 
@@ -114,6 +182,10 @@ The run demonstrates that TRA can use YAAM to:
 | CF-AGTRA26-002 | CRUN-20260530-001 | `agentic-scm-tra26` | `P2` | `contract` | Add direct L4 search/readback to readiness script | Finalize an L4 artifact, then query/read L4 explicitly. | Finalize returned `kd-6c832092`, but public query first result was L3. | `triaged` | TBD | TBD | Readiness evidence includes direct L4 retrieval of the finalized artifact. |
 | CF-AGTRA26-003 | CRUN-20260530-001 | `agentic-scm-tra26` | `P3` | `documentation` | Require explicit `YAAM-REQ-*` coverage table in consumer reports | Compare submitted report with `readiness-report-template.md`. | Report has checks and operations, but no requirement coverage table. | `triaged` | TBD | TBD | Next report includes requirement coverage rows or a generated appendix. |
 | CF-AGTRA26-004 | CRUN-20260530-001 | `agentic-scm-tra26` | `P3` | `observability` | Include Phoenix trace evidence in future reports | Run readiness with trace export or Phoenix evidence capture. | Report includes `traceparent`, but no Phoenix span evidence. | `triaged` | TBD | TBD | Report links sanitized Phoenix span export or trace screenshot/summary. |
+| CF-SKILL-001 | CRUN-20260530-002 | `scm-skill-factory` | `P2` | `contract` | Add Skill Factory first-class run views | Run Skill Factory readiness and inspect expected gaps. | Report lists missing dedicated run views keyed by skill, CTT, QA status, and active tool status. | `triaged` | TBD | TBD | MCP/resource layer exposes documented Skill Factory views and the consumer verifier no longer classifies them as gaps. |
+| CF-SKILL-002 | CRUN-20260530-002 | `scm-skill-factory` | `P2` | `MCP` | Add `yaam://skills/{skill_name}` and `yaam://ctts/{ctt_id}` resources | Run Skill Factory MCP resource checks. | Report classifies both resources as missing or partially implemented. | `triaged` | TBD | TBD | MCP resource reads return scoped Skill Factory payloads for synthetic skill and CTT identifiers. |
+| CF-SKILL-003 | CRUN-20260530-002 | `scm-skill-factory` | `P2` | `MCP` | Add repair pattern summary prompt | Run Skill Factory prompt discovery/checks. | Report classifies `yaam.prompt.repair_pattern_summary` as missing or partially implemented. | `triaged` | TBD | TBD | Prompt discovery includes `yaam.prompt.repair_pattern_summary` and a rendered synthetic prompt is accepted by the verifier. |
+| CF-SKILL-004 | CRUN-20260530-002 | `scm-skill-factory` | `P3` | `observability` | Include concrete Phoenix span evidence in Skill Factory reports | Run readiness with Phoenix export or trace summary. | Report proves Phoenix API reachability but not span correlation for the run. | `triaged` | TBD | TBD | Report links sanitized span export or trace summary for the readiness run. |
 
 Priority values:
 
@@ -141,5 +213,5 @@ as close as possible to the original consumer path:
 | Order | Consumer | Planned `YAAM_PROJECT_ID` | Status | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | `agentic-scm-tra26` | `agentic-scm-tra26` | completed synthetic readiness | PASS with non-blocking follow-ups. |
-| 2 | `scm-skill-factory` | `scm-skill-factory` | pending | Run after YAAM is switched to this namespace and smoke-tested. |
+| 2 | `scm-skill-factory` | `scm-skill-factory` | completed synthetic readiness | PASS with expected Skill Factory domain-view follow-ups. |
 | 3 | `scm-cognitive-sandwich` | `scm-cognitive-sandwich` | pending | Run after YAAM is switched to this namespace and smoke-tested. |
