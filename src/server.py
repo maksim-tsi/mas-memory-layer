@@ -518,6 +518,7 @@ def build_config_from_env() -> agent_wrapper.WrapperConfig:
         redis_url=redis_url,
         postgres_url=postgres_url,
         session_prefix=session_prefix,
+        project_id=runtime_settings.project_id,
         window_size=window_size,
         ttl_hours=ttl_hours,
         min_ciar=min_ciar,
