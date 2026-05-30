@@ -14,10 +14,12 @@ from pydantic import ValidationError
 from src.evaluation.agent_wrapper import build_config, initialize_state, shutdown_state
 from src.memory.ciar_formula import DEFAULT_AGE_DECAY_LAMBDA, DEFAULT_RECENCY_ALPHA
 from src.memory.models import Episode, Fact, KnowledgeDocument, SearchWeights
+from src.memory.namespace import normalize_project_id
 from src.memory.services import (
     MemoryGatewayService,
     PermissionPolicy,
     ScopeEnvelope,
+    SkillFactoryDomainViewService,
     YAAMErrorPayload,
     YAAMPermissionError,
 )
@@ -70,6 +72,16 @@ MCP_PROMPT_NAMES = (
     "yaam.prompt.retrieval_strategy",
 )
 
+SKILL_FACTORY_MCP_RESOURCE_URIS = (
+    "yaam://skills/{skill_name}",
+    "yaam://ctts/{ctt_id}",
+    "yaam://runs/{run_id}/episodes",
+    "yaam://skill-factory/qa-status/{qa_status}/runs",
+    "yaam://skill-factory/active-tool-status/{active_tool_status}/runs",
+)
+
+SKILL_FACTORY_MCP_PROMPT_NAMES = ("yaam.prompt.repair_pattern_summary",)
+
 MCP_STREAMABLE_HTTP_LOGGER = "mcp.server.streamable_http"
 
 
@@ -117,6 +129,8 @@ def create_mcp_server(
 
     if runtime_service is not None:
         mcp._service = runtime_service
+
+    enabled_domain_packs = _enabled_domain_packs(args)
 
     @mcp.tool(name="yaam.memory.query")
     async def memory_query(
@@ -939,7 +953,120 @@ def create_mcp_server(
             ),
         )
 
+    if "skill-factory" in enabled_domain_packs:
+        _register_skill_factory_domain_pack(mcp, get_service)
+
     return mcp
+
+
+def _register_skill_factory_domain_pack(
+    mcp: Any,
+    get_service: Callable[[], Awaitable[MemoryGatewayService]],
+) -> None:
+    """Register optional read-only Skill Factory MCP resources and prompts."""
+
+    async def domain_service() -> SkillFactoryDomainViewService:
+        service = await get_service()
+        return SkillFactoryDomainViewService(service, project_id=getattr(service, "project_id", None))
+
+    @mcp.resource("yaam://skills/{skill_name}")
+    async def skill_factory_skill_resource(skill_name: str) -> str:
+        async def action() -> str:
+            view = await (await domain_service()).skill_view(skill_name)
+            return json.dumps(view)
+
+        return await _run_mcp_async(
+            "resource",
+            "yaam://skills/{skill_name}",
+            "read",
+            action,
+            scope=_skill_factory_resource_scope({"skill_name": skill_name}),
+        )
+
+    @mcp.resource("yaam://ctts/{ctt_id}")
+    async def skill_factory_ctt_resource(ctt_id: str) -> str:
+        async def action() -> str:
+            view = await (await domain_service()).ctt_view(ctt_id)
+            return json.dumps(view)
+
+        return await _run_mcp_async(
+            "resource",
+            "yaam://ctts/{ctt_id}",
+            "read",
+            action,
+            scope=_skill_factory_resource_scope({"ctt_id": ctt_id}),
+        )
+
+    @mcp.resource("yaam://runs/{run_id}/episodes")
+    async def skill_factory_run_episodes_resource(run_id: str) -> str:
+        async def action() -> str:
+            view = await (await domain_service()).run_episodes(run_id)
+            return json.dumps(view)
+
+        return await _run_mcp_async(
+            "resource",
+            "yaam://runs/{run_id}/episodes",
+            "read",
+            action,
+            scope=_skill_factory_resource_scope({"run_id": run_id}),
+        )
+
+    @mcp.resource("yaam://skill-factory/qa-status/{qa_status}/runs")
+    async def skill_factory_qa_status_resource(qa_status: str) -> str:
+        async def action() -> str:
+            view = await (await domain_service()).qa_status_runs(qa_status)
+            return json.dumps(view)
+
+        return await _run_mcp_async(
+            "resource",
+            "yaam://skill-factory/qa-status/{qa_status}/runs",
+            "read",
+            action,
+            scope=_skill_factory_resource_scope({"qa_status": qa_status}),
+        )
+
+    @mcp.resource("yaam://skill-factory/active-tool-status/{active_tool_status}/runs")
+    async def skill_factory_active_tool_status_resource(active_tool_status: str) -> str:
+        async def action() -> str:
+            view = await (await domain_service()).active_tool_status_runs(active_tool_status)
+            return json.dumps(view)
+
+        return await _run_mcp_async(
+            "resource",
+            "yaam://skill-factory/active-tool-status/{active_tool_status}/runs",
+            "read",
+            action,
+            scope=_skill_factory_resource_scope({"active_tool_status": active_tool_status}),
+        )
+
+    @mcp.prompt(name="yaam.prompt.repair_pattern_summary")
+    def skill_factory_repair_pattern_summary_prompt(
+        skill_name: str,
+        ctt_id: str | None = None,
+        qa_status: str | None = None,
+    ) -> str:
+        filters = {
+            key: value
+            for key, value in {
+                "skill_name": skill_name,
+                "ctt_id": ctt_id,
+                "qa_status": qa_status,
+            }.items()
+            if value
+        }
+        return _run_mcp_sync(
+            "prompt",
+            "yaam.prompt.repair_pattern_summary",
+            "read",
+            lambda: (
+                "Summarize repeated SCM Skill Factory repair patterns without mutating YAAM. "
+                "Use only scoped evidence from Skill Factory domain resources, group failures by "
+                "CTT, QA status, sandbox outcome, active-tool status, and repair action, then "
+                "recommend the next verification step.\n"
+                f"Filters: {json.dumps(filters, sort_keys=True)}"
+            ),
+            scope=_skill_factory_resource_scope(filters),
+        )
 
 
 class _StreamableHTTPClosedResourceFilter(logging.Filter):
@@ -1048,6 +1175,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=os.environ.get("YAAM_MCP_PATH", "/mcp"),
         help="Path for Streamable HTTP MCP transport.",
     )
+    parser.add_argument(
+        "--mcp-domain-packs",
+        default=os.environ.get("YAAM_MCP_DOMAIN_PACKS", "auto"),
+        help="Comma-separated MCP domain packs: auto, none, or skill-factory.",
+    )
     return parser.parse_args(argv)
 
 
@@ -1092,6 +1224,32 @@ def _scope(
 
 def _resource_scope(session_id: str = "*") -> ScopeEnvelope:
     return _scope(session_id=session_id, agent_id="resource-reader")
+
+
+def _skill_factory_resource_scope(domain_ids: dict[str, str]) -> ScopeEnvelope:
+    return ScopeEnvelope(
+        session_id="*",
+        agent_id="skill-factory-domain-pack",
+        caller_role="benchmark_runtime_agent",
+        visibility_scope="benchmark_runtime",
+        domain_ids={key: value for key, value in domain_ids.items() if value},
+        metadata={"domain": "skill_factory"},
+    )
+
+
+def _enabled_domain_packs(args: argparse.Namespace) -> set[str]:
+    raw = str(getattr(args, "mcp_domain_packs", "auto") or "auto").strip().lower()
+    if raw in {"", "none", "off", "disabled"}:
+        return set()
+    requested = {item.strip() for item in raw.split(",") if item.strip()}
+    if "none" in requested:
+        return set()
+    if "auto" in requested:
+        project_id = normalize_project_id(os.environ.get("YAAM_PROJECT_ID", "test"))
+        requested.remove("auto")
+        if project_id == "scm-skill-factory":
+            requested.add("skill-factory")
+    return {item for item in requested if item == "skill-factory"}
 
 
 def _json_or_not_found(item: Any, id_name: str, id_value: str) -> str:

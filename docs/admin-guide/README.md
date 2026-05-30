@@ -100,6 +100,24 @@ YAAM_MCP_ALLOWLISTED_TOOLS=
 Do not expose write or lifecycle tools to consumer systems unless the validation
 run explicitly requires synthetic writes and the target tools are allowlisted.
 
+## MCP Domain Packs
+
+YAAM MCP can expose optional read-only domain packs in addition to the generic
+MCP v1 surface:
+
+```bash
+YAAM_MCP_DOMAIN_PACKS=auto
+```
+
+Supported values are `auto`, `none`, and `skill-factory`. The default `auto`
+enables the Skill Factory pack only when `YAAM_PROJECT_ID=scm-skill-factory`.
+Other project namespaces keep the generic MCP resource and prompt discovery
+surface unless a pack is explicitly enabled.
+
+The Skill Factory pack adds read-only resources for skills, CTTs, run episodes,
+QA status, active-tool status, and the `yaam.prompt.repair_pattern_summary`
+prompt. It does not enable MCP writes or change REST behavior.
+
 ## Secret Handling Policy
 
 Do not expose or paste:
@@ -120,8 +138,8 @@ HTTP, REST v2, API Wall benchmark/chat flows, documented validation commands,
 and the public contracts reference.
 
 Unsupported surfaces include direct database mutation, arbitrary SQL/Cypher,
-undocumented provider-specific traces, and customer-specific SCM-Cert-Bench MCP
-resource views deferred under `YAAM-REQ-0039`.
+undocumented provider-specific traces, and customer-specific MCP resources that
+are not part of the generic surface or an explicitly enabled domain pack.
 
 ## Related Documentation
 

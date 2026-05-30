@@ -25,6 +25,9 @@ provide stable scope fields such as `session_id`, `agent_id`, `task_id`,
 
 - **MCP v1 stdio**: best for agent hosts, desktop tools, coding assistants, and
   integrations that speak the Model Context Protocol.
+- **MCP domain packs**: optional read-only resources and prompts for
+  project-specific workflows such as Skill Factory. They extend MCP discovery
+  only for enabled project namespaces and do not change generic tools.
 - **REST v2**: best for service-to-service integrations, batch workflows,
   benchmark infrastructure, and systems that need HTTP APIs.
 - **API Wall**: best for OpenAI-compatible benchmark/chat flows where benchmark

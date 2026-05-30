@@ -8,8 +8,8 @@
 ## What This Project Should Validate
 
 Skill Factory requires memory around skill generation, QA, curation, repair attempts, and validated
-facts. Current YAAM provides generic memory, evidence, curation, and trace-correlation primitives,
-while several skill-specific views remain follow-up work.
+facts. YAAM provides generic memory, evidence, curation, and trace-correlation primitives plus an
+optional Skill Factory MCP domain pack for skill/CTT/run inspection views.
 
 | Requirement | Expected current coverage |
 | --- | --- |
@@ -24,11 +24,46 @@ while several skill-specific views remain follow-up work.
 | `YAAM-REQ-0016` Evidence Table | mixed; verify usefulness |
 | `YAAM-REQ-0017` CIAR explanation | mixed; audit/debug use |
 | `YAAM-REQ-0021` deterministic feedback/sandbox evidence | implemented generically |
-| `YAAM-REQ-0022` skill generation/QA/curation memory views | partially implemented |
-| `YAAM-REQ-0023` skill/CTT/run MCP resources | missing or partially implemented |
+| `YAAM-REQ-0022` skill generation/QA/curation memory views | implemented by Skill Factory MCP domain pack; verify usefulness |
+| `YAAM-REQ-0023` skill/CTT/run MCP resources | implemented by Skill Factory MCP domain pack |
 | `YAAM-REQ-0029` contradiction/supersession review | mixed |
 | `YAAM-REQ-0031` common MCP prompts | implemented |
-| `YAAM-REQ-0032` domain-specific Skill Factory prompts | missing or partially implemented |
+| `YAAM-REQ-0032` domain-specific Skill Factory prompts | implemented by Skill Factory MCP domain pack |
+
+## Skill Factory Domain Pack
+
+The Skill Factory pack is enabled when the shared runtime is started with:
+
+```bash
+YAAM_PROJECT_ID=scm-skill-factory
+YAAM_MCP_DOMAIN_PACKS=auto
+```
+
+Expected MCP discovery includes:
+
+- `yaam://skills/{skill_name}`
+- `yaam://ctts/{ctt_id}`
+- `yaam://runs/{run_id}/episodes`
+- `yaam://skill-factory/qa-status/{qa_status}/runs`
+- `yaam://skill-factory/active-tool-status/{active_tool_status}/runs`
+- `yaam.prompt.repair_pattern_summary`
+
+Use these metadata keys in existing L2/L3/L4/curation writes so the domain views
+can project the right records:
+
+```json
+{
+  "domain": "skill_factory",
+  "skill_name": "inventory-router",
+  "ctt_id": "ctt-42",
+  "run_id": "skill-run-001",
+  "qa_status": "failed",
+  "active_tool_status": "stale",
+  "sandbox_outcome": "schema_error",
+  "repair_action": "patched input schema",
+  "artifact_kind": "validated_skill_summary"
+}
+```
 
 ## Required Checks
 
@@ -38,8 +73,10 @@ Against `http://192.168.107.187:8003/mcp`, verify:
 
 - tools list includes `yaam.memory.query`, `yaam.memory.get_context`, `yaam.evidence.table`,
   `yaam.ciar.explain`, `yaam.curation.record_decision`, and `yaam.curation.list_decisions`;
-- resources include generic health/config/schemas/session resources;
-- prompts include common inspection/evidence/CIAR prompts;
+- resources include generic health/config/schemas/session resources and the Skill Factory domain
+  resources listed above;
+- prompts include common inspection/evidence/CIAR prompts and
+  `yaam.prompt.repair_pattern_summary`;
 - `yaam.health.check` succeeds.
 
 ### 2. Pre-Generation Context
@@ -91,15 +128,19 @@ Run curation/evidence checks through REST or MCP:
 Use `POST /v2/memory/l4/finalize` or allowlisted `yaam.l4.finalize_artifact` to store a short
 synthetic skill artifact or validation summary.
 
-### 7. Expected Gap Classification
+### 7. Domain Pack Views
 
-Do not treat the following as unexpected runtime failures. Classify them explicitly:
+After synthetic writes, read:
 
-- `yaam://skills/{skill_name}` resource: `missing` or `partially implemented`;
-- `yaam://ctts/{ctt_id}` resource: `missing` or `partially implemented`;
-- dedicated Skill Factory run views keyed by skill, CTT, QA status, and active tool status:
-  `partially implemented`;
-- `yaam.prompt.repair_pattern_summary`: `missing` or `partially implemented`.
+- `yaam://skills/<skill-name>`
+- `yaam://ctts/<ctt-id>`
+- `yaam://runs/<run-id>/episodes`
+- `yaam://skill-factory/qa-status/<qa-status>/runs`
+- `yaam://skill-factory/active-tool-status/<active-tool-status>/runs`
+
+Expected: each resource returns JSON with `domain_pack=skill-factory`, filters, counts, visible
+items or runs, and no secrets. Empty results are acceptable only if the synthetic writes did not use
+the canonical metadata keys.
 
 ## Report Focus
 
@@ -109,5 +150,5 @@ Skill Factory should answer:
 - Which skill-specific views are necessary before production use?
 - Does curation/evidence behavior preserve scope and provenance?
 - Are default MCP write gates acceptable for agent-host safety?
-- Which missing resource or prompt would unlock the highest-value workflow first?
-
+- Are Skill Factory domain pack resources enough for debugging and replaying failed
+  skill-generation/repair loops?

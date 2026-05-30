@@ -16,6 +16,10 @@ from src.memory.services.contracts import (
     YAAMErrorPayload,
     YAAMWarning,
 )
+from src.memory.services.domain_views import (
+    SKILL_FACTORY_METADATA_KEYS,
+    SkillFactoryDomainViewService,
+)
 from src.memory.services.gateway import MemoryGatewayService
 from src.memory.services.permissions import (
     PermissionDecision,
@@ -24,6 +28,7 @@ from src.memory.services.permissions import (
 )
 
 __all__ = [
+    "SKILL_FACTORY_METADATA_KEYS",
     "ContextResponse",
     "ContradictionReviewResponse",
     "CurationDecisionRecord",
@@ -37,6 +42,7 @@ __all__ = [
     "PermissionPolicy",
     "Provenance",
     "ScopeEnvelope",
+    "SkillFactoryDomainViewService",
     "TraceCorrelationRecord",
     "WriteAck",
     "YAAMErrorPayload",

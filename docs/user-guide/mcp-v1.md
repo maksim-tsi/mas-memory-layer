@@ -121,6 +121,49 @@ templated runtime resources such as:
 Customer-specific SCM-Cert-Bench resource views remain deferred under
 `YAAM-REQ-0039`.
 
+## Optional Domain Packs
+
+YAAM can expose optional MCP domain packs. Domain packs add read-only resources
+and prompts for a specific consumer workflow while keeping the generic MCP v1
+tools unchanged.
+
+The first supported pack is `skill-factory`. It is enabled automatically when
+the shared runtime is started with:
+
+```bash
+YAAM_PROJECT_ID=scm-skill-factory
+YAAM_MCP_DOMAIN_PACKS=auto
+```
+
+It adds these read-only resources:
+
+- `yaam://skills/{skill_name}`
+- `yaam://ctts/{ctt_id}`
+- `yaam://runs/{run_id}/episodes`
+- `yaam://skill-factory/qa-status/{qa_status}/runs`
+- `yaam://skill-factory/active-tool-status/{active_tool_status}/runs`
+
+Skill Factory views work best when existing L2/L3/L4/curation writes include
+canonical metadata keys:
+
+```json
+{
+  "domain": "skill_factory",
+  "skill_name": "inventory-router",
+  "ctt_id": "ctt-42",
+  "run_id": "skill-run-001",
+  "qa_status": "failed",
+  "active_tool_status": "stale",
+  "sandbox_outcome": "schema_error",
+  "repair_action": "patched input schema",
+  "artifact_kind": "validated_skill_summary"
+}
+```
+
+The pack is not a separate YAAM version. It does not enable write tools, mutate
+memory through resources, or change generic MCP discovery for other project
+namespaces.
+
 ## Prompts
 
 Prompt templates are intended to help agent hosts request consistent memory
@@ -130,6 +173,10 @@ operations. YAAM 0.10 exposes these prompts:
 - `yaam.prompt.memory_inspection`
 - `yaam.prompt.ciar_explanation`
 - `yaam.prompt.retrieval_strategy`
+
+When the Skill Factory domain pack is enabled, prompt discovery also includes:
+
+- `yaam.prompt.repair_pattern_summary`
 
 Hosts should still own task orchestration and final user-facing behavior.
 

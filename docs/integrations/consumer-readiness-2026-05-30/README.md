@@ -29,7 +29,8 @@ YAAM maintainers restart the same endpoint with a clean project namespace for ea
 2. `scm-skill-factory`
    - Exercises both REST v2 and MCP, including evidence, curation, trace correlation, and skill
      generation memory scenarios.
-   - Also produces useful findings for deferred skill-specific resource views.
+   - Uses the optional Skill Factory MCP domain pack for skill, CTT, run, QA-status, active-tool
+     status, and repair-pattern prompt checks.
 3. `scm-cognitive-sandwich`
    - Most artifact-centric and MCP-first.
    - Best after the core path is proven, because several artifact lifecycle requirements are

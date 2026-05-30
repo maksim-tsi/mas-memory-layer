@@ -4,7 +4,7 @@
 **Date:** 2026-05-24
 **Related RFC:** [YAAM MCP v1 Planning Freeze](../RFC/2026-05-24-yaam-mcp-v1-planning-freeze.md)
 **Runbook:** [MCP v1 Stdio Server](../runbooks/mcp-v1-stdio-server.md)
-**Requirement coverage:** `YAAM-REQ-0001`, `YAAM-REQ-0002`, `YAAM-REQ-0003`, `YAAM-REQ-0004`, `YAAM-REQ-0005`, `YAAM-REQ-0006`, `YAAM-REQ-0007`, `YAAM-REQ-0008`, `YAAM-REQ-0009`, `YAAM-REQ-0010`, `YAAM-REQ-0011`, `YAAM-REQ-0012`, `YAAM-REQ-0013`, `YAAM-REQ-0014`, `YAAM-REQ-0015`, `YAAM-REQ-0016`, `YAAM-REQ-0017`, `YAAM-REQ-0018`, `YAAM-REQ-0026`, `YAAM-REQ-0027`, `YAAM-REQ-0029`, `YAAM-REQ-0031`, `YAAM-REQ-0033`, `YAAM-REQ-0034`, `YAAM-REQ-0035`, `YAAM-REQ-0036`, `YAAM-REQ-0037`, `YAAM-REQ-0038`
+**Requirement coverage:** `YAAM-REQ-0001`, `YAAM-REQ-0002`, `YAAM-REQ-0003`, `YAAM-REQ-0004`, `YAAM-REQ-0005`, `YAAM-REQ-0006`, `YAAM-REQ-0007`, `YAAM-REQ-0008`, `YAAM-REQ-0009`, `YAAM-REQ-0010`, `YAAM-REQ-0011`, `YAAM-REQ-0012`, `YAAM-REQ-0013`, `YAAM-REQ-0014`, `YAAM-REQ-0015`, `YAAM-REQ-0016`, `YAAM-REQ-0017`, `YAAM-REQ-0018`, `YAAM-REQ-0022`, `YAAM-REQ-0023`, `YAAM-REQ-0026`, `YAAM-REQ-0027`, `YAAM-REQ-0029`, `YAAM-REQ-0031`, `YAAM-REQ-0032`, `YAAM-REQ-0033`, `YAAM-REQ-0034`, `YAAM-REQ-0035`, `YAAM-REQ-0036`, `YAAM-REQ-0037`, `YAAM-REQ-0038`
 
 ## 1. Objective
 
@@ -173,6 +173,34 @@ MCP v1 must expose:
 Prompts must encode reusable inspection workflows only. They must not trigger
 hidden autonomous lifecycle behavior.
 
+### 5.4 Optional Domain Packs
+
+MCP v1 supports additive domain packs. A domain pack may add read-only resource
+templates and prompt templates over the same service layer. Domain packs must not
+change generic tool semantics, storage contracts, or write/lifecycle gates.
+
+Configuration:
+
+- `YAAM_MCP_DOMAIN_PACKS=auto` by default.
+- `auto` enables the Skill Factory pack only when
+  `YAAM_PROJECT_ID=scm-skill-factory`.
+- `none` disables all domain packs.
+- `skill-factory` explicitly enables the Skill Factory pack.
+
+The Skill Factory pack exposes:
+
+- `yaam://skills/{skill_name}`
+- `yaam://ctts/{ctt_id}`
+- `yaam://runs/{run_id}/episodes`
+- `yaam://skill-factory/qa-status/{qa_status}/runs`
+- `yaam://skill-factory/active-tool-status/{active_tool_status}/runs`
+- `yaam.prompt.repair_pattern_summary`
+
+Skill Factory views rely on canonical metadata keys supplied through existing
+L2/L3/L4/curation writes: `domain`, `skill_name`, `ctt_id`, `run_id`,
+`qa_status`, `active_tool_status`, `sandbox_outcome`, `repair_action`, and
+`artifact_kind`.
+
 ## 6. Response Contracts
 
 Shared response models must include:
@@ -227,6 +255,9 @@ SCM-Cert-Bench extension policy:
 - SCM-Cert-Bench customer-specific resources remain deferred under
   `YAAM-REQ-0039`; the generic tools above do not add customer-specific URI
   templates.
+- Skill Factory resources and prompts are available only when the
+  `skill-factory` domain pack is enabled. They remain read-only and inherit the
+  generic resource redaction policy.
 
 ## 8. Tracing Contract
 
@@ -282,8 +313,7 @@ Implementation evidence:
 
 ## 10. Non-Goals
 
-MCP v1 does not include Streamable HTTP, customer-specific Skill Factory
-resources, Maritime Port Sandbox resources, artifact lineage resources,
-autonomous contradiction review, autonomous consolidation, autonomous
-distillation, direct storage adapter exposure, arbitrary SQL/Cypher, or hidden
-LLM reranking in Evidence Table generation.
+MCP v1 does not include Maritime Port Sandbox resources, SCM-Cert-Bench
+customer-specific resources, artifact lineage resources, autonomous
+consolidation, autonomous distillation, direct storage adapter exposure,
+arbitrary SQL/Cypher, or hidden LLM reranking in Evidence Table generation.

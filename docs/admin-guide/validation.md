@@ -72,6 +72,32 @@ The live HTTP check performs discovery, calls `yaam.health.check`, reads
 `yaam://config/ciar`, and renders `yaam.prompt.memory_inspection`. It is
 read-only.
 
+## MCP Domain Pack Validation
+
+Domain packs are additive read-only MCP extensions. Validate generic discovery
+with packs disabled or outside their namespace, then validate the target pack
+inside its project namespace.
+
+For Skill Factory:
+
+```bash
+YAAM_PROJECT_ID=scm-skill-factory
+YAAM_MCP_DOMAIN_PACKS=auto
+```
+
+Expected MCP discovery includes:
+
+- `yaam://skills/{skill_name}`
+- `yaam://ctts/{ctt_id}`
+- `yaam://runs/{run_id}/episodes`
+- `yaam://skill-factory/qa-status/{qa_status}/runs`
+- `yaam://skill-factory/active-tool-status/{active_tool_status}/runs`
+- `yaam.prompt.repair_pattern_summary`
+
+When `YAAM_PROJECT_ID` is a different consumer namespace and
+`YAAM_MCP_DOMAIN_PACKS=auto`, those Skill Factory resources and prompts should
+not appear.
+
 ## REST Smoke Checks
 
 REST smoke checks should cover:

@@ -11,6 +11,8 @@ from src.mcp.server import (
     MCP_SDK_REQUIREMENT,
     MCP_STREAMABLE_HTTP_LOGGER,
     MCP_TOOL_NAMES,
+    SKILL_FACTORY_MCP_PROMPT_NAMES,
+    SKILL_FACTORY_MCP_RESOURCE_URIS,
     _StreamableHTTPClosedResourceFilter,
     create_mcp_server,
     parse_args,
@@ -82,6 +84,41 @@ def test_create_mcp_server_registers_fastmcp_capabilities() -> None:
     ]
 
 
+def test_skill_factory_domain_pack_is_not_registered_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("YAAM_PROJECT_ID", raising=False)
+    monkeypatch.delenv("YAAM_MCP_DOMAIN_PACKS", raising=False)
+
+    server = create_mcp_server()
+
+    prompts = [prompt.name for prompt in server._prompt_manager.list_prompts()]
+    templates = [template.uri_template for template in server._resource_manager.list_templates()]
+    assert "yaam.prompt.repair_pattern_summary" not in prompts
+    assert "yaam://skills/{skill_name}" not in templates
+
+
+def test_skill_factory_domain_pack_registers_when_enabled() -> None:
+    args = parse_args(["--mcp-domain-packs", "skill-factory"])
+
+    server = create_mcp_server(config_args=args)
+
+    prompts = [prompt.name for prompt in server._prompt_manager.list_prompts()]
+    templates = [template.uri_template for template in server._resource_manager.list_templates()]
+    for prompt_name in SKILL_FACTORY_MCP_PROMPT_NAMES:
+        assert prompt_name in prompts
+    for resource_uri in SKILL_FACTORY_MCP_RESOURCE_URIS:
+        assert resource_uri in templates
+
+
+def test_skill_factory_domain_pack_auto_enables_for_project(monkeypatch) -> None:
+    monkeypatch.setenv("YAAM_PROJECT_ID", "scm-skill-factory")
+    args = parse_args([])
+
+    server = create_mcp_server(config_args=args)
+
+    templates = [template.uri_template for template in server._resource_manager.list_templates()]
+    assert "yaam://skills/{skill_name}" in templates
+
+
 def test_parse_args_supports_documented_cli_flags() -> None:
     args = parse_args(
         [
@@ -101,6 +138,8 @@ def test_parse_args_supports_documented_cli_flags() -> None:
             "8081",
             "--mcp-path",
             "/mcp",
+            "--mcp-domain-packs",
+            "skill-factory",
         ]
     )
 
@@ -112,6 +151,7 @@ def test_parse_args_supports_documented_cli_flags() -> None:
     assert args.mcp_host == "0.0.0.0"
     assert args.mcp_port == 8081
     assert args.mcp_path == "/mcp"
+    assert args.mcp_domain_packs == "skill-factory"
 
 
 def test_create_mcp_server_configures_streamable_http_transport() -> None:
@@ -543,6 +583,28 @@ async def test_mcp_templated_resources_are_read_only_service_views() -> None:
 
 
 @pytest.mark.asyncio
+async def test_skill_factory_domain_resources_are_read_only_service_views() -> None:
+    args = parse_args(["--mcp-domain-packs", "skill-factory"])
+    service = RecordingMCPService()
+    server = create_mcp_server(service, args)
+
+    payload = json.loads(await _read_template(server, "yaam://skills/inventory-router"))
+
+    assert payload["domain_pack"] == "skill-factory"
+    assert payload["view"] == "skill"
+    assert payload["filters"] == {"skill_name": "inventory-router"}
+    assert payload["partial"] is False
+    assert [call[0] for call in service.calls] == [
+        "search_l2_facts",
+        "search_l3_episodes",
+        "search_l4_knowledge",
+    ]
+    assert service.calls[0][1][0].session_id == "*"
+    assert service.calls[0][1][0].agent_id == "skill-factory-domain-pack"
+    assert service.calls[0][1][0].domain_ids == {"skill_name": "inventory-router"}
+
+
+@pytest.mark.asyncio
 async def test_mcp_prompts_render_frozen_inspection_templates() -> None:
     server = create_mcp_server(RecordingMCPService())
     prompts = {prompt.name: prompt for prompt in server._prompt_manager.list_prompts()}
@@ -562,6 +624,27 @@ async def test_mcp_prompts_render_frozen_inspection_templates() -> None:
     strategy = await prompts["yaam.prompt.retrieval_strategy"].render({"task": "Plan retrieval"})
     assert "partial-result" in strategy[0].content.text
     assert "Plan retrieval" in strategy[0].content.text
+
+
+@pytest.mark.asyncio
+async def test_skill_factory_repair_pattern_prompt_renders_without_mutation() -> None:
+    args = parse_args(["--mcp-domain-packs", "skill-factory"])
+    server = create_mcp_server(RecordingMCPService(), args)
+    prompts = {prompt.name: prompt for prompt in server._prompt_manager.list_prompts()}
+
+    rendered = await prompts["yaam.prompt.repair_pattern_summary"].render(
+        {
+            "skill_name": "inventory-router",
+            "ctt_id": "ctt-42",
+            "qa_status": "failed",
+        }
+    )
+
+    text = rendered[0].content.text
+    assert "without mutating YAAM" in text
+    assert "inventory-router" in text
+    assert "ctt-42" in text
+    assert "failed" in text
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ services:
     environment:
       DATA_NODE_IP: "192.168.107.187"
       YAAM_PROJECT_ID: "${YAAM_PROJECT_ID:-test}"
+      YAAM_MCP_DOMAIN_PACKS: "${YAAM_MCP_DOMAIN_PACKS:-auto}"
 
       REDIS_HOST: "192.168.107.187"
       REDIS_PORT: "6379"
@@ -40,6 +41,7 @@ services:
     environment:
       DATA_NODE_IP: "192.168.107.187"
       YAAM_PROJECT_ID: "${YAAM_PROJECT_ID:-test}"
+      YAAM_MCP_DOMAIN_PACKS: "${YAAM_MCP_DOMAIN_PACKS:-auto}"
 
       REDIS_HOST: "192.168.107.187"
       REDIS_PORT: "6379"

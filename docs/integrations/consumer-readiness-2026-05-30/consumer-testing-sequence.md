@@ -39,6 +39,7 @@ ssh skz-data-local 'cd <remote-yaam-checkout> && git log -1 --oneline'
 ssh skz-data-local '
   cd <remote-yaam-checkout> &&
   YAAM_PROJECT_ID=<project-id> \
+  YAAM_MCP_DOMAIN_PACKS=auto \
   PHOENIX_PROJECT_NAME=<phoenix-project> \
   docker compose \
     -f docker-compose.interface.yml \
@@ -49,6 +50,10 @@ ssh skz-data-local '
 
 3. Keep MCP mutating and lifecycle tools disabled by default. Enable them only in a short synthetic
    write window coordinated with the consumer.
+
+   `YAAM_MCP_DOMAIN_PACKS=auto` enables the Skill Factory read-only MCP domain
+   pack only for `YAAM_PROJECT_ID=scm-skill-factory`; other consumers keep the
+   generic MCP discovery surface.
 
 4. Verify the shared endpoints from the MacBook:
 
