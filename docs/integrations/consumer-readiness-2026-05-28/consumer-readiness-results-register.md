@@ -5,6 +5,10 @@
 **Scope:** First-wave YAAM readiness reports from downstream consumer systems  
 **Assignment:** `docs/integrations/consumer-readiness-2026-05-28/consumer-readiness-test-assignment.md`
 
+> Superseded for active per-project testing by
+> `docs/integrations/consumer-readiness-2026-05-30/consumer-readiness-results-register.md`.
+> Keep this register for the earlier 2026-05-28 shared `test` namespace planning record.
+
 ## 1. Purpose
 
 This register is the triage surface for consumer readiness reports. It converts external findings
