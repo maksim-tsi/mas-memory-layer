@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -55,6 +56,16 @@ CURATION_RECORD_TYPE = "scm_cert_bench_curation_decision"
 TRACE_CORRELATION_RECORD_TYPE = "scm_cert_bench_trace_correlation"
 SKILL_FACTORY_DOMAIN = "skill_factory"
 SKILL_FACTORY_DOMAIN_SCAN_LIMIT = 500
+SKILL_FACTORY_METADATA_KEYS = (
+    "skill_name",
+    "ctt_id",
+    "run_id",
+    "qa_status",
+    "active_tool_status",
+    "sandbox_outcome",
+    "repair_action",
+    "artifact_kind",
+)
 
 
 class MemoryGatewayService:
@@ -438,10 +449,6 @@ class MemoryGatewayService:
                 filter_dict={
                     "must": [
                         {"key": "project_id", "match": {"value": self.project_id}},
-                        {
-                            "key": "metadata.domain",
-                            "match": {"value": SKILL_FACTORY_DOMAIN},
-                        },
                     ]
                 },
                 limit=scan_limit,
@@ -931,7 +938,11 @@ class MemoryGatewayService:
         in_project = project_id == self.project_id or (
             isinstance(session_id, str) and session_id.startswith(f"{self.project_id}:")
         )
-        return in_project and metadata.get("domain") == SKILL_FACTORY_DOMAIN
+        content = record.content.lower()
+        has_domain_marker = metadata.get("domain") == SKILL_FACTORY_DOMAIN or (
+            "skill factory" in content or "skill_factory" in content
+        )
+        return in_project and has_domain_marker
 
     def _record_matches_filters(
         self,
@@ -1017,7 +1028,17 @@ def _merged_record_metadata(record: MemoryResult) -> dict[str, Any]:
             value = getattr(record.provenance, key, None)
             if value is not None and key not in merged:
                 merged[key] = value
+    for key in SKILL_FACTORY_METADATA_KEYS:
+        if key not in merged:
+            value = _content_key_value(record.content, key)
+            if value is not None:
+                merged[key] = value
     return merged
+
+
+def _content_key_value(content: str, key: str) -> str | None:
+    match = re.search(rf"\b{re.escape(key)}=([^\s,.;]+)", content)
+    return match.group(1) if match else None
 
 
 def _item_has_forbidden_visibility(

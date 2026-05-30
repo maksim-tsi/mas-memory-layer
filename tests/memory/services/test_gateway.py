@@ -379,9 +379,13 @@ async def test_list_skill_factory_domain_records_projects_and_filters_metadata(m
             {
                 "episode_id": "episode-skill",
                 "session_id": "scm-skill-factory:session-a",
-                "summary": "Skill Factory episode for skill-run-001.",
+                "summary": (
+                    "Skill Factory episode skill_name=readiness_demo_skill "
+                    "ctt_id=readiness-ctt-001 run_id=skill-run-001 "
+                    "qa_status=failed active_tool_status=stale."
+                ),
                 "importance_score": 0.8,
-                "metadata": skill_metadata,
+                "metadata": {"project_id": "scm-skill-factory"},
             },
             {
                 "episode_id": "episode-other-run",
@@ -430,6 +434,5 @@ async def test_list_skill_factory_domain_records_projects_and_filters_metadata(m
     assert qdrant.scroll.await_args.kwargs["filter_dict"] == {
         "must": [
             {"key": "project_id", "match": {"value": "scm-skill-factory"}},
-            {"key": "metadata.domain", "match": {"value": "skill_factory"}},
         ]
     }

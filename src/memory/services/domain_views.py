@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -227,7 +228,12 @@ class SkillFactoryDomainViewService:
         for item in payload["items"]:
             metadata = item.get("metadata", {})
             provenance = item.get("provenance") or {}
-            run_id = str(metadata.get("run_id") or provenance.get("run_id") or "")
+            run_id = str(
+                metadata.get("run_id")
+                or provenance.get("run_id")
+                or _content_key_value(item.get("content", ""), "run_id")
+                or ""
+            )
             if not run_id:
                 continue
             summary = runs.setdefault(
@@ -241,10 +247,24 @@ class SkillFactoryDomainViewService:
                     "source_ids": [],
                 },
             )
-            _add_optional(summary["skill_names"], metadata.get("skill_name"))
-            _add_optional(summary["ctt_ids"], metadata.get("ctt_id"))
-            _add_optional(summary["qa_statuses"], metadata.get("qa_status"))
-            _add_optional(summary["active_tool_statuses"], metadata.get("active_tool_status"))
+            content = item.get("content", "")
+            _add_optional(
+                summary["skill_names"],
+                metadata.get("skill_name") or _content_key_value(content, "skill_name"),
+            )
+            _add_optional(
+                summary["ctt_ids"],
+                metadata.get("ctt_id") or _content_key_value(content, "ctt_id"),
+            )
+            _add_optional(
+                summary["qa_statuses"],
+                metadata.get("qa_status") or _content_key_value(content, "qa_status"),
+            )
+            _add_optional(
+                summary["active_tool_statuses"],
+                metadata.get("active_tool_status")
+                or _content_key_value(content, "active_tool_status"),
+            )
             _add_optional(summary["source_ids"], item.get("source_id"))
 
         payload["runs"] = [
@@ -292,7 +312,12 @@ def _metadata_value(item: MemoryResult, key: str) -> Any:
     provenance_value = getattr(item.provenance, key, None) if item.provenance else None
     if provenance_value is not None:
         return provenance_value
-    return None
+    return _content_key_value(item.content, key)
+
+
+def _content_key_value(content: str, key: str) -> str | None:
+    match = re.search(rf"\b{re.escape(key)}=([^\s,.;]+)", content)
+    return match.group(1) if match else None
 
 
 def _dump_result(item: MemoryResult) -> dict[str, Any]:
