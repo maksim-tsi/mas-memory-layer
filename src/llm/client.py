@@ -120,6 +120,7 @@ def _register_phoenix_tracer_provider(
         project_name=project_name,
         endpoint=endpoint,
         batch=batch,
+        verbose=False,
         auto_instrument=False,
     )
 
