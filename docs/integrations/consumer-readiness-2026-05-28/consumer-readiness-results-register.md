@@ -122,8 +122,10 @@ evidence.
 
 | Finding ID | Priority | Category | Title | Status | Notes |
 | --- | --- | --- | --- | --- | --- |
-| CF-KNOWN-001 | P1 | MCP | MCP Streamable HTTP deployment and live validation must be completed before remote consumer testing. | accepted | MCP v1 stdio exists; shared HTTP endpoint is tracked by `mcp-readiness-implementation-spec.md`. |
+| CF-KNOWN-001 | P1 | MCP | MCP Streamable HTTP implementation and deployment path are available. | fixed | MCP v1 Streamable HTTP exists and was previously validated; keep live read contract in the readiness gate for every deployment refresh. |
 | CF-KNOWN-002 | P2 | documentation | Older RFC examples mention `/v2/semantic/*`, while active implementation uses `/v2/memory/*`. | accepted | Assignment states `/v2/memory/*` as active contract; docs alignment may still be needed later. |
+| CF-KNOWN-003 | P0 | deployment | Shared `mas-agent` and `yaam-mcp` interface services must be running and freshly validated after project namespace changes. | accepted | Consumer handoff requires `GET /health`, MCP HTTP live read contract, REST L2/L3/L4 smoke, and safe-mode MCP write denial against the post-namespace runtime. |
+| CF-KNOWN-004 | P1 | data-correctness | Consumer readiness runtime uses one project namespace per YAAM instance. | accepted | First-wave shared runtime must use `YAAM_PROJECT_ID=test`, L3 `yaam-test-episodes`, and L4 `yaam-test`; do not write readiness data into legacy `episodes_qwen_v2` or `knowledge_base_v2` by default. |
 
 ## 8. Report Intake Checklist
 

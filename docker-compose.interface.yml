@@ -1,10 +1,9 @@
-version: "3.9"
-
 services:
   mas-agent:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     ports:
       - "8080:8080"
       - "8002:8080"
@@ -35,11 +34,18 @@ services:
       - ./logs:/app/logs
     networks:
       - mas_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   yaam-mcp:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     command:
       - poetry
       - run
@@ -90,6 +96,16 @@ services:
       - ./logs:/app/logs
     networks:
       - mas_network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import socket; s=socket.create_connection(('127.0.0.1', 8081), 5); s.close()\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
 networks:
   mas_network:

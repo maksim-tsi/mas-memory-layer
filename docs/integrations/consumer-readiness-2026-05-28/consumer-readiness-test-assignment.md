@@ -5,6 +5,7 @@
 **Audience:** YAAM downstream consumer systems that previously provided integration requirements  
 **Primary runtime:** `skz-data-lv`  
 **Primary endpoint:** `http://192.168.107.187:8002`
+**Runtime namespace:** `YAAM_PROJECT_ID=test`
 
 ## 1. Objective
 
@@ -29,6 +30,9 @@ Health check:  GET  /health
 REST v2 API:   POST /v2/memory/*
 MCP stdio:     ./.venv/bin/python -m src.mcp.server --transport stdio --agent-type full --agent-variant mcp
 MCP HTTP:      http://192.168.107.187:8003/mcp
+Project ID:    test
+L3 Qdrant:     yaam-test-episodes
+L4 Typesense:  yaam-test
 ```
 
 The active REST contract is `/v2/memory/*`. Do not use the older `/v2/semantic/*` examples as the
@@ -43,6 +47,11 @@ resource, prompt, permission, and response contracts:
 If `http://192.168.107.187:8003/mcp` is unavailable during a scheduled readiness run, record the
 MCP HTTP result as a deployment blocker and still run the stdio checks when the consumer host can
 launch the YAAM checkout or container locally.
+
+YAAM currently runs one project namespace per service instance. For this readiness wave the shared
+runtime uses `YAAM_PROJECT_ID=test`, which derives L3 Qdrant collection `yaam-test-episodes` and L4
+Typesense collection `yaam-test`. Consumer payload `tenant_id` values remain provenance/policy
+fields and do not select physical DBMS collections.
 
 ## 3. Documentation References
 
@@ -63,6 +72,9 @@ consumer needs full context.
 Every request should include a unique `session_id`. Write operations should include `agent_id` and,
 where the endpoint requires it, `task_id`. Consumers should send a W3C `traceparent` header for
 correlation with YAAM/Phoenix traces when their runtime can generate one.
+
+The maintainers must confirm `GET /health` is reachable and the MCP HTTP live read contract passes
+before sending this assignment to consumer teams.
 
 ### Health
 
