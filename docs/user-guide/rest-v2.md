@@ -19,6 +19,13 @@ batch delivery. REST callers do not need to change payloads for this; response
 trace metadata remains immediate, while Phoenix UI/API visibility can lag by a
 short batch delay.
 
+Generation-backed operations, especially L3 assimilation, use OpenRouter
+`tencent/hy3-preview` with an 8192-token output budget and a 120-second provider
+timeout in shared runtimes. This keeps reasoning-heavy calls from failing only
+because the provider spent a small output budget on reasoning. Consumer
+readiness tests should record L3 latency, but should not treat sub-10-second
+completion as a requirement.
+
 ## Compatibility-Sensitive Endpoints
 
 Existing tier endpoints remain compatibility-sensitive. Customers should not

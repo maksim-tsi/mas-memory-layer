@@ -176,6 +176,35 @@ def test_provider_config_defaults() -> None:
     assert config.timeout == 15.0
 
 
+def test_from_env_uses_120s_openrouter_timeout_by_default(monkeypatch) -> None:
+    monkeypatch.setattr(client_module, "ensure_phoenix_instrumentation", lambda: None)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.delenv("MAS_OPENROUTER_TIMEOUT", raising=False)
+    for key in ("GOOGLE_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+
+    client = LLMClient.from_env()
+
+    assert client._configs["openrouter"].timeout == 120.0
+
+
+@pytest.mark.asyncio
+async def test_generate_logs_provider_failure_type(caplog) -> None:
+    client = LLMClient()
+    client.register_provider(
+        _FailingProvider(name="first"), ProviderConfig(name="first", priority=0)
+    )
+    client.register_provider(
+        _SuccessProvider(name="second", text="ok"), ProviderConfig(name="second", priority=1)
+    )
+
+    with caplog.at_level("WARNING"):
+        response = await client.generate("prompt")
+
+    assert response.text == "ok"
+    assert "Provider 'first' failed: RuntimeError: simulated failure" in caplog.text
+
+
 def test_instrumentation_version_guard_accepts_compatible_package(monkeypatch) -> None:
     """Instrumentation guard should allow SDK versions required by OpenInference."""
 

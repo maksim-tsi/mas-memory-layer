@@ -85,6 +85,12 @@ For each project, give the consumer:
 Consumers should use realistic synthetic data, unique `session_id` and `task_id` values, and W3C
 `traceparent` when available.
 
+L3 assimilation can legitimately take tens of seconds because it uses provider
+API embeddings plus OpenRouter `tencent/hy3-preview` generation with an
+8192-token output budget and a 120-second provider timeout. Record latency in
+the report, but do not fail readiness only because L3 is slower than a
+single-digit-second smoke check.
+
 ## After Each Window
 
 1. Collect the consumer report under `reports/`.

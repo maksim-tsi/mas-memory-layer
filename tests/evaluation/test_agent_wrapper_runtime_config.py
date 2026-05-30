@@ -18,6 +18,10 @@ def test_build_config_reads_runtime_yaml_and_sets_provider_env(
                 "llm:",
                 "  openrouter_model: tencent/hy3-preview",
                 "  openrouter_embedding_model: qwen/qwen3-embedding-8b",
+                "  max_output_tokens: 8192",
+                "  openrouter_timeout_seconds: 120.0",
+                "  openrouter_reasoning_effort: low",
+                "  openrouter_reasoning_exclude: true",
                 "project:",
                 "  id: test",
                 "memory:",
@@ -37,6 +41,10 @@ def test_build_config_reads_runtime_yaml_and_sets_provider_env(
     for key in (
         "OPENROUTER_MODEL",
         "OPENROUTER_EMBEDDING_MODEL",
+        "MAS_MAX_OUTPUT_TOKENS",
+        "MAS_OPENROUTER_TIMEOUT",
+        "OPENROUTER_REASONING_EFFORT",
+        "OPENROUTER_REASONING_EXCLUDE",
         "YAAM_PROJECT_ID",
         "MAS_L3_COLLECTION",
         "EMBEDDING_DIMENSIONS",
@@ -50,12 +58,20 @@ def test_build_config_reads_runtime_yaml_and_sets_provider_env(
 
     assert config.openrouter_model == "tencent/hy3-preview"
     assert config.openrouter_embedding_model == "qwen/qwen3-embedding-8b"
+    assert config.max_output_tokens == 8192
+    assert config.openrouter_timeout == 120.0
+    assert config.openrouter_reasoning_effort == "low"
+    assert config.openrouter_reasoning_exclude is True
     assert config.project_id == "test"
     assert config.l3_collection_name == "yaam-test-episodes"
     assert config.l3_vector_size == 4096
     assert config.l4_collection_name == "yaam-test"
     assert agent_wrapper.os.environ["OPENROUTER_MODEL"] == "tencent/hy3-preview"
     assert agent_wrapper.os.environ["OPENROUTER_EMBEDDING_MODEL"] == "qwen/qwen3-embedding-8b"
+    assert agent_wrapper.os.environ["MAS_MAX_OUTPUT_TOKENS"] == "8192"
+    assert agent_wrapper.os.environ["MAS_OPENROUTER_TIMEOUT"] == "120.0"
+    assert agent_wrapper.os.environ["OPENROUTER_REASONING_EFFORT"] == "low"
+    assert agent_wrapper.os.environ["OPENROUTER_REASONING_EXCLUDE"] == "true"
     assert agent_wrapper.os.environ["YAAM_PROJECT_ID"] == "test"
     assert agent_wrapper.os.environ["MAS_L3_COLLECTION"] == "yaam-test-episodes"
     assert agent_wrapper.os.environ["EMBEDDING_DIMENSIONS"] == "4096"
@@ -71,6 +87,10 @@ def test_runtime_env_overrides_yaml_values(tmp_path, monkeypatch) -> None:
                 "llm:",
                 "  openrouter_model: old-model",
                 "  openrouter_embedding_model: old-embedding",
+                "  max_output_tokens: 4096",
+                "  openrouter_timeout_seconds: 45.0",
+                "  openrouter_reasoning_effort: high",
+                "  openrouter_reasoning_exclude: false",
                 "memory:",
                 "  l3:",
                 "    collection_name: old_l3",
@@ -85,6 +105,10 @@ def test_runtime_env_overrides_yaml_values(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("YAAM_RUNTIME_CONFIG", str(runtime_config))
     monkeypatch.setenv("OPENROUTER_MODEL", "tencent/hy3-preview")
     monkeypatch.setenv("OPENROUTER_EMBEDDING_MODEL", "qwen/qwen3-embedding-8b")
+    monkeypatch.setenv("MAS_MAX_OUTPUT_TOKENS", "8192")
+    monkeypatch.setenv("MAS_OPENROUTER_TIMEOUT", "120.0")
+    monkeypatch.setenv("OPENROUTER_REASONING_EFFORT", "low")
+    monkeypatch.setenv("OPENROUTER_REASONING_EXCLUDE", "true")
     monkeypatch.setenv("YAAM_PROJECT_ID", "scm-bench")
     monkeypatch.setenv("MAS_L3_COLLECTION", "episodes_qwen_v2")
     monkeypatch.setenv("EMBEDDING_DIMENSIONS", "4096")
@@ -94,6 +118,10 @@ def test_runtime_env_overrides_yaml_values(tmp_path, monkeypatch) -> None:
 
     assert settings.openrouter_model == "tencent/hy3-preview"
     assert settings.openrouter_embedding_model == "qwen/qwen3-embedding-8b"
+    assert settings.max_output_tokens == 8192
+    assert settings.openrouter_timeout == 120.0
+    assert settings.openrouter_reasoning_effort == "low"
+    assert settings.openrouter_reasoning_exclude is True
     assert settings.project_id == "scm-bench"
     assert settings.l3_collection_name == "episodes_qwen_v2"
     assert settings.l3_vector_size == 4096

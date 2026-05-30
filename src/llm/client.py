@@ -329,7 +329,7 @@ class LLMClient:
 
         ensure_phoenix_instrumentation()
 
-        openrouter_timeout = float(os.environ.get("MAS_OPENROUTER_TIMEOUT", "45.0"))
+        openrouter_timeout = float(os.environ.get("MAS_OPENROUTER_TIMEOUT", "120.0"))
 
         client = cls(
             provider_configs=[
@@ -523,7 +523,12 @@ class LLMClient:
                     response.provider = provider_name
                 return response
             except Exception as exc:  # pragma: no cover - defensive fallback
-                logger.warning("Provider '%s' failed: %s", provider_name, exc)
+                logger.warning(
+                    "Provider '%s' failed: %s: %s",
+                    provider_name,
+                    type(exc).__name__,
+                    exc,
+                )
                 last_exc = exc
                 continue
 

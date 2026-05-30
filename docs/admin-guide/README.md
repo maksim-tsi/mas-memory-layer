@@ -28,6 +28,26 @@ validating YAAM 0.10.
 - Validation:
   [admin validation guide](validation.md).
 
+## OpenRouter Runtime Defaults
+
+Shared REST/MCP runtimes use OpenRouter `tencent/hy3-preview` for generation and
+`qwen/qwen3-embedding-8b` for embeddings by default. Tencent Hy3 is
+reasoning-heavy, so production-like probes and L3 assimilation runs should use
+the configured YAAM budget instead of tiny connectivity budgets:
+
+```bash
+OPENROUTER_MODEL=tencent/hy3-preview
+OPENROUTER_EMBEDDING_MODEL=qwen/qwen3-embedding-8b
+MAS_MAX_OUTPUT_TOKENS=8192
+MAS_OPENROUTER_TIMEOUT=120.0
+OPENROUTER_REASONING_EFFORT=low
+OPENROUTER_REASONING_EXCLUDE=true
+```
+
+Avoid `max_tokens=64` style probes for Tencent Hy3 readiness. They can exhaust
+the completion budget on reasoning and return empty text even when OpenRouter
+connectivity is healthy.
+
 ## Phoenix Span Export
 
 Shared REST/MCP runtimes use Phoenix/OpenTelemetry batch span exporting by

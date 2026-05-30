@@ -71,6 +71,12 @@ MCP callers do not need extra arguments for this; keep propagating
 metadata in MCP responses remains available immediately, while Phoenix span
 visibility can lag briefly.
 
+Shared runtimes use OpenRouter `tencent/hy3-preview` with an 8192-token output
+budget and a 120-second provider timeout for generation-backed operations.
+Small direct probes, such as 64-token checks, can be misleading for this
+reasoning-heavy model because the response budget may be spent before visible
+text is emitted.
+
 ## Tools
 
 Read and explanation tools:

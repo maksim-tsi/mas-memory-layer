@@ -56,6 +56,10 @@ logger = logging.getLogger(__name__)
 RUNTIME_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "runtime.yaml"
 DEFAULT_OPENROUTER_MODEL = "tencent/hy3-preview"
 DEFAULT_OPENROUTER_EMBEDDING_MODEL = "qwen/qwen3-embedding-8b"
+DEFAULT_MAS_MAX_OUTPUT_TOKENS = 8192
+DEFAULT_MAS_OPENROUTER_TIMEOUT = 120.0
+DEFAULT_OPENROUTER_REASONING_EFFORT = "low"
+DEFAULT_OPENROUTER_REASONING_EXCLUDE = True
 DEFAULT_L3_VECTOR_SIZE = 4096
 DEFAULT_L3_COLLECTION = qdrant_episodes_collection_name(DEFAULT_PROJECT_ID)
 DEFAULT_L4_COLLECTION = typesense_collection_name(DEFAULT_PROJECT_ID)
@@ -173,6 +177,10 @@ class WrapperConfig:
     contradiction_policy_mode: str = "off"
     openrouter_model: str = DEFAULT_OPENROUTER_MODEL
     openrouter_embedding_model: str = DEFAULT_OPENROUTER_EMBEDDING_MODEL
+    max_output_tokens: int = DEFAULT_MAS_MAX_OUTPUT_TOKENS
+    openrouter_timeout: float = DEFAULT_MAS_OPENROUTER_TIMEOUT
+    openrouter_reasoning_effort: str = DEFAULT_OPENROUTER_REASONING_EFFORT
+    openrouter_reasoning_exclude: bool = DEFAULT_OPENROUTER_REASONING_EXCLUDE
     l3_collection_name: str = DEFAULT_L3_COLLECTION
     l3_vector_size: int = DEFAULT_L3_VECTOR_SIZE
     l4_collection_name: str = DEFAULT_L4_COLLECTION
@@ -184,6 +192,10 @@ class RuntimeSettings:
 
     openrouter_model: str
     openrouter_embedding_model: str
+    max_output_tokens: int
+    openrouter_timeout: float
+    openrouter_reasoning_effort: str
+    openrouter_reasoning_exclude: bool
     project_id: str
     l3_collection_name: str
     l3_vector_size: int
@@ -220,6 +232,30 @@ def load_runtime_settings(config_path: Path | None = None) -> RuntimeSettings:
             ("llm", "openrouter_embedding_model"),
             DEFAULT_OPENROUTER_EMBEDDING_MODEL,
         ),
+        max_output_tokens=_read_int_override(
+            "MAS_MAX_OUTPUT_TOKENS",
+            raw,
+            ("llm", "max_output_tokens"),
+            DEFAULT_MAS_MAX_OUTPUT_TOKENS,
+        ),
+        openrouter_timeout=_read_float_override(
+            "MAS_OPENROUTER_TIMEOUT",
+            raw,
+            ("llm", "openrouter_timeout_seconds"),
+            DEFAULT_MAS_OPENROUTER_TIMEOUT,
+        ),
+        openrouter_reasoning_effort=os.environ.get("OPENROUTER_REASONING_EFFORT")
+        or _nested_str(
+            raw,
+            ("llm", "openrouter_reasoning_effort"),
+            DEFAULT_OPENROUTER_REASONING_EFFORT,
+        ),
+        openrouter_reasoning_exclude=_read_bool_override(
+            "OPENROUTER_REASONING_EXCLUDE",
+            raw,
+            ("llm", "openrouter_reasoning_exclude"),
+            DEFAULT_OPENROUTER_REASONING_EXCLUDE,
+        ),
         project_id=project_id,
         l3_collection_name=l3_collection,
         l3_vector_size=_read_int_override(
@@ -236,6 +272,13 @@ def apply_runtime_env_defaults(settings: RuntimeSettings) -> None:
     """Expose config defaults to providers that still read environment values."""
     os.environ.setdefault("OPENROUTER_MODEL", settings.openrouter_model)
     os.environ.setdefault("OPENROUTER_EMBEDDING_MODEL", settings.openrouter_embedding_model)
+    os.environ.setdefault("MAS_MAX_OUTPUT_TOKENS", str(settings.max_output_tokens))
+    os.environ.setdefault("MAS_OPENROUTER_TIMEOUT", str(settings.openrouter_timeout))
+    os.environ.setdefault("OPENROUTER_REASONING_EFFORT", settings.openrouter_reasoning_effort)
+    os.environ.setdefault(
+        "OPENROUTER_REASONING_EXCLUDE",
+        "true" if settings.openrouter_reasoning_exclude else "false",
+    )
     os.environ.setdefault("YAAM_PROJECT_ID", settings.project_id)
     os.environ.setdefault("MAS_L3_COLLECTION", settings.l3_collection_name)
     os.environ.setdefault("EMBEDDING_DIMENSIONS", str(settings.l3_vector_size))
@@ -278,6 +321,36 @@ def _read_int_override(
     if raw_value in (None, ""):
         return default
     return int(raw_value)
+
+
+def _read_float_override(
+    env_name: str,
+    raw: dict[str, Any],
+    keys: tuple[str, ...],
+    default: float,
+) -> float:
+    raw_value = os.environ.get(env_name)
+    if raw_value in (None, ""):
+        raw_value = _nested_value(raw, keys)
+    if raw_value in (None, ""):
+        return default
+    return float(raw_value)
+
+
+def _read_bool_override(
+    env_name: str,
+    raw: dict[str, Any],
+    keys: tuple[str, ...],
+    default: bool,
+) -> bool:
+    raw_value = os.environ.get(env_name)
+    if raw_value in (None, ""):
+        raw_value = _nested_value(raw, keys)
+    if raw_value in (None, ""):
+        return default
+    if isinstance(raw_value, bool):
+        return raw_value
+    return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass
@@ -758,6 +831,10 @@ def build_config(args: argparse.Namespace) -> WrapperConfig:
         contradiction_policy_mode=contradiction_policy_mode,
         openrouter_model=runtime_settings.openrouter_model,
         openrouter_embedding_model=runtime_settings.openrouter_embedding_model,
+        max_output_tokens=runtime_settings.max_output_tokens,
+        openrouter_timeout=runtime_settings.openrouter_timeout,
+        openrouter_reasoning_effort=runtime_settings.openrouter_reasoning_effort,
+        openrouter_reasoning_exclude=runtime_settings.openrouter_reasoning_exclude,
         l3_collection_name=runtime_settings.l3_collection_name,
         l3_vector_size=runtime_settings.l3_vector_size,
         l4_collection_name=runtime_settings.l4_collection_name,

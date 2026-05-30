@@ -86,6 +86,21 @@ REST smoke checks should cover:
 Use synthetic records only. Do not include secrets or customer answer material
 in request bodies.
 
+When validating OpenRouter connectivity for the shared runtime, use the same
+budget profile as YAAM:
+
+```text
+model=tencent/hy3-preview
+max_completion_tokens=8192
+timeout=120s
+reasoning.effort=low
+reasoning.exclude=true
+```
+
+Very small probes can return HTTP 200 with empty content if the model spends the
+budget on reasoning. Treat that as an invalid probe shape, not as proof that the
+provider is unusable.
+
 ## Phoenix Batch Export Validation
 
 For shared runtimes with `PHOENIX_COLLECTOR_ENDPOINT` set, YAAM should run with
