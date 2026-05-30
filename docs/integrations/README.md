@@ -21,6 +21,21 @@ The repository-level tracing strategy for YAAM and the GoodAI benchmark integrat
 The reusable execution and evidence-collection procedure for live Phoenix experiments is documented
 in [docs/runbooks/phoenix-experiment-reproducibility.md](../runbooks/phoenix-experiment-reproducibility.md).
 
+## YAAM Consumer Readiness
+
+The current handoff package for project-scoped YAAM consumer testing is:
+
+- [Consumer readiness wave 2026-05-30](consumer-readiness-2026-05-30/README.md)
+- [Sequential testing checklist](consumer-readiness-2026-05-30/consumer-testing-sequence.md)
+- [agentic-scm-tra26 instructions](consumer-readiness-2026-05-30/agentic-scm-tra26-test-instructions.md)
+- [scm-skill-factory instructions](consumer-readiness-2026-05-30/scm-skill-factory-test-instructions.md)
+- [scm-cognitive-sandwich instructions](consumer-readiness-2026-05-30/scm-cognitive-sandwich-test-instructions.md)
+- [readiness report template](consumer-readiness-2026-05-30/readiness-report-template.md)
+
+Use one shared YAAM endpoint for one project at a time unless operators intentionally deploy
+separate YAAM service instances and ports. The validated lab target is currently `skz-data-lv`;
+`skz-dev-lv` requires its own deployment gate before being used as the YAAM runtime.
+
 ## ✅ Provider Status
 
 **Multi-Provider Strategy: SELECTED**
