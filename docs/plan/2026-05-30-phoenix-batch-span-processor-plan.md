@@ -20,8 +20,8 @@ MCP, scope, provenance, and trace context contracts.
 | Tests: add deterministic Phoenix init/shutdown coverage | Complete | `tests/utils/test_llm_client.py` |
 | Docs: update observability/admin/user documentation | Complete | Docs listed below |
 | Local validation | Complete | `ruff`, focused tests, API/MCP tests, full suite |
-| Remote validation on `skz-data-lv` | Pending | REST/MCP smoke, logs, Phoenix spans |
-| Report | In progress | `docs/reports/2026-05-30-phoenix-batch-span-processor-implementation-report.md` |
+| Remote validation on `skz-data-lv` | Complete | REST/MCP smoke, logs, Phoenix spans |
+| Report | Complete | `docs/reports/2026-05-30-phoenix-batch-span-processor-implementation-report.md` |
 
 ## Implementation Notes
 

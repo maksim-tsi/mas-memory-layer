@@ -1,7 +1,7 @@
 # Phoenix BatchSpanProcessor Implementation Report
 
 **Date:** 2026-05-30  
-**Status:** Local validation passed; remote validation pending  
+**Status:** Complete  
 **Related plan:** `docs/plan/2026-05-30-phoenix-batch-span-processor-plan.md`  
 **Requirements:** `YAAM-REQ-0014`, `YAAM-REQ-0034`, `YAAM-REQ-0038`
 
@@ -35,11 +35,49 @@ does not alter REST v2, MCP v1, scope, provenance, or `traceparent` contracts.
 | `./.venv/bin/pytest tests/utils/test_llm_client.py -v` | Passed | `14 passed` |
 | `./.venv/bin/pytest tests/api/ tests/mcp/ tests/test_server_api_wall.py -v` | Passed | `36 passed, 3 skipped` |
 | `./.venv/bin/pytest tests/ -v` | Passed | `746 passed, 142 skipped` |
-| Remote REST health | Pending |  |
-| Remote MCP live read contract | Pending |  |
-| Remote REST L2/L3/L4 smoke | Pending |  |
-| Remote Docker log review | Pending |  |
-| Phoenix span export | Pending |  |
+| Remote REST health | Passed | `curl -fsS http://192.168.107.187:8002/health` returned HTTP 200 |
+| Remote MCP live read contract | Passed | `1 passed` against `http://192.168.107.187:8003/mcp` |
+| Remote REST L2/L3/L4 smoke | Passed | Synthetic session `bsp-phoenix-project-1780150430`; L2 store/retrieve, L3 assimilate/query, L4 finalize all returned 2xx |
+| Remote Docker log review | Passed | No Phoenix default processor banner/warning, OpenInference warning, Traceback, or unexpected `5xx` in final logs |
+| Phoenix span export | Passed | Project `mlm-mas-dev-phoenix-bsp-20260530`; `50` spans, `0` errors |
+
+## Remote Evidence Summary
+
+Final deployment commit: `e1c3433`.
+
+Fresh Phoenix project:
+
+```text
+mlm-mas-dev-phoenix-bsp-20260530
+```
+
+Synthetic REST scope:
+
+```text
+session_id: bsp-phoenix-project-1780150430
+task_id: bsp-phoenix-project-1780150430-task
+traceparent: 00-fedcba9876543210fedcba9876543210-abcdefabcdefabcd-01
+```
+
+REST smoke:
+
+| Operation | HTTP | Result |
+| --- | --- | --- |
+| L2 store | 200 | fact `e5aeb79f-0d0b-4755-b988-a98bcb6ceaa5` |
+| L2 retrieve | 200 | retrieved `1` fact |
+| L3 assimilate | 201 | episode `ep-c073c999` |
+| L3 query | 200 | successful query, `0` matching results |
+| L4 finalize | 201 | knowledge `kd-6d9d09f9` |
+
+Phoenix export summary:
+
+| Metric | Value |
+| --- | --- |
+| Total spans | `50` |
+| Errors | `0` |
+| Span kinds | `EMBEDDING=2`, `LLM=2`, `TOOL=3`, `UNKNOWN=43` |
+| REST spans | L2 facts, L3 assimilate/query, L4 finalize |
+| MCP spans | `yaam.health.check`, `yaam://config/ciar`, `yaam.prompt.memory_inspection` |
 
 ## Operational Notes
 
@@ -52,7 +90,7 @@ does not alter REST v2, MCP v1, scope, provenance, or `traceparent` contracts.
 
 ## Residual Risks
 
-- Remote validation must confirm that the Phoenix startup warning is gone from
-  `mas-agent` and `yaam-mcp` logs.
 - Live span export remains dependent on Phoenix availability and the configured
   collector endpoint.
+- Abrupt container termination can still lose spans that have not yet been
+  flushed by the batch processor.
