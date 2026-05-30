@@ -86,6 +86,22 @@ REST smoke checks should cover:
 Use synthetic records only. Do not include secrets or customer answer material
 in request bodies.
 
+## Phoenix Batch Export Validation
+
+For shared runtimes with `PHOENIX_COLLECTOR_ENDPOINT` set, YAAM should run with
+batch span exporting:
+
+```bash
+YAAM_OTEL_SPAN_PROCESSOR=batch
+OTEL_BSP_SCHEDULE_DELAY=1000
+```
+
+After restarting `mas-agent` and `yaam-mcp`, inspect startup logs and confirm
+that Phoenix no longer warns about the default span processor. Then run one
+REST or MCP smoke with a unique `PHOENIX_PROJECT_NAME` and verify spans appear
+in Phoenix after the batch delay. A short delay is expected; missing spans after
+the export timeout should be treated as degraded observability.
+
 ## Customer Validation Location
 
 The most reliable customer validation target is the `skz-data-lv` machine after

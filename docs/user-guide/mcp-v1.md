@@ -65,6 +65,12 @@ available:
 Do not include secrets, provider keys, database credentials, or raw private
 reasoning traces in MCP arguments.
 
+Shared YAAM runtimes export Phoenix spans asynchronously with batch delivery.
+MCP callers do not need extra arguments for this; keep propagating
+`traceparent` through the scope envelope when an upstream trace exists. Trace
+metadata in MCP responses remains available immediately, while Phoenix span
+visibility can lag briefly.
+
 ## Tools
 
 Read and explanation tools:

@@ -18,6 +18,17 @@ OpenInference semantic conventions. The contract is designed to support "glass-b
 The contract is defined above the frozen mechanism layer. It MUST NOT require modifications to
 `src/storage/`.
 
+## 1.1 Runtime Export Policy
+
+Production-like YAAM runtimes SHOULD export Phoenix/OpenTelemetry spans with a
+batch span processor. In the reference REST/MCP containers this is controlled by
+`YAAM_OTEL_SPAN_PROCESSOR`, which defaults to `batch` when Phoenix tracing is
+enabled. `simple` remains a debugging mode for short local runs.
+
+This export policy affects delivery mechanics only. It does not change span
+names, attributes, trace context propagation, Phoenix project naming, or the
+REST/MCP public response contracts.
+
 ## 2. Scope and non-goals
 
 **In scope**

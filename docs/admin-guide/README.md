@@ -28,6 +28,24 @@ validating YAAM 0.10.
 - Validation:
   [admin validation guide](validation.md).
 
+## Phoenix Span Export
+
+Shared REST/MCP runtimes use Phoenix/OpenTelemetry batch span exporting by
+default:
+
+```bash
+YAAM_OTEL_SPAN_PROCESSOR=batch
+YAAM_OTEL_FORCE_FLUSH_TIMEOUT_MS=5000
+OTEL_BSP_MAX_QUEUE_SIZE=2048
+OTEL_BSP_MAX_EXPORT_BATCH_SIZE=512
+OTEL_BSP_SCHEDULE_DELAY=1000
+OTEL_BSP_EXPORT_TIMEOUT=30000
+```
+
+Use `YAAM_OTEL_SPAN_PROCESSOR=simple` only for local debugging. Consumer
+requests and responses are unchanged; callers still provide `traceparent` and
+scope fields through the documented REST/MCP contracts.
+
 ## MCP Write And Lifecycle Controls
 
 MCP write/lifecycle tools are disabled by default. Enable them only for

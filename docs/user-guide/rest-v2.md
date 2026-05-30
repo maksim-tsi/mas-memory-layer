@@ -14,6 +14,11 @@ harnesses, batch ingestion, and operational smoke checks.
 - Do not send secrets, provider keys, database credentials, or raw sensitive
   reasoning traces in request bodies.
 
+Shared YAAM deployments export Phoenix/OpenTelemetry spans asynchronously with
+batch delivery. REST callers do not need to change payloads for this; response
+trace metadata remains immediate, while Phoenix UI/API visibility can lag by a
+short batch delay.
+
 ## Compatibility-Sensitive Endpoints
 
 Existing tier endpoints remain compatibility-sensitive. Customers should not

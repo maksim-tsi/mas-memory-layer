@@ -22,6 +22,8 @@ progressive disclosure of repository knowledge.
 - `docs/plan/2026-05-24-mcp-v1-implementation-plan.md` — Completed batch-based implementation
   plan for the generic MCP v1 stdio adapter, shared service layer, contracts, tools, resources,
   prompts, runbook, and verification.
+- `docs/plan/2026-05-30-phoenix-batch-span-processor-plan.md` — Execution tracker for moving
+  Phoenix/OpenTelemetry export to the SDK BatchSpanProcessor path for shared REST/MCP runtimes.
 
 ## Conventions
 

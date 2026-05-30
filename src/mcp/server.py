@@ -969,6 +969,15 @@ def _install_streamable_http_closed_resource_filter() -> None:
     logger.addFilter(_StreamableHTTPClosedResourceFilter())
 
 
+def _shutdown_mcp_tracing() -> None:
+    """Flush and shut down YAAM-owned Phoenix tracing resources."""
+    try:
+        from src.llm.client import shutdown_phoenix_instrumentation
+    except Exception:  # pragma: no cover - optional import safety
+        return
+    shutdown_phoenix_instrumentation()
+
+
 async def create_service_from_env(
     config_args: argparse.Namespace | None = None,
 ) -> MemoryGatewayService:
@@ -994,6 +1003,7 @@ async def run_stdio(config_args: argparse.Namespace | None = None) -> None:
         state = getattr(service, "_mcp_state", None)
         if state is not None:
             await shutdown_state(state)
+        _shutdown_mcp_tracing()
 
 
 async def run_streamable_http(config_args: argparse.Namespace | None = None) -> None:
@@ -1006,6 +1016,7 @@ async def run_streamable_http(config_args: argparse.Namespace | None = None) -> 
         state = getattr(service, "_mcp_state", None)
         if state is not None:
             await shutdown_state(state)
+        _shutdown_mcp_tracing()
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

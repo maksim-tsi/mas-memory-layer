@@ -38,6 +38,11 @@ debug-only decoration. They are used to explain where memory came from, why a
 result was included or filtered, and how a result relates to external traces or
 benchmark artifacts.
 
+On shared deployments, YAAM exports Phoenix/OpenTelemetry spans asynchronously
+with batch delivery. This does not change caller behavior: continue passing
+`traceparent` when available and reading trace metadata from REST/MCP responses.
+Phoenix UI/API visibility may lag the request by a short batch delay.
+
 For benchmark-sensitive flows, callers should declare their role. The main
 roles are:
 

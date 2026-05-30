@@ -127,6 +127,15 @@ def _ensure_api_wall_tracing() -> None:
     ensure_phoenix_instrumentation()
 
 
+def _shutdown_api_wall_tracing() -> None:
+    """Flush and shut down YAAM-owned Phoenix tracing resources."""
+    try:
+        from src.llm.client import shutdown_phoenix_instrumentation
+    except Exception:  # pragma: no cover - optional import safety
+        return
+    shutdown_phoenix_instrumentation()
+
+
 def _extract_parent_context(traceparent: str | None) -> Any | None:
     """Extract an OpenTelemetry parent context from an inbound trace header."""
     if not traceparent:
@@ -216,6 +225,7 @@ def create_app(config: agent_wrapper.WrapperConfig) -> FastAPI:
             config.agent_variant,
         )
         await agent_wrapper.shutdown_state(state)
+        _shutdown_api_wall_tracing()
 
     app = FastAPI(title="MAS API Wall", version="1.0", lifespan=lifespan)
 
