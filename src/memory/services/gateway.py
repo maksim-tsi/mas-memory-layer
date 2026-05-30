@@ -53,6 +53,8 @@ HIDDEN_VISIBILITY_SCOPES = frozenset(
 )
 CURATION_RECORD_TYPE = "scm_cert_bench_curation_decision"
 TRACE_CORRELATION_RECORD_TYPE = "scm_cert_bench_trace_correlation"
+SKILL_FACTORY_DOMAIN = "skill_factory"
+SKILL_FACTORY_DOMAIN_SCAN_LIMIT = 500
 
 
 class MemoryGatewayService:
@@ -405,6 +407,70 @@ class MemoryGatewayService:
         self.permission_policy.require("yaam.l4.search_knowledge", "read")
         docs = await self.memory_system._query_l4_documents(query=query, limit=limit)
         return [memory_result_from_knowledge(document, scope) for document in docs or []]
+
+    async def list_skill_factory_domain_records(
+        self,
+        scope: ScopeEnvelope,
+        filters: dict[str, str] | None = None,
+        limit: int = 20,
+    ) -> list[MemoryResult]:
+        """List bounded Skill Factory records by canonical metadata across tiers."""
+        self.permission_policy.require("yaam.memory.query", "read")
+        requested_filters = filters or {}
+        scan_limit = max(limit * 10, SKILL_FACTORY_DOMAIN_SCAN_LIMIT)
+        records: list[MemoryResult] = []
+
+        l2_tier = getattr(self.memory_system, "l2_tier", None)
+        if l2_tier and hasattr(l2_tier, "query"):
+            facts = await l2_tier.query(
+                filters={},
+                limit=scan_limit,
+                include_low_ciar=True,
+                order_by="created_at DESC",
+            )
+            records.extend(memory_result_from_fact(fact, scope) for fact in facts or [])
+
+        l3_tier = getattr(self.memory_system, "l3_tier", None)
+        qdrant = getattr(l3_tier, "qdrant", None)
+        if qdrant and hasattr(qdrant, "scroll"):
+            points = await qdrant.scroll(
+                collection_name=getattr(l3_tier, "collection_name", None),
+                filter_dict={
+                    "must": [
+                        {"key": "project_id", "match": {"value": self.project_id}},
+                        {
+                            "key": "metadata.domain",
+                            "match": {"value": SKILL_FACTORY_DOMAIN},
+                        },
+                    ]
+                },
+                limit=scan_limit,
+            )
+            records.extend(memory_result_from_episode(point, scope) for point in points or [])
+
+        l4_tier = getattr(self.memory_system, "l4_tier", None)
+        if l4_tier and hasattr(l4_tier, "search"):
+            query = " ".join(
+                [
+                    "Skill Factory",
+                    *(str(value) for value in requested_filters.values() if value),
+                ]
+            )
+            documents = await l4_tier.search(
+                query_text=query or "Skill Factory",
+                filters={"project_id": self.project_id},
+                limit=limit,
+            )
+            records.extend(
+                memory_result_from_knowledge(document, scope) for document in documents or []
+            )
+
+        return [
+            record
+            for record in records
+            if self._is_skill_factory_domain_record(record)
+            and self._record_matches_filters(record, requested_filters)
+        ][:limit]
 
     async def get_knowledge(self, scope: ScopeEnvelope, knowledge_id: str) -> MemoryResult | None:
         """Resolve a single L4 knowledge document through the tier API."""
@@ -856,6 +922,34 @@ class MemoryGatewayService:
         }
         return redact_metadata({key: value for key, value in merged.items() if value is not None})
 
+    def _is_skill_factory_domain_record(self, record: MemoryResult) -> bool:
+        metadata = _merged_record_metadata(record)
+        project_id = metadata.get("project_id")
+        session_id = metadata.get("client_session_id") or (
+            record.provenance.session_id if record.provenance else None
+        )
+        in_project = project_id == self.project_id or (
+            isinstance(session_id, str) and session_id.startswith(f"{self.project_id}:")
+        )
+        return in_project and metadata.get("domain") == SKILL_FACTORY_DOMAIN
+
+    def _record_matches_filters(
+        self,
+        record: MemoryResult,
+        filters: dict[str, str],
+    ) -> bool:
+        metadata = _merged_record_metadata(record)
+        content = record.content.lower()
+        for key, expected in filters.items():
+            expected_text = str(expected).lower()
+            actual = metadata.get(key)
+            if actual is not None and str(actual).lower() == expected_text:
+                continue
+            if expected_text in content:
+                continue
+            return False
+        return True
+
     def _storage_scope(self, scope: ScopeEnvelope) -> ScopeEnvelope:
         if scope.session_id == "*":
             return scope.model_copy(update={"metadata": {**scope.metadata, "project_id": self.project_id}})
@@ -904,6 +998,26 @@ def _requires_benchmark_guard(scope: ScopeEnvelope) -> bool:
 
 def _normalized_forbidden_fields(forbidden_fields: list[str] | None) -> set[str]:
     return {field.lower() for field in (forbidden_fields or DEFAULT_FORBIDDEN_BENCHMARK_FIELDS)}
+
+
+def _merged_record_metadata(record: MemoryResult) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    if record.provenance and record.provenance.metadata:
+        merged.update(record.provenance.metadata)
+        nested = record.provenance.metadata.get("metadata")
+        if isinstance(nested, dict):
+            merged.update(nested)
+    if record.metadata:
+        merged.update(record.metadata)
+        nested = record.metadata.get("metadata")
+        if isinstance(nested, dict):
+            merged.update(nested)
+    if record.provenance:
+        for key in ("session_id", "agent_id", "task_id", "tenant_id", "run_id"):
+            value = getattr(record.provenance, key, None)
+            if value is not None and key not in merged:
+                merged[key] = value
+    return merged
 
 
 def _item_has_forbidden_visibility(

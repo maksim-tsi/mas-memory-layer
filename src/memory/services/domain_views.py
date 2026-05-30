@@ -48,16 +48,26 @@ class SkillFactoryDomainViewService:
 
     async def run_episodes(self, run_id: str, limit: int = 20) -> dict[str, Any]:
         filters = {"run_id": run_id}
-        scope = self._scope(filters)
-        items, warnings = await self._call_results(
-            "L3",
-            lambda: self.gateway.search_l3_episodes(
-                scope,
-                query=f"Skill Factory run {run_id} repair generation episode",
-                limit=limit,
-            ),
+        items, warnings = await self._collect_domain_records(
+            filters=filters,
+            limit=limit,
         )
-        return self._payload("run_episodes", filters, _matching_items(items, filters), warnings)
+        l3_items = [item for item in _matching_items(items, filters) if item.tier == "L3"]
+        if not l3_items:
+            scope = self._scope(filters)
+            fallback_items, fallback_warnings = await self._call_results(
+                "L3",
+                lambda: self.gateway.search_l3_episodes(
+                    scope,
+                    query=f"Skill Factory run {run_id} repair generation episode",
+                    limit=limit,
+                ),
+            )
+            l3_items = [
+                item for item in _matching_items(fallback_items, filters) if item.tier == "L3"
+            ]
+            warnings.extend(fallback_warnings)
+        return self._payload("run_episodes", filters, l3_items[:limit], warnings)
 
     async def qa_status_runs(self, qa_status: str, limit: int = 20) -> dict[str, Any]:
         filters = {"qa_status": qa_status}
@@ -85,6 +95,13 @@ class SkillFactoryDomainViewService:
         filters: dict[str, str],
         limit: int,
     ) -> tuple[list[MemoryResult], list[dict[str, Any]]]:
+        domain_items, domain_warnings = await self._collect_domain_records(
+            filters=filters,
+            limit=limit,
+        )
+        if domain_items:
+            return _matching_items(domain_items, filters)[:limit], domain_warnings
+
         scope = self._scope(filters)
         warnings: list[dict[str, Any]] = []
         collected: list[MemoryResult] = []
@@ -108,6 +125,40 @@ class SkillFactoryDomainViewService:
             warnings.extend(tier_warnings)
 
         return _matching_items(collected, filters)[:limit], warnings
+
+    async def _collect_domain_records(
+        self,
+        filters: dict[str, str],
+        limit: int,
+    ) -> tuple[list[MemoryResult], list[dict[str, Any]]]:
+        list_records = getattr(self.gateway, "list_skill_factory_domain_records", None)
+        if not callable(list_records):
+            return [], []
+
+        try:
+            return (
+                list(
+                    await list_records(
+                        self._scope(filters),
+                        filters=filters,
+                        limit=limit,
+                    )
+                    or []
+                ),
+                [],
+            )
+        except Exception as exc:
+            return [], [
+                {
+                    "code": "domain_pack.partial_projection",
+                    "message": (
+                        "Skill Factory deterministic domain projection failed: "
+                        f"{type(exc).__name__}"
+                    ),
+                    "affected_tier": "DOMAIN",
+                    "retryable": True,
+                }
+            ]
 
     async def _call_results(
         self,
@@ -216,19 +267,32 @@ def _matching_items(items: list[MemoryResult], filters: dict[str, str]) -> list[
 
 def _matches_filters(item: MemoryResult, filters: dict[str, str]) -> bool:
     haystack = item.content.lower()
-    metadata = item.metadata or {}
-    provenance_metadata = item.provenance.metadata if item.provenance else {}
-    merged = {**provenance_metadata, **metadata}
 
     for key, expected in filters.items():
         expected_normalized = str(expected).lower()
-        actual = merged.get(key)
+        actual = _metadata_value(item, key)
         if actual is not None and str(actual).lower() == expected_normalized:
             continue
         if expected_normalized in haystack:
             continue
         return False
     return True
+
+
+def _metadata_value(item: MemoryResult, key: str) -> Any:
+    metadata = item.metadata or {}
+    provenance_metadata = item.provenance.metadata if item.provenance else {}
+    for source in (metadata, provenance_metadata):
+        value = source.get(key)
+        if value is not None:
+            return value
+        nested = source.get("metadata")
+        if isinstance(nested, dict) and nested.get(key) is not None:
+            return nested[key]
+    provenance_value = getattr(item.provenance, key, None) if item.provenance else None
+    if provenance_value is not None:
+        return provenance_value
+    return None
 
 
 def _dump_result(item: MemoryResult) -> dict[str, Any]:

@@ -83,6 +83,75 @@ class SkillFactoryGateway:
         ]
 
 
+class DeterministicSkillFactoryGateway:
+    def __init__(self) -> None:
+        self.project_id = "scm-skill-factory"
+        self.calls: list[tuple[ScopeEnvelope, dict[str, str], int]] = []
+
+    async def list_skill_factory_domain_records(
+        self,
+        scope: ScopeEnvelope,
+        filters: dict[str, str],
+        limit: int = 20,
+    ) -> list[MemoryResult]:
+        self.calls.append((scope, filters, limit))
+        return [
+            _result(
+                "L2",
+                "fact-a",
+                scope,
+                {
+                    "domain": "skill_factory",
+                    "skill_name": "readiness_demo_skill",
+                    "ctt_id": "readiness-ctt-001",
+                    "run_id": "skill-run-001",
+                    "qa_status": "failed",
+                    "active_tool_status": "stale",
+                    "api_token": "secret",
+                },
+            ),
+            _result(
+                "L3",
+                "episode-a",
+                scope,
+                {
+                    "domain": "skill_factory",
+                    "skill_name": "readiness_demo_skill",
+                    "ctt_id": "readiness-ctt-001",
+                    "run_id": "skill-run-001",
+                    "qa_status": "failed",
+                    "active_tool_status": "stale",
+                },
+            ),
+            _result(
+                "L4",
+                "knowledge-a",
+                scope,
+                {
+                    "domain": "skill_factory",
+                    "skill_name": "readiness_demo_skill",
+                    "ctt_id": "readiness-ctt-001",
+                    "run_id": "skill-run-001",
+                    "qa_status": "failed",
+                    "active_tool_status": "stale",
+                },
+            ),
+            _result(
+                "L3",
+                "episode-other",
+                scope,
+                {
+                    "domain": "skill_factory",
+                    "skill_name": "other-skill",
+                    "ctt_id": "other-ctt",
+                    "run_id": "other-run",
+                    "qa_status": "passed",
+                    "active_tool_status": "fresh",
+                },
+            ),
+        ]
+
+
 @pytest.mark.asyncio
 async def test_skill_factory_skill_view_filters_and_redacts_metadata() -> None:
     gateway = SkillFactoryGateway()
@@ -121,6 +190,36 @@ async def test_skill_factory_status_view_returns_run_summaries() -> None:
             "source_ids": ["fact-skill-a", "episode-a"],
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_skill_factory_run_views_use_deterministic_metadata_projection() -> None:
+    gateway = DeterministicSkillFactoryGateway()
+    service = SkillFactoryDomainViewService(gateway)
+
+    run_view = await service.run_episodes("skill-run-001")
+    qa_view = await service.qa_status_runs("failed")
+    active_tool_view = await service.active_tool_status_runs("stale")
+
+    assert run_view["counts"]["items"] == 1
+    assert run_view["counts"]["l3"] == 1
+    assert run_view["items"][0]["source_id"] == "episode-a"
+    assert run_view["items"][0]["metadata"]["run_id"] == "skill-run-001"
+
+    assert qa_view["counts"]["items"] == 3
+    assert qa_view["counts"]["runs"] == 1
+    assert qa_view["runs"][0]["run_id"] == "skill-run-001"
+    assert qa_view["runs"][0]["skill_names"] == ["readiness_demo_skill"]
+    assert qa_view["runs"][0]["ctt_ids"] == ["readiness-ctt-001"]
+    assert qa_view["runs"][0]["qa_statuses"] == ["failed"]
+    assert qa_view["runs"][0]["active_tool_statuses"] == ["stale"]
+    assert "episode-other" not in {item["source_id"] for item in qa_view["items"]}
+
+    assert active_tool_view["counts"]["items"] == 3
+    assert active_tool_view["counts"]["runs"] == 1
+    assert active_tool_view["runs"][0]["run_id"] == "skill-run-001"
+    assert active_tool_view["items"][0]["metadata"]["api_token"] == "[REDACTED]"
+    assert gateway.calls[0][0].domain_ids == {"run_id": "skill-run-001"}
 
 
 def _result(

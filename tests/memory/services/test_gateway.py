@@ -337,3 +337,99 @@ async def test_contradiction_review_uses_explicit_evidence_relations(mocker) -> 
     assert review.safe_refusal_rationale is not None
     assert [item.source_id for item in review.supporting_evidence] == ["support-a"]
     assert [item.source_id for item in review.conflicting_evidence] == ["conflict-a"]
+
+
+@pytest.mark.asyncio
+async def test_list_skill_factory_domain_records_projects_and_filters_metadata(mocker) -> None:
+    skill_metadata = {
+        "project_id": "scm-skill-factory",
+        "domain": "skill_factory",
+        "skill_name": "readiness_demo_skill",
+        "ctt_id": "readiness-ctt-001",
+        "run_id": "skill-run-001",
+        "qa_status": "failed",
+        "active_tool_status": "stale",
+    }
+    l2_tier = mocker.Mock()
+    l2_tier.query = mocker.AsyncMock(
+        return_value=[
+            Fact(
+                fact_id="fact-skill",
+                session_id="scm-skill-factory:session-a",
+                content="Skill Factory run skill-run-001 failed QA.",
+                metadata={**skill_metadata, "api_token": "secret"},
+            ),
+            Fact(
+                fact_id="fact-other-domain",
+                session_id="scm-skill-factory:session-a",
+                content="Unrelated run skill-run-001.",
+                metadata={**skill_metadata, "domain": "other"},
+            ),
+            Fact(
+                fact_id="fact-other-project",
+                session_id="other-project:session-a",
+                content="Skill Factory run skill-run-001 from another project.",
+                metadata={**skill_metadata, "project_id": "other-project"},
+            ),
+        ]
+    )
+    qdrant = mocker.Mock()
+    qdrant.scroll = mocker.AsyncMock(
+        return_value=[
+            {
+                "episode_id": "episode-skill",
+                "session_id": "scm-skill-factory:session-a",
+                "summary": "Skill Factory episode for skill-run-001.",
+                "importance_score": 0.8,
+                "metadata": skill_metadata,
+            },
+            {
+                "episode_id": "episode-other-run",
+                "session_id": "scm-skill-factory:session-a",
+                "summary": "Skill Factory episode for another run.",
+                "importance_score": 0.7,
+                "metadata": {**skill_metadata, "run_id": "other-run"},
+            },
+        ]
+    )
+    l3_tier = mocker.Mock()
+    l3_tier.collection_name = "yaam-scm-skill-factory-episodes_v2"
+    l3_tier.qdrant = qdrant
+    l4_tier = mocker.Mock()
+    l4_tier.search = mocker.AsyncMock(
+        return_value=[
+            {
+                "knowledge_id": "knowledge-skill",
+                "session_id": "scm-skill-factory:session-a",
+                "content": "Skill Factory knowledge for skill-run-001.",
+                "confidence_score": 0.9,
+                "metadata": skill_metadata,
+            }
+        ]
+    )
+    memory_system = mocker.Mock()
+    memory_system.l2_tier = l2_tier
+    memory_system.l3_tier = l3_tier
+    memory_system.l4_tier = l4_tier
+    service = MemoryGatewayService(memory_system, project_id="scm-skill-factory")
+    scope = ScopeEnvelope(session_id="*", agent_id="skill-factory-domain-pack")
+
+    records = await service.list_skill_factory_domain_records(
+        scope,
+        filters={"run_id": "skill-run-001"},
+        limit=10,
+    )
+
+    assert [record.source_id for record in records] == [
+        "fact-skill",
+        "episode-skill",
+        "knowledge-skill",
+    ]
+    assert records[0].metadata["api_token"] == "[REDACTED]"
+    qdrant.scroll.assert_awaited_once()
+    assert qdrant.scroll.await_args.kwargs["filter_dict"] == {
+        "must": [
+            {"key": "project_id", "match": {"value": "scm-skill-factory"}},
+            {"key": "metadata.domain", "match": {"value": "skill_factory"}},
+        ]
+    }
