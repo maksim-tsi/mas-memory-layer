@@ -246,6 +246,11 @@ It also adds:
 
 - `yaam.prompt.repair_pattern_summary`
 
+The follow-up Skill Factory retest on 2026-05-31 confirmed that the domain pack is not merely
+discoverable. The consumer verifier reported `16 tools`, `5 resources`, `10 templates`, and
+`5 prompts`, then successfully exercised synthetic MCP L2/L3/L4/curation writes and all domain-pack
+views, including `yaam://runs/skill-run-001/episodes`.
+
 The pack relies on canonical metadata supplied through existing L2/L3/L4/curation writes:
 
 ```json
@@ -333,15 +338,17 @@ This provides evidence that the generic REST/MCP surfaces can deliver practical 
 
 ### 8.2 scm-skill-factory
 
-The `scm-skill-factory` run passed with findings. It demonstrated generic YAAM value for Skill Factory, including REST context, MCP read surfaces, L2/L3/L4 writes, curation, evidence, CIAR, and write-safety behavior. The findings were not generic runtime failures. They were domain-view gaps that became the motivation for the optional Skill Factory MCP domain pack.
+The initial `scm-skill-factory` run passed with findings. It demonstrated generic YAAM value for Skill Factory, including REST context, MCP read surfaces, L2/L3/L4 writes, curation, evidence, CIAR, and write-safety behavior. The findings were not generic runtime failures. They were domain-view gaps that became the motivation for the optional Skill Factory MCP domain pack.
 
-As of the domain-pack implementation, local validation evidence is:
+The post-fix Skill Factory retest passed on 2026-05-31. It verified that the new pack supports the required project-specific read surfaces: skill views, CTT views, run episode views, QA-status run views, active-tool-status run views, and the repair pattern prompt. This is the first consumer-owned evidence that the domain-pack mechanism can close project-specific requirements without changing the generic MCP surface for other projects.
+
+As of the final metadata-preservation fix, local validation evidence is:
 
 ```text
-761 passed, 142 skipped
+765 passed, 142 skipped
 ```
 
-This validates the implementation at the repository test level, but it is not yet a substitute for consumer re-verification. The next Skill Factory readiness run should prove that the new resources and prompt are not only discoverable, but useful for the project workflow.
+The consumer retest validates the implementation at the synthetic readiness level. It is still not a substitute for a full production Skill Factory workflow, but it is now stronger evidence than local tests alone.
 
 ## 9. Scientific Significance For The Future Paper
 
@@ -388,7 +395,7 @@ This note should not be read as a final empirical claim that YAAM improves all d
 
 Known limitations:
 
-- the Skill Factory domain pack still needs consumer re-verification;
+- the Skill Factory domain pack is verified by a synthetic consumer retest, but not yet by a full production Skill Factory workflow;
 - Phoenix span correlation evidence is partial in consumer reports;
 - full production workflows are not the same as synthetic readiness scripts;
 - direct L4 search/readback evidence should be strengthened in future readiness reports;
@@ -397,7 +404,7 @@ Known limitations:
 
 The next evidence package for a journal article should include:
 
-- a post-domain-pack Skill Factory readiness report;
+- a production-path Skill Factory workflow report using the verified domain pack;
 - a Cognitive Sandwich readiness report, especially if artifact lineage remains a major differentiator;
 - quantitative latency and success/failure tables for REST and MCP operations;
 - Phoenix trace export summaries linked to specific readiness runs;
@@ -415,7 +422,7 @@ The next evidence package for a journal article should include:
 | `YAAM-REQ-0011` to `YAAM-REQ-0013` | Keep resources read-only; allowlist writes; redact sensitive data. | [MCP spec](../specs/spec-mcp-v1-implementation.md) |
 | `YAAM-REQ-0014`, `YAAM-REQ-0015` | Add trace and health/config inspection. | [Consumer readiness gate report](../reports/2026-05-30-yaam-consumer-readiness-gate-report.md) |
 | `YAAM-REQ-0016`, `YAAM-REQ-0017`, `YAAM-REQ-0018` | Add Evidence Table, CIAR explanation, and partial-result policy. | [MCP spec](../specs/spec-mcp-v1-implementation.md) |
-| `YAAM-REQ-0022`, `YAAM-REQ-0023`, `YAAM-REQ-0032` | Add optional Skill Factory MCP domain pack. | [Skill Factory readiness instructions](../integrations/consumer-readiness-2026-05-30/scm-skill-factory-test-instructions.md), [Results register](../integrations/consumer-readiness-2026-05-30/consumer-readiness-results-register.md) |
+| `YAAM-REQ-0022`, `YAAM-REQ-0023`, `YAAM-REQ-0032` | Add optional Skill Factory MCP domain pack. | [Skill Factory readiness instructions](../integrations/consumer-readiness-2026-05-30/scm-skill-factory-test-instructions.md), [Skill Factory retest report](../integrations/consumer-readiness-2026-05-30/reports/2026-05-31-scm-skill-factory-readiness-report.md), [Results register](../integrations/consumer-readiness-2026-05-30/consumer-readiness-results-register.md) |
 
 ## Appendix B: Timeline Anchors
 
@@ -425,11 +432,12 @@ The next evidence package for a journal article should include:
 | 2026-05-24 | `ede5ff0`, `3d9b196`, `96d2f49`, `6b1b8df`, `f71287f` | MCP v1 planning, service layer, REST refactor, surface contracts, and tracing matured. |
 | 2026-05-28 | `ea6a9d0`, `39f9796`, `f83df5c`, `fb7b793`, `408c879` | Consumer readiness docs, Streamable HTTP transport, runtime defaults, image slimming, and Typesense/OpenInference hardening. |
 | 2026-05-30 | `1265796`, `b6c6151`, `0ddcb7f` | Consumer readiness reports, OpenRouter runtime hardening, and Skill Factory domain-pack implementation. |
+| 2026-05-31 | `b4f4bdd` | Skill Factory run episode projection fixed by preserving metadata `run_id`; consumer retest verified all domain-pack views. |
 
 ## Appendix C: Consumer Readiness Artifacts
 
 | Consumer | Verdict | Artifact |
 | --- | --- | --- |
 | `agentic-scm-tra26` | `pass` | [TRA readiness report](../integrations/consumer-readiness-2026-05-30/reports/20260530T153445Z-agentic-scm-tra26-full-synthetic-report.md) |
-| `scm-skill-factory` | `pass-with-findings` | [Skill Factory readiness report](../integrations/consumer-readiness-2026-05-30/reports/2026-05-30-scm-skill-factory-readiness-report.md) |
+| `scm-skill-factory` | `pass` | [Skill Factory retest report](../integrations/consumer-readiness-2026-05-30/reports/2026-05-31-scm-skill-factory-readiness-report.md) |
 | Consumer wave register | living register | [Results register](../integrations/consumer-readiness-2026-05-30/consumer-readiness-results-register.md) |

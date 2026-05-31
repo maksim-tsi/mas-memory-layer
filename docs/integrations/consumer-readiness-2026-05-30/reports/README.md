@@ -18,7 +18,8 @@ evidence.
 | Received | Project | Verdict | Report | Structured results | Notes |
 | --- | --- | --- | --- | --- | --- |
 | 2026-05-30 | `agentic-scm-tra26` | PASS | `20260530T153445Z-agentic-scm-tra26-full-synthetic-report.md` | `20260530T153445Z-agentic-scm-tra26-full-synthetic-results.json` | Full synthetic readiness passed; see `../consumer-readiness-results-register.md` for triage and coverage evaluation. |
-| 2026-05-30 | `scm-skill-factory` | PASS with findings | `2026-05-30-scm-skill-factory-readiness-report.md` | n/a | Full synthetic readiness passed; expected Skill Factory domain-view/resource/prompt gaps are tracked in `../consumer-readiness-results-register.md`. |
+| 2026-05-30 | `scm-skill-factory` | PASS with findings | `2026-05-30-scm-skill-factory-readiness-report.md` | n/a | Initial synthetic readiness passed with Skill Factory domain-view/resource/prompt gaps; resolved by the 2026-05-31 retest below. |
+| 2026-05-31 | `scm-skill-factory` | PASS | `2026-05-31-scm-skill-factory-readiness-report.md` | n/a | Post-fix write-enabled retest passed; all Skill Factory domain-pack views, including run episodes, returned records. |
 
 Expected projects:
 
