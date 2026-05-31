@@ -344,6 +344,7 @@ async def test_cognitive_sandwich_artifact_and_evidence_views_filter_records() -
     )
     assert artifact_summary["feedback_ids"] == ["feedback-001"]
     assert artifact_summary["commit_ids"] == ["commit-001"]
+    assert session_view["counts"]["l4"] == 1
 
     assert run_view["counts"]["items"] == 3
     assert run_view["counts"]["l4"] == 1
@@ -355,6 +356,7 @@ async def test_cognitive_sandwich_artifact_and_evidence_views_filter_records() -
     assert evidence_view["evidence"][0]["source_system"] == "deterministic_solver"
 
     assert reports_view["counts"]["items"] == 1
+    assert reports_view["counts"]["l4"] == 1
     assert reports_view["items"][0]["source_id"] == "knowledge-report"
 
 

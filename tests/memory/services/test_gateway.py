@@ -642,9 +642,93 @@ async def test_list_cognitive_sandwich_domain_records_projects_and_filters_metad
         "knowledge-report",
     ]
     assert records[0].metadata["api_token"] == "[REDACTED]"
+    first_l4_call = l4_tier.search.await_args_list[0]
+    assert first_l4_call.kwargs["query_text"] == "*"
+    assert (
+        first_l4_call.kwargs["filter_by"]
+        == "project_id:=`scm-cognitive-sandwich` && domain:=`cognitive_sandwich` "
+        "&& artifact_id:=`artifact-readiness-001`"
+    )
     qdrant.scroll.assert_awaited_once()
     assert qdrant.scroll.await_args.kwargs["filter_dict"] == {
         "must": [
             {"key": "project_id", "match": {"value": "scm-cognitive-sandwich"}},
         ]
     }
+
+
+@pytest.mark.asyncio
+async def test_cognitive_sandwich_l4_exact_metadata_projection_for_session_and_incident(
+    mocker,
+) -> None:
+    metadata = {
+        "project_id": "scm-cognitive-sandwich",
+        "domain": "cognitive_sandwich",
+        "client_session_id": "session-readiness-001",
+        "artifact_id": "artifact-readiness-001",
+        "run_id": "artifact-run-001",
+        "incident_id": "incident-readiness-001",
+        "commit_id": "commit-001",
+        "artifact_status": "committed",
+    }
+    l2_tier = mocker.Mock()
+    l2_tier.query = mocker.AsyncMock(return_value=[])
+    qdrant = mocker.Mock()
+    qdrant.scroll = mocker.AsyncMock(return_value=[])
+    l3_tier = mocker.Mock()
+    l3_tier.collection_name = "yaam-scm-cognitive-sandwich-episodes"
+    l3_tier.qdrant = qdrant
+    l4_tier = mocker.Mock()
+
+    async def l4_search(**kwargs):
+        filter_by = kwargs.get("filter_by", "")
+        if "client_session_id:=`session-readiness-001`" in filter_by:
+            return [
+                {
+                    "knowledge_id": "knowledge-session-report",
+                    "session_id": "scm-cognitive-sandwich:session-readiness-001",
+                    "content": "Final report stored for session-readiness-001.",
+                    "confidence_score": 0.9,
+                    "metadata": metadata,
+                }
+            ]
+        if "incident_id:=`incident-readiness-001`" in filter_by:
+            return [
+                {
+                    "knowledge_id": "knowledge-incident-report",
+                    "session_id": "scm-cognitive-sandwich:session-readiness-001",
+                    "content": "Incident report for incident-readiness-001.",
+                    "confidence_score": 0.9,
+                    "metadata": metadata,
+                }
+            ]
+        return []
+
+    l4_tier.search = mocker.AsyncMock(side_effect=l4_search)
+    memory_system = mocker.Mock()
+    memory_system.l2_tier = l2_tier
+    memory_system.l3_tier = l3_tier
+    memory_system.l4_tier = l4_tier
+    service = MemoryGatewayService(memory_system, project_id="scm-cognitive-sandwich")
+    scope = ScopeEnvelope(session_id="*", agent_id="cognitive-sandwich-domain-pack")
+
+    session_records = await service.list_cognitive_sandwich_domain_records(
+        scope,
+        filters={"client_session_id": "session-readiness-001"},
+        limit=10,
+    )
+    incident_records = await service.list_cognitive_sandwich_domain_records(
+        scope,
+        filters={"incident_id": "incident-readiness-001"},
+        limit=10,
+    )
+
+    assert [record.source_id for record in session_records] == ["knowledge-session-report"]
+    assert [record.source_id for record in incident_records] == ["knowledge-incident-report"]
+    filter_by_values = [
+        call.kwargs.get("filter_by")
+        for call in l4_tier.search.await_args_list
+        if call.kwargs.get("filter_by")
+    ]
+    assert any("client_session_id:=`session-readiness-001`" in item for item in filter_by_values)
+    assert any("incident_id:=`incident-readiness-001`" in item for item in filter_by_values)

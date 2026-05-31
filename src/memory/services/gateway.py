@@ -88,6 +88,18 @@ COGNITIVE_SANDWICH_METADATA_KEYS = (
     "fatal_status",
     "retry_count",
 )
+COGNITIVE_SANDWICH_L4_EXACT_STRING_FILTER_FIELDS = frozenset(
+    {
+        "project_id",
+        "client_session_id",
+        "domain",
+        *(
+            key
+            for key in COGNITIVE_SANDWICH_METADATA_KEYS
+            if key not in {"revision_number", "retry_count"}
+        ),
+    }
+)
 
 
 class MemoryGatewayService:
@@ -553,6 +565,20 @@ class MemoryGatewayService:
 
         l4_tier = getattr(self.memory_system, "l4_tier", None)
         if l4_tier and hasattr(l4_tier, "search"):
+            l4_records: list[MemoryResult] = []
+            filter_by = _cognitive_sandwich_l4_filter_by(self.project_id, requested_filters)
+            if filter_by:
+                exact_documents = await l4_tier.search(
+                    query_text="*",
+                    filters={"project_id": self.project_id},
+                    filter_by=filter_by,
+                    limit=scan_limit,
+                )
+                l4_records.extend(
+                    memory_result_from_knowledge(document, scope)
+                    for document in exact_documents or []
+                )
+
             query = " ".join(
                 [
                     "Cognitive Sandwich artifact evidence lineage",
@@ -564,9 +590,11 @@ class MemoryGatewayService:
                 filters={"project_id": self.project_id},
                 limit=limit,
             )
-            records.extend(
-                memory_result_from_knowledge(document, scope) for document in documents or []
+            l4_records.extend(
+                memory_result_from_knowledge(document, scope)
+                for document in documents or []
             )
+            records.extend(_dedupe_results(l4_records))
 
         return [
             record
@@ -1130,6 +1158,46 @@ def _requires_benchmark_guard(scope: ScopeEnvelope) -> bool:
 
 def _normalized_forbidden_fields(forbidden_fields: list[str] | None) -> set[str]:
     return {field.lower() for field in (forbidden_fields or DEFAULT_FORBIDDEN_BENCHMARK_FIELDS)}
+
+
+def _dedupe_results(records: list[MemoryResult]) -> list[MemoryResult]:
+    deduped: list[MemoryResult] = []
+    seen: set[tuple[str, str | None]] = set()
+    for record in records:
+        key = (record.tier, record.source_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(record)
+    return deduped
+
+
+def _cognitive_sandwich_l4_filter_by(
+    project_id: str, filters: dict[str, str]
+) -> str | None:
+    terms = [
+        _typesense_exact_filter("project_id", project_id),
+        _typesense_exact_filter("domain", COGNITIVE_SANDWICH_DOMAIN),
+    ]
+    for key, value in filters.items():
+        if key not in COGNITIVE_SANDWICH_L4_EXACT_STRING_FILTER_FIELDS:
+            continue
+        term = _typesense_exact_filter(key, value)
+        if term is None:
+            return None
+        terms.append(term)
+    if any(term is None for term in terms):
+        return None
+    return " && ".join(str(term) for term in terms)
+
+
+def _typesense_exact_filter(field: str, value: Any) -> str | None:
+    if field not in COGNITIVE_SANDWICH_L4_EXACT_STRING_FILTER_FIELDS:
+        return None
+    text = str(value)
+    if not text or any(char in text for char in ("`", "\n", "\r", "\t")):
+        return None
+    return f"{field}:=`{text}`"
 
 
 def _merged_record_metadata(record: MemoryResult) -> dict[str, Any]:
