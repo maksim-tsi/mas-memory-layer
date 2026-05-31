@@ -1,13 +1,13 @@
 # From Service-Bound Memory To Adaptive Agent-Host Interfaces: YAAM MCP Evolution And Domain-Pack Extensibility
 
-**Status:** Research note for future journal article  
-**Date:** 2026-05-30  
-**Scope:** MCP interface evolution, requirements-driven design, dual transport strategy, and Skill Factory domain-pack extensibility  
+**Status:** Research note for future journal article
+**Date:** 2026-05-30
+**Scope:** MCP interface evolution, requirements-driven design, dual transport strategy, and domain-pack extensibility
 **Related CIAR note:** deferred to a dedicated future artifact
 
 ## Abstract
 
-This note records the architectural evolution of YAAM from a November 2025 memory-tier prototype into a May 2026 consumer-facing, MCP-enabled memory service. The central change was not only the addition of a new protocol adapter, but a reframing of YAAM as a public, auditable interface layer for multiple research systems. The work combined external requirements intake, interface hypothesis evaluation, service-layer extraction, dual MCP transport support, project-scoped deployment, and a first optional domain pack for the `scm-skill-factory` research project. The resulting design preserves generic REST and MCP behavior for other consumers while allowing Skill Factory-specific resources and prompts to appear only under the matching project namespace. This provides a concrete example of how YAAM can support project-specific scientific workflows without fragmenting into separate forks.
+This note records the architectural evolution of YAAM from a November 2025 memory-tier prototype into a May 2026 consumer-facing, MCP-enabled memory service. The central change was not only the addition of a new protocol adapter, but a reframing of YAAM as a public, auditable interface layer for multiple research systems. The work combined external requirements intake, interface hypothesis evaluation, service-layer extraction, dual MCP transport support, project-scoped deployment, and optional MCP domain packs for research projects such as `scm-skill-factory` and `scm-cognitive-sandwich`. The resulting design preserves generic REST and MCP behavior for other consumers while allowing project-specific resources and prompts to appear only under matching project namespaces. This provides a concrete example of how YAAM can support project-specific scientific workflows without fragmenting into separate forks.
 
 ## 1. Historical Baseline: November 2025
 
@@ -316,6 +316,14 @@ flowchart TB
 
 For the future paper, this is a strong case study: a consumer found a real domain gap; the architecture absorbed the gap as an optional interface extension rather than as a fork.
 
+SCM Cognitive Sandwich became a second domain-pack case study. Its generic read/write verifier
+confirmed that YAAM could store L2 feedback, assimilate L3 repair episodes, finalize L4 artifacts,
+and assemble Evidence Table rows, but it also exposed project-specific artifact projection gaps.
+YAAM closed those gaps by preserving Cognitive Sandwich canonical metadata in L4, adding
+deterministic exact-metadata projection for domain resources, and validating the result through a
+fresh consumer retest. The updated report confirms that fresh L4 finalized artifacts now appear in
+artifact lineage, session artifacts, run artifacts, run evidence, and incident reports.
+
 ## 8. Consumer Readiness Evidence
 
 The May 30 consumer readiness wave is documented in [docs/integrations/consumer-readiness-2026-05-30/consumer-readiness-results-register.md](../integrations/consumer-readiness-2026-05-30/consumer-readiness-results-register.md).
@@ -395,17 +403,16 @@ This note should not be read as a final empirical claim that YAAM improves all d
 
 Known limitations:
 
-- the Skill Factory domain pack is verified by a synthetic consumer retest, but not yet by a full production Skill Factory workflow;
+- the Skill Factory and Cognitive Sandwich domain packs are verified by synthetic consumer retests, but not yet by full production workflows;
 - Phoenix span correlation evidence is partial in consumer reports;
 - full production workflows are not the same as synthetic readiness scripts;
 - direct L4 search/readback evidence should be strengthened in future readiness reports;
 - CIAR requires a separate formal scientific treatment, including formulas, calibration, and empirical effect;
-- domain packs are currently proven for Skill Factory only, not for all future project families.
+- domain packs are currently proven for Skill Factory and Cognitive Sandwich only, not for all future project families.
 
 The next evidence package for a journal article should include:
 
-- a production-path Skill Factory workflow report using the verified domain pack;
-- a Cognitive Sandwich readiness report, especially if artifact lineage remains a major differentiator;
+- production-path Skill Factory and Cognitive Sandwich workflow reports using the verified domain packs;
 - quantitative latency and success/failure tables for REST and MCP operations;
 - Phoenix trace export summaries linked to specific readiness runs;
 - ablation-style comparison of generic MCP-only versus domain-pack-assisted workflows;
@@ -423,6 +430,7 @@ The next evidence package for a journal article should include:
 | `YAAM-REQ-0014`, `YAAM-REQ-0015` | Add trace and health/config inspection. | [Consumer readiness gate report](../reports/2026-05-30-yaam-consumer-readiness-gate-report.md) |
 | `YAAM-REQ-0016`, `YAAM-REQ-0017`, `YAAM-REQ-0018` | Add Evidence Table, CIAR explanation, and partial-result policy. | [MCP spec](../specs/spec-mcp-v1-implementation.md) |
 | `YAAM-REQ-0022`, `YAAM-REQ-0023`, `YAAM-REQ-0032` | Add optional Skill Factory MCP domain pack. | [Skill Factory readiness instructions](../integrations/consumer-readiness-2026-05-30/scm-skill-factory-test-instructions.md), [Skill Factory retest report](../integrations/consumer-readiness-2026-05-30/reports/2026-05-31-scm-skill-factory-readiness-report.md), [Results register](../integrations/consumer-readiness-2026-05-30/consumer-readiness-results-register.md) |
+| `YAAM-REQ-0019`, `YAAM-REQ-0020`, `YAAM-REQ-0021`, `YAAM-REQ-0028`, `YAAM-REQ-0032` | Add optional Cognitive Sandwich MCP domain pack and L4 metadata projections for artifact/evidence views. | [Cognitive Sandwich readiness report](../integrations/consumer-readiness-2026-05-30/reports/2026-05-31-scm-cognitive-sandwich-readiness-report.md), [Results register](../integrations/consumer-readiness-2026-05-30/consumer-readiness-results-register.md) |
 
 ## Appendix B: Timeline Anchors
 
@@ -432,7 +440,7 @@ The next evidence package for a journal article should include:
 | 2026-05-24 | `ede5ff0`, `3d9b196`, `96d2f49`, `6b1b8df`, `f71287f` | MCP v1 planning, service layer, REST refactor, surface contracts, and tracing matured. |
 | 2026-05-28 | `ea6a9d0`, `39f9796`, `f83df5c`, `fb7b793`, `408c879` | Consumer readiness docs, Streamable HTTP transport, runtime defaults, image slimming, and Typesense/OpenInference hardening. |
 | 2026-05-30 | `1265796`, `b6c6151`, `0ddcb7f` | Consumer readiness reports, OpenRouter runtime hardening, and Skill Factory domain-pack implementation. |
-| 2026-05-31 | `b4f4bdd` | Skill Factory run episode projection fixed by preserving metadata `run_id`; consumer retest verified all domain-pack views. |
+| 2026-05-31 | `b4f4bdd`, `1d1c4e9`, `0a5e703` | Skill Factory run episode projection fixed by preserving metadata `run_id`; Cognitive Sandwich L4 exact metadata projection fixed; consumer retests verified both domain packs at synthetic readiness level. |
 
 ## Appendix C: Consumer Readiness Artifacts
 
@@ -440,4 +448,5 @@ The next evidence package for a journal article should include:
 | --- | --- | --- |
 | `agentic-scm-tra26` | `pass` | [TRA readiness report](../integrations/consumer-readiness-2026-05-30/reports/20260530T153445Z-agentic-scm-tra26-full-synthetic-report.md) |
 | `scm-skill-factory` | `pass` | [Skill Factory retest report](../integrations/consumer-readiness-2026-05-30/reports/2026-05-31-scm-skill-factory-readiness-report.md) |
+| `scm-cognitive-sandwich` | `pass` | [Cognitive Sandwich readiness report](../integrations/consumer-readiness-2026-05-30/reports/2026-05-31-scm-cognitive-sandwich-readiness-report.md) |
 | Consumer wave register | living register | [Results register](../integrations/consumer-readiness-2026-05-30/consumer-readiness-results-register.md) |
