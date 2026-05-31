@@ -1,10 +1,10 @@
 # SCM Cognitive Sandwich YAAM Readiness Report
 
-**Date:** 2026-05-31  
-**Consumer project:** `scm-cognitive-sandwich`  
-**YAAM project namespace:** `YAAM_PROJECT_ID=scm-cognitive-sandwich`  
-**Repository commit:** `5297445 chore: add read-only YAAM readiness checks`  
-**Test mode:** read-only readiness, no synthetic writes  
+**Date:** 2026-05-31
+**Consumer project:** `scm-cognitive-sandwich`
+**YAAM project namespace:** `YAAM_PROJECT_ID=scm-cognitive-sandwich`
+**Repository commit:** `5297445 chore: add read-only YAAM readiness checks`
+**Test mode:** read-only readiness plus approved write-enabled synthetic L2/L3/L4 artifact evidence test
 **Operator environment:** MacBook client against shared `skz-data-lv` YAAM runtime
 
 ## Executive Summary
@@ -13,7 +13,7 @@ SCM Cognitive Sandwich is ready for read-only YAAM consumer readiness usage thro
 
 The shared YAAM runtime is reachable and healthy. Generic MCP memory/context calls, evidence table assembly, read-only resources, Cognitive Sandwich domain-pack resources, and domain-specific prompts all work. REST v2 health, context, query, and L3 semantic query also work with benchmark runtime scoping and leakage guard metadata.
 
-Synthetic write/read validation was intentionally not executed because YAAM has not opened a write window for this run. Requirements that depend on L2/L3/L4 synthetic write evidence are therefore classified as partial or not exercised rather than failed.
+After the initial read-only run, a write-enabled synthetic L2/L3/L4 artifact evidence test was authorized and executed. Generic L2, L3, and L4 writes succeeded and generic readback retrieved the synthetic evidence. A first write-enabled run exposed a domain-pack L4 projection gap for older fresh records. After a YAAM-side fix, a short retest with a new L4 finalized artifact confirmed that artifact lineage, run artifact, and run evidence resources now include L4 finalized artifacts. Session artifact and incident report projections still did not include the L4 record in this retest.
 
 ## Environment And Configuration
 
@@ -102,23 +102,95 @@ Prompt discovery and rendering included:
 
 No REST write or write-adjacent negative test was executed. In read-only mode, the nonexistent fact MCP resource lookup was used as the safety/scoping negative check.
 
+### Write-Enabled Synthetic Artifact Evidence
+
+Write-enabled synthetic test scope:
+
+| Field | Value |
+| --- | --- |
+| Session | `scm-cognitive-sandwich-readiness-20260531T135506Z-write` |
+| Run | `artifact-run-20260531T135506Z` |
+| Artifact | `artifact-readiness-20260531T135506Z` |
+| Agent | `codex-macbook-write-readiness` |
+| Metadata domain | `cognitive_sandwich` |
+
+Synthetic metadata followed the YAAM readiness guidance: `artifact_id`, `revision_id`, `parent_revision_id`, `feedback_id`, `commit_id`, `run_id`, `thread_id`, `incident_id`, `scenario_id`, `artifact_kind`, `artifact_status`, `revision_number`, `verification_state`, `feedback_type`, `source_system`, `payload_hash`, `fatal_status`, and `retry_count`.
+
+| Operation | Result |
+| --- | --- |
+| `yaam.l2.store_fact` | Pass: created `0160efee-bd02-405a-b4b4-098e3e7fdc5b`, provenance source tier `L2` |
+| `yaam.l3.assimilate_episode` | Pass: created `ep-9d9d6824`, provenance source tier `L3` |
+| `yaam.l4.finalize_artifact` | Pass: created `kd-1324f80a`, provenance source tier `L4` |
+| `yaam.l2.search_facts` | Pass: retrieved synthetic solver feedback with canonical metadata |
+| `yaam.l3.search_episodes` | Pass: retrieved synthetic artifact episode `ep-9d9d6824` |
+| `yaam.l4.search_knowledge` | Pass: retrieved finalized synthetic artifact `kd-1324f80a` |
+| `yaam.evidence.table` | Pass: returned L3 and L4 evidence rows with provenance |
+
+Domain-pack readback after writes:
+
+| Resource | Result |
+| --- | --- |
+| `yaam://artifacts/artifact-readiness-20260531T135506Z/lineage` | Partial: 2 items, `l2=1`, `l3=1`, `l4=0`, `partial=false` |
+| `yaam://sessions/scm-cognitive-sandwich-readiness-20260531T135506Z-write/artifacts` | Partial: 1 artifact, `l2=1`, `l3=1`, `l4=0`, `partial=false` |
+| `yaam://runs/artifact-run-20260531T135506Z/artifacts` | Partial: 1 artifact, `l2=1`, `l3=1`, `l4=0`, `partial=false` |
+| `yaam://runs/artifact-run-20260531T135506Z/evidence` | Partial: 2 evidence items, `l2=1`, `l3=1`, `l4=0`, `partial=false` |
+| `yaam://incidents/incident-readiness-001/reports` | Partial: 0 reports, `partial=false` |
+
+Finding: generic L4 storage and search work, and the evidence table includes the finalized L4 artifact. However, Cognitive Sandwich domain-pack resource projections did not surface the L4 finalized artifact or incident report projection from the generic L4 record. This does not block generic memory use, but it does limit domain-pack artifact lineage completeness.
+
+### Short Write-Enabled L4 Projection Retest
+
+Because older L4 records were not backfilled after the YAAM-side projection fix, a fresh write-enabled retest was executed with a new synthetic artifact.
+
+Retest scope:
+
+| Field | Value |
+| --- | --- |
+| Session | `scm-cognitive-sandwich-readiness-20260531T142546Z-l4-retest` |
+| Run | `artifact-run-l4-retest-20260531T142546Z` |
+| Artifact | `artifact-readiness-l4-retest-20260531T142546Z` |
+| Agent | `codex-macbook-l4-retest` |
+| Incident | `incident-readiness-l4-retest-001` |
+
+Write and generic readback:
+
+| Operation | Result |
+| --- | --- |
+| `yaam.l2.store_fact` | Pass: created `fa85b9b6-85a5-4d8f-bfbf-b9351939ea35` |
+| `yaam.l3.assimilate_episode` | Pass: created `ep-4c78915f` |
+| `yaam.l4.finalize_artifact` | Pass: created `kd-8beeb862` |
+| `yaam.l4.search_knowledge` | Pass: retrieved 1 L4 result |
+| `yaam.evidence.table` | Pass: returned 3 evidence rows |
+
+Domain-pack readback after the L4 projection fix:
+
+| Resource | Result |
+| --- | --- |
+| `yaam://artifacts/artifact-readiness-l4-retest-20260531T142546Z/lineage` | Pass: 3 items, `l2=1`, `l3=1`, `l4=1`, `partial=false` |
+| `yaam://sessions/scm-cognitive-sandwich-readiness-20260531T142546Z-l4-retest/artifacts` | Partial: 1 artifact, `items=2`, `l2=1`, `l3=1`, `l4=0`, `partial=false` |
+| `yaam://runs/artifact-run-l4-retest-20260531T142546Z/artifacts` | Pass: 3 items, `l2=1`, `l3=1`, `l4=1`, `partial=false` |
+| `yaam://runs/artifact-run-l4-retest-20260531T142546Z/evidence` | Pass: 3 evidence items, `l2=1`, `l3=1`, `l4=1`, `partial=false` |
+| `yaam://incidents/incident-readiness-l4-retest-001/reports` | Partial: 0 reports, `partial=false` |
+
+Retest finding: the fresh L4 finalized artifact is now projected into artifact lineage and run-scoped domain resources. Remaining gaps are narrower: session-scoped artifact projections did not count the L4 record, and incident report projections still returned no L4 report items.
+
 ## Requirement Classification
 
 | Requirement | Classification | Evidence |
 | --- | --- | --- |
 | `YAAM-REQ-0002` MCP memory query | Implemented | Scoped MCP context and REST query returned success with leakage guard metadata. |
 | `YAAM-REQ-0003` MCP context assembly | Implemented | `yaam.memory.get_context` returned structured empty context with `leakage_guard_passed=true`. |
-| `YAAM-REQ-0006` L3 episode assimilation | Not exercised | Requires a write window; no L3 assimilation was run. |
+| `YAAM-REQ-0006` L3 episode assimilation | Implemented | `yaam.l3.assimilate_episode` created `ep-9d9d6824` with provenance. |
 | `YAAM-REQ-0007` L3 semantic query | Implemented | REST `/v2/memory/l3/query` returned status `success`. |
-| `YAAM-REQ-0008` L4 final artifact storage | Not exercised | Requires a write window; no L4 finalization was run. |
-| `YAAM-REQ-0009` Provenance | Partial | REST L3 query returned provenance with agent/session; evidence table had no rows in fresh namespace, so row-level evidence provenance is not yet validated. |
+| `YAAM-REQ-0008` L4 final artifact storage | Implemented | `yaam.l4.finalize_artifact` created `kd-1324f80a` and retest artifact `kd-8beeb862`; generic L4 search retrieved both fresh test artifacts. |
+| `YAAM-REQ-0009` Provenance | Implemented with minor projection gaps | L2/L3/L4 write acknowledgements and generic readback returned source-tier/source-id provenance. Retest domain lineage/run resources included L4; session/incident domain views still need coverage. |
 | `YAAM-REQ-0010` Scoping | Implemented | Nonexistent fact returned `not_found`; context/query calls returned no cross-project leakage and leakage guard passed. |
 | `YAAM-REQ-0011` Read-only MCP resources | Implemented | Static resources and Cognitive Sandwich domain resources discovered and read successfully. |
-| `YAAM-REQ-0012` Allowlisted MCP writes | Not exercised | Write tools are discoverable but were not called in read-only mode. |
-| `YAAM-REQ-0016` Evidence Table | Partial | Tool executed successfully, but returned 0 rows because no synthetic evidence was written during this run. |
+| `YAAM-REQ-0012` Allowlisted MCP writes | Implemented for generic L2/L3/L4 | Authorized synthetic writes succeeded through MCP tools. Dedicated artifact lifecycle writes remain missing. |
+| `YAAM-REQ-0016` Evidence Table | Implemented | Evidence table returned L3/L4 rows in the first write test and 3 evidence rows in the L4 projection retest. |
 | `YAAM-REQ-0019` Artifact draft/revision/feedback/commit lineage | Partial | Domain pack exposes metadata-derived lineage views, but there is no native lifecycle graph enforcement in current YAAM. |
-| `YAAM-REQ-0020` Artifact lineage resources | Implemented | All Cognitive Sandwich read-only resource templates were discovered and returned scoped projections. |
-| `YAAM-REQ-0021` Deterministic feedback/solver evidence | Partial | Generic evidence/resource paths are available, but deterministic feedback write/read evidence was deferred to a write window. |
+| `YAAM-REQ-0020` Artifact lineage resources | Implemented for artifact/run resources, partial for session/incident views | Retest projections included L4 in artifact lineage, run artifacts, and run evidence. Session artifacts and incident reports did not count L4. |
+| `YAAM-REQ-0021` Deterministic feedback/solver evidence | Implemented | L2 solver feedback, L3 episode, L4 final artifact, generic searches, evidence table, and run-scoped domain evidence succeeded in the retest. |
 | `YAAM-REQ-0028` Transitional facade until MCP parity | Partial | Generic MCP is adequate for temporary read/context/evidence flows; dedicated artifact mutation remains absent. |
 | `YAAM-REQ-0030` Autonomous lifecycle consolidation | Deferred | Explicitly outside current YAAM capability. |
 | `YAAM-REQ-0032` Domain-specific artifact prompts | Implemented | `yaam.prompt.artifact_repair_context` and `yaam.prompt.artifact_lineage_summary` discovered and rendered. |
@@ -127,8 +199,8 @@ No REST write or write-adjacent negative test was executed. In read-only mode, t
 
 - Dedicated mutating `yaam.artifact.*` lifecycle tools: missing.
 - First-class draft/revision/feedback/commit graph model: partially implemented at most; current domain pack projects lineage from metadata and does not enforce lifecycle transitions.
-- Deterministic solver feedback audit through L2/L3/L4: not fully validated without a write window.
-- Evidence table usefulness for artifact repair: partial until synthetic or real artifact evidence exists in namespace.
+- Cognitive Sandwich session/incident L4 projection: fresh L4 artifacts now appear in artifact lineage and run-scoped resources, but not in session-scoped artifact or incident report resources in the retest.
+- Evidence table usefulness for artifact repair: implemented for generic L3/L4 evidence rows and run-scoped synthetic evidence.
 - Autonomous consolidation/distillation: deferred.
 
 ## Readiness Questions
@@ -140,17 +212,17 @@ Yes for read-only temporary integration. Scoped context, evidence table, read-on
 Native artifact revision lifecycle is the first blocker: draft, feedback, revision, commit, and feasibility transition semantics need first-class YAAM support or a dedicated artifact MCP surface.
 
 **Does generic L3/L4 storage preserve enough provenance for artifact repair audit?**  
-Not proven in this read-only run. Generic paths and domain projections are available, but provenance quality for deterministic feedback and final artifacts must be verified during a synthetic write window.
+Yes for generic storage and search: L3 and L4 write acknowledgements, generic readback, and evidence table rows included source-tier/source-id provenance. After retest, artifact lineage and run-scoped domain resources also included L4 finalized artifact evidence.
 
 **Do artifact resources and prompts reduce dependence on the transitional facade?**  
-Yes for read-only inspection and repair-context assembly. They do not eliminate the facade for artifact mutation and lifecycle enforcement.
+Yes for read-only inspection and repair-context assembly over L2/L3/L4 metadata in artifact/run-scoped views. They do not yet eliminate the facade for artifact mutation, lifecycle enforcement, or session/incident report completeness.
 
 **Are write gates and read-only resources acceptable for agent safety?**  
 Yes. Read-only resources behaved safely in this run, and the previous nonexistent-fact scoping anomaly is resolved.
 
 **Can the project migrate away from transitional facade usage with current MCP surface?**  
-Only partially. Read-only context/evidence can move toward MCP. Dedicated artifact mutation remains required before full migration.
+Only partially. Generic read/write memory and run-scoped evidence can move toward MCP, but dedicated artifact mutation and complete session/incident domain projections remain required before full migration.
 
 ## Conclusion
 
-YAAM is ready for SCM Cognitive Sandwich read-only readiness and ordinary non-mutating consumer validation. The Cognitive Sandwich domain pack is enabled and useful for read-only artifact/evidence projections and prompt generation. Production artifact lifecycle integration still requires either a dedicated artifact MCP surface or an explicit write-enabled generic L2/L3/L4 workflow validated during a YAAM write window.
+YAAM is ready for SCM Cognitive Sandwich read-only readiness and generic write-enabled synthetic L2/L3/L4 artifact evidence storage. After the short retest, fresh L4 finalized artifacts are included in Cognitive Sandwich artifact lineage, run artifact, and run evidence resources. Production artifact lifecycle integration still requires dedicated artifact MCP semantics plus improved session-scoped and incident-report L4 projections.
