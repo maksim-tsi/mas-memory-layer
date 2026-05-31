@@ -251,6 +251,8 @@ class RecordingMCPService:
 
     async def get_fact(self, scope: ScopeEnvelope, fact_id: str) -> MemoryResult | None:
         self.calls.append(("get_fact", (scope, fact_id), {}))
+        if fact_id.startswith("nonexistent"):
+            return None
         return _memory_result("L2", fact_id, scope)
 
     async def get_episode(self, scope: ScopeEnvelope, episode_id: str) -> MemoryResult | None:

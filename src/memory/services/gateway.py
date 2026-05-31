@@ -243,6 +243,7 @@ class MemoryGatewayService:
         storage_scope = self._storage_scope(scope)
         fact_id = str(uuid.uuid4())
         fact_metadata = self._write_metadata(storage_scope, metadata)
+        fact_metadata["fact_id"] = fact_id
         fact = Fact(
             fact_id=fact_id,
             session_id=storage_scope.session_id,
@@ -323,6 +324,19 @@ class MemoryGatewayService:
         if fact is None:
             return None
         result = memory_result_from_fact(fact, scope)
+        if result.source_id != fact_id:
+            return None
+        metadata = result.metadata or {}
+        project_id = metadata.get("project_id")
+        result_session_id = result.provenance.session_id if result.provenance else None
+        if project_id not in {None, self.project_id}:
+            return None
+        if (
+            isinstance(result_session_id, str)
+            and ":" in result_session_id
+            and not result_session_id.startswith(f"{self.project_id}:")
+        ):
+            return None
         if (
             scope.session_id != "*"
             and result.provenance

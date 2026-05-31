@@ -195,6 +195,32 @@ async def test_get_fact_allows_wildcard_resource_scope(mocker) -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_fact_rejects_lookup_mismatch_and_other_project(mocker) -> None:
+    l2_tier = mocker.Mock()
+    l2_tier.retrieve = mocker.AsyncMock(
+        return_value=mocker.Mock(
+            fact_id="fact-b",
+            session_id="scm-skill-factory:session-a",
+            content="A different project fact.",
+            ciar_score=0.9,
+            metadata={"project_id": "scm-skill-factory"},
+            extracted_at=None,
+            created_at=None,
+        )
+    )
+    memory_system = mocker.Mock()
+    memory_system.l2_tier = l2_tier
+    service = MemoryGatewayService(memory_system, project_id="scm-cognitive-sandwich")
+
+    result = await service.get_fact(
+        ScopeEnvelope(session_id="*", agent_id="reader"),
+        "nonexistent-readiness-fact",
+    )
+
+    assert result is None
+
+
+@pytest.mark.asyncio
 async def test_benchmark_query_filters_hidden_records(mocker) -> None:
     memory_system = mocker.Mock()
     memory_system.query_memory = mocker.AsyncMock(

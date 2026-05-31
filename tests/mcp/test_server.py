@@ -592,6 +592,9 @@ async def test_mcp_templated_resources_are_read_only_service_views() -> None:
     fact = json.loads(await _read_template(server, "yaam://facts/fact-a"))
     assert fact["source_id"] == "fact-a"
 
+    missing_fact = json.loads(await _read_template(server, "yaam://facts/nonexistent-fact"))
+    assert missing_fact == {"status": "not_found", "fact_id": "nonexistent-fact"}
+
     episode = json.loads(await _read_template(server, "yaam://episodes/episode-a"))
     assert episode["tier"] == "L3"
 
@@ -601,6 +604,7 @@ async def test_mcp_templated_resources_are_read_only_service_views() -> None:
     assert [call[0] for call in service.calls] == [
         "get_context",
         "search_l2_facts",
+        "get_fact",
         "get_fact",
         "get_episode",
         "get_knowledge",
