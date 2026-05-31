@@ -66,6 +66,28 @@ SKILL_FACTORY_METADATA_KEYS = (
     "repair_action",
     "artifact_kind",
 )
+COGNITIVE_SANDWICH_DOMAIN = "cognitive_sandwich"
+COGNITIVE_SANDWICH_DOMAIN_SCAN_LIMIT = 500
+COGNITIVE_SANDWICH_METADATA_KEYS = (
+    "artifact_id",
+    "revision_id",
+    "parent_revision_id",
+    "feedback_id",
+    "commit_id",
+    "run_id",
+    "thread_id",
+    "incident_id",
+    "scenario_id",
+    "artifact_kind",
+    "artifact_status",
+    "revision_number",
+    "verification_state",
+    "feedback_type",
+    "source_system",
+    "payload_hash",
+    "fatal_status",
+    "retry_count",
+)
 
 
 class MemoryGatewayService:
@@ -476,6 +498,66 @@ class MemoryGatewayService:
             record
             for record in records
             if self._is_skill_factory_domain_record(record)
+            and self._record_matches_filters(record, requested_filters)
+        ][:limit]
+
+    async def list_cognitive_sandwich_domain_records(
+        self,
+        scope: ScopeEnvelope,
+        filters: dict[str, str] | None = None,
+        limit: int = 20,
+    ) -> list[MemoryResult]:
+        """List bounded Cognitive Sandwich records by canonical metadata across tiers."""
+        self.permission_policy.require("yaam.memory.query", "read")
+        requested_filters = filters or {}
+        scan_limit = max(limit * 10, COGNITIVE_SANDWICH_DOMAIN_SCAN_LIMIT)
+        records: list[MemoryResult] = []
+
+        l2_tier = getattr(self.memory_system, "l2_tier", None)
+        if l2_tier and hasattr(l2_tier, "query"):
+            facts = await l2_tier.query(
+                filters={},
+                limit=scan_limit,
+                include_low_ciar=True,
+                order_by="created_at DESC",
+            )
+            records.extend(memory_result_from_fact(fact, scope) for fact in facts or [])
+
+        l3_tier = getattr(self.memory_system, "l3_tier", None)
+        qdrant = getattr(l3_tier, "qdrant", None)
+        if qdrant and hasattr(qdrant, "scroll"):
+            points = await qdrant.scroll(
+                collection_name=getattr(l3_tier, "collection_name", None),
+                filter_dict={
+                    "must": [
+                        {"key": "project_id", "match": {"value": self.project_id}},
+                    ]
+                },
+                limit=scan_limit,
+            )
+            records.extend(memory_result_from_episode(point, scope) for point in points or [])
+
+        l4_tier = getattr(self.memory_system, "l4_tier", None)
+        if l4_tier and hasattr(l4_tier, "search"):
+            query = " ".join(
+                [
+                    "Cognitive Sandwich artifact evidence lineage",
+                    *(str(value) for value in requested_filters.values() if value),
+                ]
+            )
+            documents = await l4_tier.search(
+                query_text=query,
+                filters={"project_id": self.project_id},
+                limit=limit,
+            )
+            records.extend(
+                memory_result_from_knowledge(document, scope) for document in documents or []
+            )
+
+        return [
+            record
+            for record in records
+            if self._is_cognitive_sandwich_domain_record(record)
             and self._record_matches_filters(record, requested_filters)
         ][:limit]
 
@@ -954,6 +1036,21 @@ class MemoryGatewayService:
         )
         return in_project and has_domain_marker
 
+    def _is_cognitive_sandwich_domain_record(self, record: MemoryResult) -> bool:
+        metadata = _merged_record_metadata(record)
+        project_id = metadata.get("project_id")
+        session_id = metadata.get("client_session_id") or (
+            record.provenance.session_id if record.provenance else None
+        )
+        in_project = project_id == self.project_id or (
+            isinstance(session_id, str) and session_id.startswith(f"{self.project_id}:")
+        )
+        content = record.content.lower()
+        has_domain_marker = metadata.get("domain") == COGNITIVE_SANDWICH_DOMAIN or (
+            "cognitive sandwich" in content or "cognitive_sandwich" in content
+        )
+        return in_project and has_domain_marker
+
     def _record_matches_filters(
         self,
         record: MemoryResult,
@@ -1038,7 +1135,7 @@ def _merged_record_metadata(record: MemoryResult) -> dict[str, Any]:
             value = getattr(record.provenance, key, None)
             if value is not None and key not in merged:
                 merged[key] = value
-    for key in SKILL_FACTORY_METADATA_KEYS:
+    for key in (*SKILL_FACTORY_METADATA_KEYS, *COGNITIVE_SANDWICH_METADATA_KEYS):
         if key not in merged:
             value = _content_key_value(record.content, key)
             if value is not None:

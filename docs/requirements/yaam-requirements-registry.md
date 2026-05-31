@@ -44,7 +44,7 @@ Source customer systems:
 | YAAM-REQ-0017 | Provide CIAR explanation with components and policy metadata | TRA, iAIMS, Skill Factory, Maritime Port Sandbox, SCM-Cert-Bench | Agentic | MCP | Read | Mixed | P1 | Accepted | CIAR policy service |
 | YAAM-REQ-0018 | Return partial results with warnings for degraded agentic services | iAIMS, Skill Factory, Maritime Port Sandbox, SCM-Cert-Bench | Unified | MCP, REST v2 | Reliability | Yes | P1 | Accepted | Error handling |
 | YAAM-REQ-0019 | Support artifact draft/revision/feedback/commit lineage | SCM Cognitive Sandwich | Artifact | MCP | Write/lifecycle/read | Yes | P1 | Needs discussion | Artifact service |
-| YAAM-REQ-0020 | Provide artifact lineage resources | SCM Cognitive Sandwich | Artifact | MCP | Resource/read | Yes | P1 | Needs discussion | MCP resources/artifact service |
+| YAAM-REQ-0020 | Provide artifact lineage resources | SCM Cognitive Sandwich | Artifact | MCP | Resource/read | Yes | P1 | Accepted | Cognitive Sandwich MCP domain pack |
 | YAAM-REQ-0021 | Store deterministic feedback and solver/sandbox evidence | SCM Cognitive Sandwich, Maritime Port Sandbox, Skill Factory, SCM-Cert-Bench | Artifact/Raw | MCP, REST v2 | Write | Yes | P1 | Accepted | Evidence/artifact ingestion |
 | YAAM-REQ-0022 | Store and query Skill Factory generation, QA, and curation memory | Skill Factory | Raw/Unified | REST v2, MCP | Read/write | Yes | P2 | Accepted | Skill Factory MCP domain pack |
 | YAAM-REQ-0023 | Provide Skill Factory resources for skills, CTTs, and runs | Skill Factory | Raw/Unified | MCP | Resource/read | Yes | P2 | Accepted | Skill Factory MCP domain pack |
@@ -211,7 +211,10 @@ warning metadata without mutating state.
 ### YAAM-REQ-0019: Support artifact draft/revision/feedback/commit lineage
 
 SCM Cognitive Sandwich requires native artifact lineage primitives. This is a
-major product extension and should be discussed before implementation.
+major product extension and should be discussed before implementation. The
+Cognitive Sandwich MCP domain pack provides metadata-derived read-only lineage
+views, but native transactional lifecycle semantics remain deferred to an
+artifact service milestone.
 
 Acceptance evidence: lineage captures artifact, revisions, feedback, commits,
 payload hashes, and verification states.
@@ -219,7 +222,9 @@ payload hashes, and verification states.
 ### YAAM-REQ-0020: Provide artifact lineage resources
 
 SCM Cognitive Sandwich requires read-only artifact lineage resources for
-inspection and repair context generation.
+inspection and repair context generation. The first supported path is the
+optional Cognitive Sandwich MCP domain pack, which reconstructs lineage from
+canonical metadata written through generic L2/L3/L4 tools.
 
 Acceptance evidence: resource returns ordered lineage nodes with provenance and
 redacted payload behavior.
@@ -285,7 +290,9 @@ facade transition points.
 ### YAAM-REQ-0028: Preserve transitional facade only until MCP parity for SCM Cognitive Sandwich
 
 SCM Cognitive Sandwich currently depends on a local facade boundary until MCP
-parity exists.
+parity exists. The Cognitive Sandwich MCP domain pack provides partial parity
+for audit/context/reporting paths, while native mutating artifact lifecycle
+tools remain a separate milestone.
 
 Acceptance evidence: migration plan defines facade deprecation or coexistence.
 
@@ -320,6 +327,8 @@ review, and curation summaries.
 
 Acceptance evidence: domain prompts are optional, scoped to relevant callers,
 and exposed through MCP domain packs rather than the generic always-on surface.
+The Cognitive Sandwich pack provides artifact repair context and artifact
+lineage summary prompts.
 
 ### YAAM-REQ-0033: Preserve fail-fast behavior for write/assimilation failures
 

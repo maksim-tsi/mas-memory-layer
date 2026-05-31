@@ -26,11 +26,11 @@ lifecycle tools remain expected product gaps until a separate artifact-service m
 | `YAAM-REQ-0012` allowlisted MCP writes | implemented |
 | `YAAM-REQ-0016` Evidence Table | mixed; verify artifact usefulness |
 | `YAAM-REQ-0019` artifact draft/revision/feedback/commit lineage | partial at most; v0.1 domain pack may reconstruct lineage from metadata but does not enforce lifecycle transitions |
-| `YAAM-REQ-0020` artifact lineage resources | expected through Cognitive Sandwich domain pack if implemented |
+| `YAAM-REQ-0020` artifact lineage resources | implemented through Cognitive Sandwich domain pack as metadata-derived read-only views |
 | `YAAM-REQ-0021` deterministic feedback/solver evidence | implemented generically |
 | `YAAM-REQ-0028` transitional facade until MCP parity | partially implemented by generic MCP surface |
 | `YAAM-REQ-0030` autonomous lifecycle consolidation | deferred |
-| `YAAM-REQ-0032` domain-specific artifact prompts | expected through Cognitive Sandwich domain pack if implemented |
+| `YAAM-REQ-0032` domain-specific artifact prompts | implemented through Cognitive Sandwich domain pack |
 
 ## Required Checks
 
@@ -43,7 +43,7 @@ Against `http://192.168.107.187:8003/mcp`, verify:
 - `yaam://config/ciar` is readable;
 - common prompts render.
 
-If the Cognitive Sandwich domain pack is implemented and enabled for
+When the Cognitive Sandwich domain pack is enabled for
 `YAAM_PROJECT_ID=scm-cognitive-sandwich`, discovery should also include:
 
 - `yaam://artifacts/{artifact_id}/lineage`
@@ -55,7 +55,8 @@ If the Cognitive Sandwich domain pack is implemented and enabled for
 - `yaam.prompt.artifact_lineage_summary`
 
 If these resources are absent in the current test window, record this under
-`YAAM-REQ-0020` and `YAAM-REQ-0032` rather than treating generic MCP as failed.
+`YAAM-REQ-0020` and `YAAM-REQ-0032`; generic MCP may still be healthy, but the
+domain pack is not ready.
 
 ### 2. Artifact Context Query
 

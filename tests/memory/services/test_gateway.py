@@ -515,3 +515,110 @@ async def test_list_skill_factory_domain_records_projects_and_filters_metadata(m
             {"key": "project_id", "match": {"value": "scm-skill-factory"}},
         ]
     }
+
+
+@pytest.mark.asyncio
+async def test_list_cognitive_sandwich_domain_records_projects_and_filters_metadata(
+    mocker,
+) -> None:
+    artifact_metadata = {
+        "project_id": "scm-cognitive-sandwich",
+        "domain": "cognitive_sandwich",
+        "artifact_id": "artifact-readiness-001",
+        "revision_id": "revision-001",
+        "feedback_id": "feedback-001",
+        "run_id": "artifact-run-001",
+        "thread_id": "thread-001",
+        "incident_id": "incident-readiness-001",
+        "verification_state": "infeasible",
+        "source_system": "deterministic_solver",
+    }
+    l2_tier = mocker.Mock()
+    l2_tier.query = mocker.AsyncMock(
+        return_value=[
+            Fact(
+                fact_id="fact-feedback",
+                session_id="scm-cognitive-sandwich:session-a",
+                content="Cognitive Sandwich solver feedback for artifact-readiness-001.",
+                metadata={**artifact_metadata, "api_token": "secret"},
+            ),
+            Fact(
+                fact_id="fact-other-domain",
+                session_id="scm-cognitive-sandwich:session-a",
+                content="Unrelated artifact-readiness-001.",
+                metadata={**artifact_metadata, "domain": "other"},
+            ),
+            Fact(
+                fact_id="fact-other-project",
+                session_id="other-project:session-a",
+                content="Cognitive Sandwich artifact artifact-readiness-001 from another project.",
+                metadata={**artifact_metadata, "project_id": "other-project"},
+            ),
+        ]
+    )
+    qdrant = mocker.Mock()
+    qdrant.scroll = mocker.AsyncMock(
+        return_value=[
+            {
+                "episode_id": "episode-artifact",
+                "session_id": "scm-cognitive-sandwich:session-a",
+                "summary": (
+                    "Cognitive Sandwich repair episode artifact_id=artifact-readiness-001 "
+                    "run_id=artifact-run-001 incident_id=incident-readiness-001."
+                ),
+                "importance_score": 0.8,
+                "metadata": {"project_id": "scm-cognitive-sandwich"},
+            },
+            {
+                "episode_id": "episode-other-artifact",
+                "session_id": "scm-cognitive-sandwich:session-a",
+                "summary": "Cognitive Sandwich episode for another artifact.",
+                "importance_score": 0.7,
+                "metadata": {**artifact_metadata, "artifact_id": "other-artifact"},
+            },
+        ]
+    )
+    l3_tier = mocker.Mock()
+    l3_tier.collection_name = "yaam-scm-cognitive-sandwich-episodes"
+    l3_tier.qdrant = qdrant
+    l4_tier = mocker.Mock()
+    l4_tier.search = mocker.AsyncMock(
+        return_value=[
+            {
+                "knowledge_id": "knowledge-report",
+                "session_id": "scm-cognitive-sandwich:session-a",
+                "content": "Cognitive Sandwich final report for artifact-readiness-001.",
+                "confidence_score": 0.9,
+                "metadata": {
+                    **artifact_metadata,
+                    "commit_id": "commit-001",
+                    "artifact_status": "committed",
+                },
+            }
+        ]
+    )
+    memory_system = mocker.Mock()
+    memory_system.l2_tier = l2_tier
+    memory_system.l3_tier = l3_tier
+    memory_system.l4_tier = l4_tier
+    service = MemoryGatewayService(memory_system, project_id="scm-cognitive-sandwich")
+    scope = ScopeEnvelope(session_id="*", agent_id="cognitive-sandwich-domain-pack")
+
+    records = await service.list_cognitive_sandwich_domain_records(
+        scope,
+        filters={"artifact_id": "artifact-readiness-001"},
+        limit=10,
+    )
+
+    assert [record.source_id for record in records] == [
+        "fact-feedback",
+        "episode-artifact",
+        "knowledge-report",
+    ]
+    assert records[0].metadata["api_token"] == "[REDACTED]"
+    qdrant.scroll.assert_awaited_once()
+    assert qdrant.scroll.await_args.kwargs["filter_dict"] == {
+        "must": [
+            {"key": "project_id", "match": {"value": "scm-cognitive-sandwich"}},
+        ]
+    }

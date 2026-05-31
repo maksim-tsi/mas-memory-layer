@@ -162,6 +162,41 @@ class RecordingMCPService:
         self.calls.append(("search_l4_knowledge", (scope, query, limit), {}))
         return [_memory_result("L4", "knowledge-search", scope)]
 
+    async def list_cognitive_sandwich_domain_records(
+        self,
+        scope: ScopeEnvelope,
+        filters: dict[str, str],
+        limit: int = 20,
+    ) -> list[MemoryResult]:
+        self.calls.append(("list_cognitive_sandwich_domain_records", (scope,), {"filters": filters, "limit": limit}))
+        metadata = {
+            "domain": "cognitive_sandwich",
+            "artifact_id": "artifact-readiness-001",
+            "revision_id": "revision-001",
+            "feedback_id": "feedback-001",
+            "run_id": "artifact-run-001",
+            "client_session_id": "session-a",
+            "incident_id": "incident-readiness-001",
+            "source_system": "deterministic_solver",
+        }
+        return [
+            MemoryResult(
+                content="Cognitive Sandwich fixture feedback.",
+                tier="L2",
+                score=0.8,
+                source_id="fact-feedback",
+                metadata=metadata,
+                provenance=Provenance(
+                    source_tier="L2",
+                    source_id="fact-feedback",
+                    session_id=scope.session_id,
+                    agent_id=scope.agent_id,
+                    run_id=metadata["run_id"],
+                    metadata=metadata,
+                ),
+            )
+        ]
+
     async def explain_ciar(
         self,
         scope: ScopeEnvelope,

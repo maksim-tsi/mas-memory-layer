@@ -164,18 +164,17 @@ The pack is not a separate YAAM version. It does not enable write tools, mutate
 memory through resources, or change generic MCP discovery for other project
 namespaces.
 
-The planned `cognitive-sandwich` pack follows the same isolation pattern for
-SCM Cognitive Sandwich artifact workflows. It should be enabled automatically
-after implementation when the shared runtime is started with:
+The `cognitive-sandwich` pack follows the same isolation pattern for SCM
+Cognitive Sandwich artifact workflows. It is enabled automatically when the
+shared runtime is started with:
 
 ```bash
 YAAM_PROJECT_ID=scm-cognitive-sandwich
 YAAM_MCP_DOMAIN_PACKS=auto
 ```
 
-The v0.1 Cognitive Sandwich pack is expected to add read-only artifact and
-evidence views over canonical metadata already stored through generic L2/L3/L4
-write tools:
+The v0.1 Cognitive Sandwich pack adds read-only artifact and evidence views over
+canonical metadata already stored through generic L2/L3/L4 write tools:
 
 - `yaam://artifacts/{artifact_id}/lineage`
 - `yaam://sessions/{session_id}/artifacts`
@@ -183,7 +182,7 @@ write tools:
 - `yaam://runs/{run_id}/evidence`
 - `yaam://incidents/{incident_id}/reports`
 
-Cognitive Sandwich views should use canonical metadata keys such as:
+Cognitive Sandwich views use canonical metadata keys such as:
 
 ```json
 {
@@ -228,7 +227,8 @@ When the Skill Factory domain pack is enabled, prompt discovery also includes:
 
 - `yaam.prompt.repair_pattern_summary`
 
-The planned Cognitive Sandwich pack should add artifact-oriented prompts:
+When the Cognitive Sandwich domain pack is enabled, prompt discovery also
+includes:
 
 - `yaam.prompt.artifact_repair_context`
 - `yaam.prompt.artifact_lineage_summary`

@@ -6,6 +6,8 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from src.mcp.server import (
+    COGNITIVE_SANDWICH_MCP_PROMPT_NAMES,
+    COGNITIVE_SANDWICH_MCP_RESOURCE_URIS,
     MCP_PROMPT_NAMES,
     MCP_RESOURCE_URIS,
     MCP_SDK_REQUIREMENT,
@@ -93,7 +95,9 @@ def test_skill_factory_domain_pack_is_not_registered_by_default(monkeypatch) -> 
     prompts = [prompt.name for prompt in server._prompt_manager.list_prompts()]
     templates = [template.uri_template for template in server._resource_manager.list_templates()]
     assert "yaam.prompt.repair_pattern_summary" not in prompts
+    assert "yaam.prompt.artifact_repair_context" not in prompts
     assert "yaam://skills/{skill_name}" not in templates
+    assert "yaam://artifacts/{artifact_id}/lineage" not in templates
 
 
 def test_skill_factory_domain_pack_registers_when_enabled() -> None:
@@ -109,6 +113,19 @@ def test_skill_factory_domain_pack_registers_when_enabled() -> None:
         assert resource_uri in templates
 
 
+def test_cognitive_sandwich_domain_pack_registers_when_enabled() -> None:
+    args = parse_args(["--mcp-domain-packs", "cognitive-sandwich"])
+
+    server = create_mcp_server(config_args=args)
+
+    prompts = [prompt.name for prompt in server._prompt_manager.list_prompts()]
+    templates = [template.uri_template for template in server._resource_manager.list_templates()]
+    for prompt_name in COGNITIVE_SANDWICH_MCP_PROMPT_NAMES:
+        assert prompt_name in prompts
+    for resource_uri in COGNITIVE_SANDWICH_MCP_RESOURCE_URIS:
+        assert resource_uri in templates
+
+
 def test_skill_factory_domain_pack_auto_enables_for_project(monkeypatch) -> None:
     monkeypatch.setenv("YAAM_PROJECT_ID", "scm-skill-factory")
     args = parse_args([])
@@ -117,6 +134,16 @@ def test_skill_factory_domain_pack_auto_enables_for_project(monkeypatch) -> None
 
     templates = [template.uri_template for template in server._resource_manager.list_templates()]
     assert "yaam://skills/{skill_name}" in templates
+
+
+def test_cognitive_sandwich_domain_pack_auto_enables_for_project(monkeypatch) -> None:
+    monkeypatch.setenv("YAAM_PROJECT_ID", "scm-cognitive-sandwich")
+    args = parse_args([])
+
+    server = create_mcp_server(config_args=args)
+
+    templates = [template.uri_template for template in server._resource_manager.list_templates()]
+    assert "yaam://artifacts/{artifact_id}/lineage" in templates
 
 
 def test_parse_args_supports_documented_cli_flags() -> None:
@@ -139,7 +166,7 @@ def test_parse_args_supports_documented_cli_flags() -> None:
             "--mcp-path",
             "/mcp",
             "--mcp-domain-packs",
-            "skill-factory",
+            "skill-factory,cognitive-sandwich",
         ]
     )
 
@@ -151,7 +178,7 @@ def test_parse_args_supports_documented_cli_flags() -> None:
     assert args.mcp_host == "0.0.0.0"
     assert args.mcp_port == 8081
     assert args.mcp_path == "/mcp"
-    assert args.mcp_domain_packs == "skill-factory"
+    assert args.mcp_domain_packs == "skill-factory,cognitive-sandwich"
 
 
 def test_create_mcp_server_configures_streamable_http_transport() -> None:
@@ -605,6 +632,30 @@ async def test_skill_factory_domain_resources_are_read_only_service_views() -> N
 
 
 @pytest.mark.asyncio
+async def test_cognitive_sandwich_domain_resources_are_read_only_service_views() -> None:
+    args = parse_args(["--mcp-domain-packs", "cognitive-sandwich"])
+    service = RecordingMCPService()
+    server = create_mcp_server(service, args)
+
+    payload = json.loads(
+        await _read_template(server, "yaam://artifacts/artifact-readiness-001/lineage")
+    )
+
+    assert payload["domain_pack"] == "cognitive-sandwich"
+    assert payload["view"] == "artifact_lineage"
+    assert payload["filters"] == {"artifact_id": "artifact-readiness-001"}
+    assert payload["partial"] is False
+    assert payload["counts"]["nodes"] == 1
+    assert payload["nodes"][0]["feedback_id"] == "feedback-001"
+    assert service.calls[-1][0] == "list_cognitive_sandwich_domain_records"
+    assert service.calls[-1][1][0].session_id == "*"
+    assert service.calls[-1][1][0].agent_id == "cognitive-sandwich-domain-pack"
+    assert service.calls[-1][1][0].domain_ids == {
+        "artifact_id": "artifact-readiness-001"
+    }
+
+
+@pytest.mark.asyncio
 async def test_mcp_prompts_render_frozen_inspection_templates() -> None:
     server = create_mcp_server(RecordingMCPService())
     prompts = {prompt.name: prompt for prompt in server._prompt_manager.list_prompts()}
@@ -645,6 +696,29 @@ async def test_skill_factory_repair_pattern_prompt_renders_without_mutation() ->
     assert "inventory-router" in text
     assert "ctt-42" in text
     assert "failed" in text
+
+
+@pytest.mark.asyncio
+async def test_cognitive_sandwich_artifact_prompts_render_without_mutation() -> None:
+    args = parse_args(["--mcp-domain-packs", "cognitive-sandwich"])
+    server = create_mcp_server(RecordingMCPService(), args)
+    prompts = {prompt.name: prompt for prompt in server._prompt_manager.list_prompts()}
+
+    repair = await prompts["yaam.prompt.artifact_repair_context"].render(
+        {
+            "artifact_id": "artifact-readiness-001",
+            "run_id": "artifact-run-001",
+        }
+    )
+    lineage = await prompts["yaam.prompt.artifact_lineage_summary"].render(
+        {"artifact_id": "artifact-readiness-001"}
+    )
+
+    assert "without mutating YAAM" in repair[0].content.text
+    assert "artifact-readiness-001" in repair[0].content.text
+    assert "artifact-run-001" in repair[0].content.text
+    assert "without mutating YAAM" in lineage[0].content.text
+    assert "artifact-readiness-001" in lineage[0].content.text
 
 
 @pytest.mark.asyncio

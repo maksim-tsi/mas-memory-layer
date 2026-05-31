@@ -98,14 +98,14 @@ When `YAAM_PROJECT_ID` is a different consumer namespace and
 `YAAM_MCP_DOMAIN_PACKS=auto`, those Skill Factory resources and prompts should
 not appear.
 
-For the planned Cognitive Sandwich domain pack:
+For the Cognitive Sandwich domain pack:
 
 ```bash
 YAAM_PROJECT_ID=scm-cognitive-sandwich
 YAAM_MCP_DOMAIN_PACKS=auto
 ```
 
-After the pack is implemented, expected MCP discovery should include:
+Expected MCP discovery should include:
 
 - `yaam://artifacts/{artifact_id}/lineage`
 - `yaam://sessions/{session_id}/artifacts`

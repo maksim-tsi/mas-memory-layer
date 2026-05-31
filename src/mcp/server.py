@@ -16,6 +16,7 @@ from src.memory.ciar_formula import DEFAULT_AGE_DECAY_LAMBDA, DEFAULT_RECENCY_AL
 from src.memory.models import Episode, Fact, KnowledgeDocument, SearchWeights
 from src.memory.namespace import normalize_project_id
 from src.memory.services import (
+    CognitiveSandwichDomainViewService,
     MemoryGatewayService,
     PermissionPolicy,
     ScopeEnvelope,
@@ -81,6 +82,19 @@ SKILL_FACTORY_MCP_RESOURCE_URIS = (
 )
 
 SKILL_FACTORY_MCP_PROMPT_NAMES = ("yaam.prompt.repair_pattern_summary",)
+
+COGNITIVE_SANDWICH_MCP_RESOURCE_URIS = (
+    "yaam://artifacts/{artifact_id}/lineage",
+    "yaam://sessions/{session_id}/artifacts",
+    "yaam://runs/{run_id}/artifacts",
+    "yaam://runs/{run_id}/evidence",
+    "yaam://incidents/{incident_id}/reports",
+)
+
+COGNITIVE_SANDWICH_MCP_PROMPT_NAMES = (
+    "yaam.prompt.artifact_repair_context",
+    "yaam.prompt.artifact_lineage_summary",
+)
 
 MCP_STREAMABLE_HTTP_LOGGER = "mcp.server.streamable_http"
 
@@ -955,6 +969,8 @@ def create_mcp_server(
 
     if "skill-factory" in enabled_domain_packs:
         _register_skill_factory_domain_pack(mcp, get_service)
+    if "cognitive-sandwich" in enabled_domain_packs:
+        _register_cognitive_sandwich_domain_pack(mcp, get_service)
 
     return mcp
 
@@ -1069,6 +1085,149 @@ def _register_skill_factory_domain_pack(
         )
 
 
+def _register_cognitive_sandwich_domain_pack(
+    mcp: Any,
+    get_service: Callable[[], Awaitable[MemoryGatewayService]],
+) -> None:
+    """Register optional read-only Cognitive Sandwich MCP resources and prompts."""
+
+    async def domain_service() -> CognitiveSandwichDomainViewService:
+        service = await get_service()
+        return CognitiveSandwichDomainViewService(
+            service, project_id=getattr(service, "project_id", None)
+        )
+
+    @mcp.resource("yaam://artifacts/{artifact_id}/lineage")
+    async def cognitive_artifact_lineage_resource(artifact_id: str) -> str:
+        async def action() -> str:
+            view = await (await domain_service()).artifact_lineage(artifact_id)
+            return json.dumps(view)
+
+        return await _run_mcp_async(
+            "resource",
+            "yaam://artifacts/{artifact_id}/lineage",
+            "read",
+            action,
+            scope=_cognitive_sandwich_resource_scope({"artifact_id": artifact_id}),
+        )
+
+    @mcp.resource("yaam://sessions/{session_id}/artifacts")
+    async def cognitive_session_artifacts_resource(session_id: str) -> str:
+        async def action() -> str:
+            view = await (await domain_service()).session_artifacts(session_id)
+            return json.dumps(view)
+
+        return await _run_mcp_async(
+            "resource",
+            "yaam://sessions/{session_id}/artifacts",
+            "read",
+            action,
+            scope=_cognitive_sandwich_resource_scope({"client_session_id": session_id}),
+        )
+
+    @mcp.resource("yaam://runs/{run_id}/artifacts")
+    async def cognitive_run_artifacts_resource(run_id: str) -> str:
+        async def action() -> str:
+            view = await (await domain_service()).run_artifacts(run_id)
+            return json.dumps(view)
+
+        return await _run_mcp_async(
+            "resource",
+            "yaam://runs/{run_id}/artifacts",
+            "read",
+            action,
+            scope=_cognitive_sandwich_resource_scope({"run_id": run_id}),
+        )
+
+    @mcp.resource("yaam://runs/{run_id}/evidence")
+    async def cognitive_run_evidence_resource(run_id: str) -> str:
+        async def action() -> str:
+            view = await (await domain_service()).run_evidence(run_id)
+            return json.dumps(view)
+
+        return await _run_mcp_async(
+            "resource",
+            "yaam://runs/{run_id}/evidence",
+            "read",
+            action,
+            scope=_cognitive_sandwich_resource_scope({"run_id": run_id}),
+        )
+
+    @mcp.resource("yaam://incidents/{incident_id}/reports")
+    async def cognitive_incident_reports_resource(incident_id: str) -> str:
+        async def action() -> str:
+            view = await (await domain_service()).incident_reports(incident_id)
+            return json.dumps(view)
+
+        return await _run_mcp_async(
+            "resource",
+            "yaam://incidents/{incident_id}/reports",
+            "read",
+            action,
+            scope=_cognitive_sandwich_resource_scope({"incident_id": incident_id}),
+        )
+
+    @mcp.prompt(name="yaam.prompt.artifact_repair_context")
+    def cognitive_artifact_repair_context_prompt(
+        artifact_id: str,
+        run_id: str | None = None,
+        include_feedback: bool = True,
+    ) -> str:
+        filters = {
+            key: value
+            for key, value in {
+                "artifact_id": artifact_id,
+                "run_id": run_id,
+                "include_feedback": include_feedback,
+            }.items()
+            if value is not None
+        }
+        return _run_mcp_sync(
+            "prompt",
+            "yaam.prompt.artifact_repair_context",
+            "read",
+            lambda: (
+                "Build a Cognitive Sandwich artifact repair context without mutating YAAM. "
+                "Use only scoped artifact lineage, deterministic solver feedback, sandbox "
+                "evidence, and committed report records. Highlight infeasible revisions, "
+                "payload hashes, feedback ids, and the next repair constraints.\n"
+                f"Filters: {json.dumps(filters, sort_keys=True)}"
+            ),
+            scope=_cognitive_sandwich_resource_scope(
+                {key: str(value) for key, value in filters.items()}
+            ),
+        )
+
+    @mcp.prompt(name="yaam.prompt.artifact_lineage_summary")
+    def cognitive_artifact_lineage_summary_prompt(
+        artifact_id: str,
+        include_payload_hashes: bool = True,
+    ) -> str:
+        filters = {
+            key: value
+            for key, value in {
+                "artifact_id": artifact_id,
+                "include_payload_hashes": include_payload_hashes,
+            }.items()
+            if value is not None
+        }
+        return _run_mcp_sync(
+            "prompt",
+            "yaam.prompt.artifact_lineage_summary",
+            "read",
+            lambda: (
+                "Summarize Cognitive Sandwich artifact lineage without mutating YAAM. "
+                "Order draft, feedback, revision, and commit evidence; include verification "
+                "states, source systems, payload hashes when available, and any partial-result "
+                "warnings.\n"
+                f"Filters: {json.dumps(filters, sort_keys=True)}"
+            ),
+            scope=_cognitive_sandwich_resource_scope(
+                {key: str(value) for key, value in filters.items()}
+            ),
+        )
+
+
 class _StreamableHTTPClosedResourceFilter(logging.Filter):
     """Suppress benign MCP SDK noise emitted when HTTP clients close sessions."""
 
@@ -1178,7 +1337,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--mcp-domain-packs",
         default=os.environ.get("YAAM_MCP_DOMAIN_PACKS", "auto"),
-        help="Comma-separated MCP domain packs: auto, none, or skill-factory.",
+        help="Comma-separated MCP domain packs: auto, none, skill-factory, or cognitive-sandwich.",
     )
     return parser.parse_args(argv)
 
@@ -1237,6 +1396,17 @@ def _skill_factory_resource_scope(domain_ids: dict[str, str]) -> ScopeEnvelope:
     )
 
 
+def _cognitive_sandwich_resource_scope(domain_ids: dict[str, str]) -> ScopeEnvelope:
+    return ScopeEnvelope(
+        session_id="*",
+        agent_id="cognitive-sandwich-domain-pack",
+        caller_role="benchmark_runtime_agent",
+        visibility_scope="benchmark_runtime",
+        domain_ids={key: value for key, value in domain_ids.items() if value},
+        metadata={"domain": "cognitive_sandwich"},
+    )
+
+
 def _enabled_domain_packs(args: argparse.Namespace) -> set[str]:
     raw = str(getattr(args, "mcp_domain_packs", "auto") or "auto").strip().lower()
     if raw in {"", "none", "off", "disabled"}:
@@ -1249,7 +1419,9 @@ def _enabled_domain_packs(args: argparse.Namespace) -> set[str]:
         requested.remove("auto")
         if project_id == "scm-skill-factory":
             requested.add("skill-factory")
-    return {item for item in requested if item == "skill-factory"}
+        if project_id == "scm-cognitive-sandwich":
+            requested.add("cognitive-sandwich")
+    return {item for item in requested if item in {"skill-factory", "cognitive-sandwich"}}
 
 
 def _json_or_not_found(item: Any, id_name: str, id_value: str) -> str:

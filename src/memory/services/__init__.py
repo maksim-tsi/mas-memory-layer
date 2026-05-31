@@ -17,7 +17,9 @@ from src.memory.services.contracts import (
     YAAMWarning,
 )
 from src.memory.services.domain_views import (
+    COGNITIVE_SANDWICH_METADATA_KEYS,
     SKILL_FACTORY_METADATA_KEYS,
+    CognitiveSandwichDomainViewService,
     SkillFactoryDomainViewService,
 )
 from src.memory.services.gateway import MemoryGatewayService
@@ -28,7 +30,9 @@ from src.memory.services.permissions import (
 )
 
 __all__ = [
+    "COGNITIVE_SANDWICH_METADATA_KEYS",
     "SKILL_FACTORY_METADATA_KEYS",
+    "CognitiveSandwichDomainViewService",
     "ContextResponse",
     "ContradictionReviewResponse",
     "CurationDecisionRecord",

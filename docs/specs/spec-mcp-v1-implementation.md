@@ -184,8 +184,11 @@ Configuration:
 - `YAAM_MCP_DOMAIN_PACKS=auto` by default.
 - `auto` enables the Skill Factory pack only when
   `YAAM_PROJECT_ID=scm-skill-factory`.
+- `auto` enables the Cognitive Sandwich pack only when
+  `YAAM_PROJECT_ID=scm-cognitive-sandwich`.
 - `none` disables all domain packs.
 - `skill-factory` explicitly enables the Skill Factory pack.
+- `cognitive-sandwich` explicitly enables the Cognitive Sandwich pack.
 
 The Skill Factory pack exposes:
 
@@ -200,6 +203,27 @@ Skill Factory views rely on canonical metadata keys supplied through existing
 L2/L3/L4/curation writes: `domain`, `skill_name`, `ctt_id`, `run_id`,
 `qa_status`, `active_tool_status`, `sandbox_outcome`, `repair_action`, and
 `artifact_kind`.
+
+The Cognitive Sandwich pack exposes read-only artifact/evidence projections:
+
+- `yaam://artifacts/{artifact_id}/lineage`
+- `yaam://sessions/{session_id}/artifacts`
+- `yaam://runs/{run_id}/artifacts`
+- `yaam://runs/{run_id}/evidence`
+- `yaam://incidents/{incident_id}/reports`
+- `yaam.prompt.artifact_repair_context`
+- `yaam.prompt.artifact_lineage_summary`
+
+Cognitive Sandwich views rely on canonical metadata supplied through existing
+L2/L3/L4 writes: `domain`, `artifact_id`, `revision_id`,
+`parent_revision_id`, `feedback_id`, `commit_id`, `run_id`, `thread_id`,
+`incident_id`, `scenario_id`, `artifact_kind`, `artifact_status`,
+`revision_number`, `verification_state`, `feedback_type`, `source_system`,
+`payload_hash`, `fatal_status`, and `retry_count`.
+
+The Cognitive Sandwich pack is not a native artifact lifecycle service. It does
+not add mutating `yaam.artifact.*` tools, enforce revision state transitions, or
+validate final commits.
 
 ## 6. Response Contracts
 
@@ -258,6 +282,10 @@ SCM-Cert-Bench extension policy:
 - Skill Factory resources and prompts are available only when the
   `skill-factory` domain pack is enabled. They remain read-only and inherit the
   generic resource redaction policy.
+- Cognitive Sandwich resources and prompts are available only when the
+  `cognitive-sandwich` domain pack is enabled. They remain read-only and
+  project-scoped, and they derive artifact lineage from canonical metadata
+  rather than from a separate artifact graph.
 
 ## 8. Tracing Contract
 
