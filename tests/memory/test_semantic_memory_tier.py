@@ -45,6 +45,24 @@ async def semantic_tier(mock_typesense_adapter, monkeypatch):
     return tier
 
 
+def test_semantic_tier_syncs_versioned_collection_to_adapter(
+    mock_typesense_adapter, monkeypatch
+):
+    """Adapter schema reconciliation must target the tier's resolved collection."""
+    monkeypatch.setenv("MAS_V2_MODE", "true")
+
+    tier = SemanticMemoryTier(
+        typesense_adapter=mock_typesense_adapter,
+        config={
+            "collection_name": "yaam-scm-cognitive-sandwich",
+            "project_id": "scm-cognitive-sandwich",
+        },
+    )
+
+    assert tier.collection_name == "yaam-scm-cognitive-sandwich_v2"
+    assert mock_typesense_adapter.collection_name == tier.collection_name
+
+
 @pytest.fixture
 def sample_knowledge():
     """Sample knowledge document for testing."""

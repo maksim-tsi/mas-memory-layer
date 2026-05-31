@@ -56,6 +56,9 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
         is_v2_mode = os.environ.get("MAS_V2_MODE", "true").lower() == "true"
         if is_v2_mode and not self.collection_name.endswith("_v2"):
             self.collection_name = f"{self.collection_name}_v2"
+        # Keep the adapter's connection-time schema reconciliation on the same
+        # collection that tier operations use after version suffix resolution.
+        self.typesense.collection_name = self.collection_name
 
     def _tier_name(self) -> str:
         """Return tier identifier for telemetry."""
