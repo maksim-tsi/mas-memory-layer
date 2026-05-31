@@ -73,6 +73,85 @@ async def test_store_l2_fact_persists_when_allowlisted(mocker) -> None:
 
 
 @pytest.mark.asyncio
+async def test_assimilate_l3_episode_preserves_metadata_run_id_when_scope_omits_it(
+    mocker,
+) -> None:
+    l3_tier = mocker.Mock()
+    l3_tier.store = mocker.AsyncMock(return_value="episode-stored")
+    llm_client = mocker.Mock()
+    llm_client.get_embedding = mocker.AsyncMock(return_value=[0.1] * 64)
+    llm_client.generate = mocker.AsyncMock(return_value="{}")
+    memory_system = mocker.Mock()
+    memory_system.l3_tier = l3_tier
+    memory_system.llm_client = llm_client
+    service = MemoryGatewayService(
+        memory_system,
+        PermissionPolicy(
+            enable_writes=True,
+            enable_lifecycle=True,
+            allowlisted_tools=frozenset({"yaam.l3.assimilate_episode"}),
+        ),
+        project_id="scm-skill-factory",
+    )
+    scope = ScopeEnvelope(
+        session_id="readiness-session",
+        agent_id="skill-factory-verifier",
+        caller_role="benchmark_runtime_agent",
+        visibility_scope="benchmark_runtime",
+    )
+
+    ack = await service.assimilate_l3_episode(
+        scope,
+        text_to_assimilate="Synthetic Skill Factory repair episode for readiness.",
+        metadata={
+            "domain": "skill_factory",
+            "run_id": "skill-run-001",
+            "task_id": "metadata-task",
+            "qa_status": "failed",
+        },
+    )
+
+    stored_input = l3_tier.store.await_args.args[0]
+    assert ack.created_id == "episode-stored"
+    assert stored_input.episode.metadata["run_id"] == "skill-run-001"
+    assert stored_input.episode.metadata["task_id"] == "metadata-task"
+    assert stored_input.episode.metadata["client_session_id"] == "readiness-session"
+    assert stored_input.episode.metadata["project_id"] == "scm-skill-factory"
+    assert ack.provenance.metadata["run_id"] == "skill-run-001"
+
+
+@pytest.mark.asyncio
+async def test_write_metadata_scope_values_override_metadata_when_present(mocker) -> None:
+    l2_tier = mocker.Mock()
+    l2_tier.store = mocker.AsyncMock(return_value="fact-stored")
+    memory_system = mocker.Mock()
+    memory_system.l2_tier = l2_tier
+    service = MemoryGatewayService(
+        memory_system,
+        PermissionPolicy(
+            enable_writes=True,
+            allowlisted_tools=frozenset({"yaam.l2.store_fact"}),
+        ),
+    )
+    scope = ScopeEnvelope(
+        session_id="session-a",
+        agent_id="agent-a",
+        task_id="scope-task",
+        run_id="scope-run",
+    )
+
+    await service.store_l2_fact(
+        scope,
+        content="A scoped fact.",
+        metadata={"task_id": "metadata-task", "run_id": "metadata-run"},
+    )
+
+    stored_fact = l2_tier.store.await_args.args[0]
+    assert stored_fact.metadata["task_id"] == "scope-task"
+    assert stored_fact.metadata["run_id"] == "scope-run"
+
+
+@pytest.mark.asyncio
 async def test_health_check_redacts_tier_health(mocker) -> None:
     l2_tier = mocker.Mock()
     l2_tier.health_check = mocker.AsyncMock(

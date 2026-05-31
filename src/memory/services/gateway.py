@@ -914,20 +914,30 @@ class MemoryGatewayService:
     def _write_metadata(
         self, scope: ScopeEnvelope, metadata: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        merged = {
-            **(metadata or {}),
-            "agent_id": scope.agent_id,
-            "caller_role": scope.caller_role,
-            "visibility_scope": scope.visibility_scope,
-            "task_id": scope.task_id,
-            "tenant_id": scope.tenant_id,
-            "run_id": scope.run_id,
-            "traceparent": scope.traceparent,
-            "source": "mcp_v1_service",
-            "project_id": self.project_id,
-            "client_session_id": scope.metadata.get("client_session_id"),
-        }
-        return redact_metadata({key: value for key, value in merged.items() if value is not None})
+        merged = dict(metadata or {})
+        for key, value in (
+            ("caller_role", scope.caller_role),
+            ("visibility_scope", scope.visibility_scope),
+            ("task_id", scope.task_id),
+            ("tenant_id", scope.tenant_id),
+            ("run_id", scope.run_id),
+            ("traceparent", scope.traceparent),
+        ):
+            if value is not None:
+                merged[key] = value
+
+        merged.update(
+            {
+                "agent_id": scope.agent_id,
+                "source": "mcp_v1_service",
+                "project_id": self.project_id,
+                "client_session_id": scope.metadata.get("client_session_id")
+                or merged.get("client_session_id"),
+            }
+        )
+        return redact_metadata(
+            {key: value for key, value in merged.items() if value is not None}
+        )
 
     def _is_skill_factory_domain_record(self, record: MemoryResult) -> bool:
         metadata = _merged_record_metadata(record)
