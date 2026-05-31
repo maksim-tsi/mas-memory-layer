@@ -28,6 +28,7 @@ Triage status values: `new`, `triaged`, `accepted`, `deferred`, `in-progress`, `
 | CRUN-20260530-001 | 2026-05-30 | `agentic-scm-tra26` | `agentic-scm-tra26` | MacBook/local network | `http://192.168.107.187:8002` | `http://192.168.107.187:8003/mcp` | `reports/20260530T153445Z-agentic-scm-tra26-full-synthetic-report.md` | `pass` | `triaged` | Full synthetic readiness passed; evidence JSON copied as `reports/20260530T153445Z-agentic-scm-tra26-full-synthetic-results.json`. |
 | CRUN-20260530-002 | 2026-05-30 | `scm-skill-factory` | `scm-skill-factory` | MacBook/local network | `http://192.168.107.187:8002` | `http://192.168.107.187:8003/mcp` | `reports/2026-05-30-scm-skill-factory-readiness-report.md` | `pass-with-findings` | `triaged` | Initial full synthetic readiness passed with expected Skill Factory domain-view/resource/prompt gaps. Superseded by CRUN-20260531-003 after domain-pack fixes. |
 | CRUN-20260531-003 | 2026-05-31 | `scm-skill-factory` | `scm-skill-factory` | MacBook/local network | `http://192.168.107.187:8002` | `http://192.168.107.187:8003/mcp` | `reports/2026-05-31-scm-skill-factory-readiness-report.md` | `pass` | `verified` | Post-fix write-enabled retest passed; all Skill Factory domain-pack views, including run episodes, returned records. |
+| CRUN-20260531-004 | 2026-05-31 | `scm-cognitive-sandwich` | `scm-cognitive-sandwich` | MacBook/local network | `http://192.168.107.187:8002` | `http://192.168.107.187:8003/mcp` | `reports/2026-05-31-scm-cognitive-sandwich-readiness-report.md` | `pass-with-findings` | `triaged` | Read-only readiness passed; Cognitive Sandwich domain pack resources/prompts verified. Write-dependent provenance, evidence, L3/L4, and artifact-lineage business value remain pending a write window. |
 
 ### CRUN-20260530-001 Identifiers
 
@@ -62,6 +63,18 @@ Triage status values: `new`, `triaged`, `accepted`, `deferred`, `in-progress`, `
   - `yaam://runs/skill-run-001/episodes`
   - `yaam://skill-factory/qa-status/failed/runs`
   - `yaam://skill-factory/active-tool-status/stale/runs`
+
+### CRUN-20260531-004 Identifiers
+
+- Consumer repository commit: `5297445` (`chore: add read-only YAAM readiness checks`)
+- Test mode: read-only readiness, no synthetic writes
+- Session: `scm-cognitive-sandwich-readiness-20260531-report`
+- Agent: `codex-macbook-readiness-report`
+- Phoenix project reported by consumer: `scm-cognitive-sandwich-winsim`
+- YAAM runtime namespace: `scm-cognitive-sandwich`
+- Domain pack: `auto`
+- Local consumer gate: `65 passed, 1 skipped`
+- Reported MCP discovery: `16 tools`, `5 resources`, Cognitive Sandwich templates/prompts present
 
 ## 3. Consumer Coverage Evaluation
 
@@ -175,6 +188,61 @@ The run demonstrates that Skill Factory can use YAAM to:
 - Multi-run learning across separate Skill Factory sessions and artifacts.
 - Provider/DBMS degradation and retry behavior.
 
+### CRUN-20260531-004: `scm-cognitive-sandwich`
+
+#### Verdict
+
+`scm-cognitive-sandwich` passed read-only readiness with findings. The run confirms that the shared
+YAAM endpoint is usable for non-mutating MCP and REST v2 checks under the
+`scm-cognitive-sandwich` namespace. The Cognitive Sandwich domain pack is discoverable and its
+read-only artifact/evidence resources and prompts render correctly.
+
+This is a meaningful readiness result, not just a connectivity check, because it validates MCP
+initialization, health, resource/prompt discovery, scoped context assembly, Evidence Table execution,
+REST context/query behavior, L3 semantic query contract behavior, and the previously reported
+nonexistent-fact scoping guard. However, it is not a full synthetic readiness pass because no write
+window was open and no L2/L3/L4 records were written for artifact evidence.
+
+#### Business Value Demonstrated
+
+The run demonstrates that Cognitive Sandwich can use YAAM today for:
+
+- read-only artifact and evidence inspection through MCP domain resources;
+- prompt assembly for artifact repair context and lineage summaries;
+- scoped memory/context queries with leakage guard metadata;
+- safe read-only operation where nonexistent fact lookups return `not_found` rather than leaking
+  another project or session record.
+
+#### Covered Well
+
+| Area | Evidence |
+| --- | --- |
+| REST health/context/query | `/health`, `/v2/memory/context`, `/v2/memory/query`, and `/v2/memory/l3/query` returned successful read-only responses. |
+| MCP discovery/readiness | Consumer reported Streamable HTTP MCP initialization, 16 tools, 5 static resources, and successful health/config reads. |
+| Scoping guard | `yaam://facts/nonexistent-readiness-fact` returned `not_found`, confirming the L2 exact-lookup fix from `23229ab`. |
+| Cognitive Sandwich domain pack | All five domain resource templates were discovered and returned scoped empty projections with `project_id=scm-cognitive-sandwich`. |
+| Domain prompts | `yaam.prompt.artifact_repair_context` and `yaam.prompt.artifact_lineage_summary` discovered and rendered. |
+| Read-only Evidence Table | `yaam.evidence.table` executed successfully with zero rows and `partial=false`. |
+
+#### Partially Covered
+
+| Area | Gap |
+| --- | --- |
+| L3/L4 business value | L3 semantic query returned `success`, but no synthetic L3/L4 writes were performed, so retrieval usefulness was not proven. |
+| Provenance | Scoped responses include metadata, but row-level evidence provenance is not validated until synthetic evidence exists. |
+| Evidence Table usefulness | Tool execution was proven, but the result had zero rows because the namespace had no write-window evidence. |
+| Artifact lineage resources | Resource availability and scoping are proven; lineage projection over actual artifact records remains pending write-enabled validation. |
+| Phoenix correlation | The report names a Phoenix endpoint/project, but does not include span export or trace correlation evidence. |
+
+#### Not Covered
+
+- L2 deterministic feedback write/read under Cognitive Sandwich canonical metadata.
+- L3 failed/repaired artifact episode assimilation and readback.
+- L4 final artifact/report finalization and direct readback.
+- Evidence Table rows over synthetic artifact repair evidence.
+- Native mutating `yaam.artifact.*` lifecycle tools.
+- Full production Cognitive Sandwich workflow migration away from the transitional facade.
+
 ## 4. Requirement Coverage Snapshot
 
 | Requirement | Coverage from consumer runs | Status |
@@ -192,9 +260,13 @@ The run demonstrates that Skill Factory can use YAAM to:
 | `YAAM-REQ-0014` trace context/Phoenix audit | TRA included `traceparent`; Skill Factory proved Phoenix API reachability. Span export/correlation evidence is still missing. | partial |
 | `YAAM-REQ-0015` health/config inspection | REST health and MCP health/config paths succeeded. | covered |
 | `YAAM-REQ-0016` Evidence Table generation | Both reports include evidence/CIAR read success. | covered |
+| `YAAM-REQ-0019` artifact draft/revision/feedback/commit lineage | Cognitive Sandwich read-only domain pack exposes metadata-derived lineage views; native lifecycle enforcement remains absent. | partial |
+| `YAAM-REQ-0020` artifact lineage resources | Cognitive Sandwich verified all artifact/evidence resource templates and scoped empty projections. | covered-read-only |
+| `YAAM-REQ-0021` deterministic feedback/solver evidence | Cognitive Sandwich deferred deterministic feedback write/read evidence to a write window. | partial |
+| `YAAM-REQ-0028` transitional facade migration | Cognitive Sandwich confirms read-only MCP reduces facade dependency but does not replace artifact mutation/lifecycle. | partial |
 | `YAAM-REQ-0022` Skill Factory generation/QA/curation views | Skill Factory retest verified QA-status and active-tool-status run resources plus curation writes. | covered |
 | `YAAM-REQ-0023` Skill Factory skill/CTT/run resources | Skill Factory retest verified skill, CTT, and run episode resources, including `yaam://runs/skill-run-001/episodes`. | covered |
-| `YAAM-REQ-0032` domain-specific prompts | Skill Factory retest verified `yaam.prompt.repair_pattern_summary`. | covered |
+| `YAAM-REQ-0032` domain-specific prompts | Skill Factory retest verified `yaam.prompt.repair_pattern_summary`; Cognitive Sandwich verified artifact repair and lineage prompts. | covered |
 | `YAAM-REQ-0034` performance budgets | TRA exposed L3 latency to monitor; Skill Factory completed full verifiers in 10.89s and 15.41s. | partial |
 | `YAAM-REQ-0038` trace/artifact correlation metadata | Session/task/project metadata is present; cross-system trace evidence remains partial. | partial |
 
@@ -210,6 +282,9 @@ The run demonstrates that Skill Factory can use YAAM to:
 | CF-SKILL-002 | CRUN-20260530-002 / CRUN-20260531-003 | `scm-skill-factory` | `P2` | `MCP` | Add `yaam://skills/{skill_name}` and `yaam://ctts/{ctt_id}` resources | Run Skill Factory MCP resource checks. | Initial report classified both resources as missing or partial; retest verified both resource templates and reads. | `verified` | YAAM | Skill Factory MCP domain pack | CRUN-20260531-003 passed with `yaam://skills/readiness_demo_skill` and `yaam://ctts/readiness-ctt-001`. |
 | CF-SKILL-003 | CRUN-20260530-002 / CRUN-20260531-003 | `scm-skill-factory` | `P2` | `MCP` | Add repair pattern summary prompt | Run Skill Factory prompt discovery/checks. | Initial report classified `yaam.prompt.repair_pattern_summary` as missing or partial; retest verified prompt retrieval. | `verified` | YAAM | Skill Factory MCP domain pack | CRUN-20260531-003 passed `yaam.prompt.repair_pattern_summary`. |
 | CF-SKILL-004 | CRUN-20260530-002 | `scm-skill-factory` | `P3` | `observability` | Include concrete Phoenix span evidence in Skill Factory reports | Run readiness with Phoenix export or trace summary. | Report proves Phoenix API reachability but not span correlation for the run. | `triaged` | TBD | TBD | Report links sanitized span export or trace summary for the readiness run. |
+| CF-COGSAND-001 | CRUN-20260531-004 | `scm-cognitive-sandwich` | `P1` | `contract` | Validate write-enabled artifact evidence flow | Open a short YAAM write window and run Cognitive Sandwich synthetic L2/L3/L4 artifact evidence checks. | Read-only report classified L3 assimilation, L4 finalization, Evidence Table rows, and deterministic feedback evidence as not exercised or partial. | `triaged` | YAAM + Cognitive Sandwich | TBD | Follow-up report shows L2/L3/L4 writes with canonical Cognitive Sandwich metadata and successful domain resource readback. |
+| CF-COGSAND-002 | CRUN-20260531-004 | `scm-cognitive-sandwich` | `P1` | `MCP` | Plan native artifact lifecycle surface | Evaluate whether dedicated mutating `yaam.artifact.*` tools are required before production facade migration. | Report identifies native artifact revision lifecycle as the first production blocker. | `accepted` | YAAM | TBD | Artifact lifecycle design is approved or explicitly deferred with a consumer-accepted generic-write workaround. |
+| CF-COGSAND-003 | CRUN-20260531-004 | `scm-cognitive-sandwich` | `P2` | `observability` | Align Phoenix project naming and include span evidence | Compare runtime `PHOENIX_PROJECT_NAME` with consumer-reported Phoenix project and export spans for the run. | Consumer reported `scm-cognitive-sandwich-winsim`; YAAM runtime window used `mlm-mas-dev-consumer-scm-cognitive-sandwich-20260531`. | `triaged` | YAAM + Cognitive Sandwich | TBD | Next report includes sanitized span export or agreed Phoenix project naming for cross-system correlation. |
 
 Priority values:
 
@@ -238,4 +313,4 @@ as close as possible to the original consumer path:
 | --- | --- | --- | --- | --- |
 | 1 | `agentic-scm-tra26` | `agentic-scm-tra26` | completed synthetic readiness | PASS with non-blocking follow-ups. |
 | 2 | `scm-skill-factory` | `scm-skill-factory` | completed post-fix synthetic readiness | PASS; Skill Factory domain pack verified by consumer retest. |
-| 3 | `scm-cognitive-sandwich` | `scm-cognitive-sandwich` | pending | Run after YAAM is switched to this namespace and smoke-tested. |
+| 3 | `scm-cognitive-sandwich` | `scm-cognitive-sandwich` | completed read-only readiness; write-enabled follow-up pending | Read-only PASS with findings. Open a short write window for L2/L3/L4 artifact evidence validation. |

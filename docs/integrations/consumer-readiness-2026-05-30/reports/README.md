@@ -20,12 +20,13 @@ evidence.
 | 2026-05-30 | `agentic-scm-tra26` | PASS | `20260530T153445Z-agentic-scm-tra26-full-synthetic-report.md` | `20260530T153445Z-agentic-scm-tra26-full-synthetic-results.json` | Full synthetic readiness passed; see `../consumer-readiness-results-register.md` for triage and coverage evaluation. |
 | 2026-05-30 | `scm-skill-factory` | PASS with findings | `2026-05-30-scm-skill-factory-readiness-report.md` | n/a | Initial synthetic readiness passed with Skill Factory domain-view/resource/prompt gaps; resolved by the 2026-05-31 retest below. |
 | 2026-05-31 | `scm-skill-factory` | PASS | `2026-05-31-scm-skill-factory-readiness-report.md` | n/a | Post-fix write-enabled retest passed; all Skill Factory domain-pack views, including run episodes, returned records. |
+| 2026-05-31 | `scm-cognitive-sandwich` | PASS with findings | `2026-05-31-scm-cognitive-sandwich-readiness-report.md` | n/a | Read-only readiness passed; Cognitive Sandwich domain resources/prompts and scoping guard verified. Write-enabled artifact evidence validation remains pending. |
 
 Expected projects:
 
 - `agentic-scm-tra26`
 - `scm-skill-factory`
-- `scm-cognitive-sandwich`
+- `scm-cognitive-sandwich` read-only report received; write-enabled follow-up pending.
 
 Reports must be sanitized. Do not include secrets, `.env` contents, provider API keys, passwords,
 tokens, or private credentials.
