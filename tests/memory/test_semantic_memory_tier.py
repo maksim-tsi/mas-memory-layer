@@ -359,6 +359,55 @@ class TestSemanticMemoryTierSearch:
         assert call_args.kwargs["query_by"] == "title,content"
 
     @pytest.mark.asyncio
+    async def test_search_by_exact_metadata_uses_wildcard_without_sort(
+        self, semantic_tier
+    ):
+        """Deterministic domain projections must not depend on text ranking."""
+        now = datetime.now(UTC)
+        semantic_tier.typesense.search = AsyncMock(
+            return_value={
+                "hits": [
+                    {
+                        "document": {
+                            "id": "know_cognitive_001",
+                            "title": "Cognitive Sandwich artifact repair report",
+                            "content": "Final artifact report.",
+                            "knowledge_type": "artifact",
+                            "confidence_score": 0.95,
+                            "episode_count": 1,
+                            "domain": "cognitive_sandwich",
+                            "project_id": "scm-cognitive-sandwich",
+                            "client_session_id": "session-readiness-001",
+                            "artifact_id": "artifact-readiness-001",
+                            "run_id": "artifact-run-001",
+                            "incident_id": "incident-readiness-001",
+                            "distilled_at": int(now.timestamp()),
+                            "access_count": 0,
+                            "usefulness_score": 0.9,
+                            "validation_count": 0,
+                        }
+                    }
+                ]
+            }
+        )
+
+        results = await semantic_tier.search_by_exact_metadata(
+            "project_id:=`scm-cognitive-sandwich` && domain:=`cognitive_sandwich` "
+            "&& artifact_id:=`artifact-readiness-001`",
+            limit=20,
+        )
+
+        assert [result.knowledge_id for result in results] == ["know_cognitive_001"]
+        assert results[0].metadata["artifact_id"] == "artifact-readiness-001"
+        assert results[0].metadata["run_id"] == "artifact-run-001"
+        assert results[0].metadata["incident_id"] == "incident-readiness-001"
+        semantic_tier.typesense.search.assert_called_once()
+        call_args = semantic_tier.typesense.search.call_args
+        assert call_args.kwargs["query"] == "*"
+        assert call_args.kwargs["sort_by"] is None
+        assert "artifact_id:=`artifact-readiness-001`" in call_args.kwargs["filter_by"]
+
+    @pytest.mark.asyncio
     async def test_search_with_type_filter(self, semantic_tier):
         """Test search with knowledge type filter."""
         semantic_tier.typesense.search = AsyncMock(return_value={"hits": []})

@@ -680,14 +680,34 @@ async def test_cognitive_sandwich_l4_exact_metadata_projection_for_session_and_i
     l3_tier.qdrant = qdrant
     l4_tier = mocker.Mock()
 
-    async def l4_search(**kwargs):
+    async def l4_exact_search(**kwargs):
         filter_by = kwargs.get("filter_by", "")
+        if "artifact_id:=`artifact-readiness-001`" in filter_by:
+            return [
+                {
+                    "knowledge_id": "knowledge-artifact-report",
+                    "session_id": "scm-cognitive-sandwich:session-readiness-001",
+                    "content": "Artifact report for artifact-readiness-001.",
+                    "confidence_score": 0.9,
+                    "metadata": metadata,
+                }
+            ]
         if "client_session_id:=`session-readiness-001`" in filter_by:
             return [
                 {
                     "knowledge_id": "knowledge-session-report",
                     "session_id": "scm-cognitive-sandwich:session-readiness-001",
                     "content": "Final report stored for session-readiness-001.",
+                    "confidence_score": 0.9,
+                    "metadata": metadata,
+                }
+            ]
+        if "run_id:=`artifact-run-001`" in filter_by:
+            return [
+                {
+                    "knowledge_id": "knowledge-run-report",
+                    "session_id": "scm-cognitive-sandwich:session-readiness-001",
+                    "content": "Run report for artifact-run-001.",
                     "confidence_score": 0.9,
                     "metadata": metadata,
                 }
@@ -704,7 +724,8 @@ async def test_cognitive_sandwich_l4_exact_metadata_projection_for_session_and_i
             ]
         return []
 
-    l4_tier.search = mocker.AsyncMock(side_effect=l4_search)
+    l4_tier.search_by_exact_metadata = mocker.AsyncMock(side_effect=l4_exact_search)
+    l4_tier.search = mocker.AsyncMock(return_value=[])
     memory_system = mocker.Mock()
     memory_system.l2_tier = l2_tier
     memory_system.l3_tier = l3_tier
@@ -712,9 +733,19 @@ async def test_cognitive_sandwich_l4_exact_metadata_projection_for_session_and_i
     service = MemoryGatewayService(memory_system, project_id="scm-cognitive-sandwich")
     scope = ScopeEnvelope(session_id="*", agent_id="cognitive-sandwich-domain-pack")
 
+    artifact_records = await service.list_cognitive_sandwich_domain_records(
+        scope,
+        filters={"artifact_id": "artifact-readiness-001"},
+        limit=10,
+    )
     session_records = await service.list_cognitive_sandwich_domain_records(
         scope,
         filters={"client_session_id": "session-readiness-001"},
+        limit=10,
+    )
+    run_records = await service.list_cognitive_sandwich_domain_records(
+        scope,
+        filters={"run_id": "artifact-run-001"},
         limit=10,
     )
     incident_records = await service.list_cognitive_sandwich_domain_records(
@@ -723,12 +754,16 @@ async def test_cognitive_sandwich_l4_exact_metadata_projection_for_session_and_i
         limit=10,
     )
 
+    assert [record.source_id for record in artifact_records] == ["knowledge-artifact-report"]
     assert [record.source_id for record in session_records] == ["knowledge-session-report"]
+    assert [record.source_id for record in run_records] == ["knowledge-run-report"]
     assert [record.source_id for record in incident_records] == ["knowledge-incident-report"]
     filter_by_values = [
         call.kwargs.get("filter_by")
-        for call in l4_tier.search.await_args_list
+        for call in l4_tier.search_by_exact_metadata.await_args_list
         if call.kwargs.get("filter_by")
     ]
+    assert any("artifact_id:=`artifact-readiness-001`" in item for item in filter_by_values)
     assert any("client_session_id:=`session-readiness-001`" in item for item in filter_by_values)
+    assert any("run_id:=`artifact-run-001`" in item for item in filter_by_values)
     assert any("incident_id:=`incident-readiness-001`" in item for item in filter_by_values)

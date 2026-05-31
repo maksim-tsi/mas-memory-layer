@@ -568,12 +568,16 @@ class MemoryGatewayService:
             l4_records: list[MemoryResult] = []
             filter_by = _cognitive_sandwich_l4_filter_by(self.project_id, requested_filters)
             if filter_by:
-                exact_documents = await l4_tier.search(
-                    query_text="*",
-                    filters={"project_id": self.project_id},
-                    filter_by=filter_by,
-                    limit=scan_limit,
-                )
+                exact_search = getattr(l4_tier, "search_by_exact_metadata", None)
+                if inspect.iscoroutinefunction(exact_search):
+                    exact_documents = await exact_search(filter_by=filter_by, limit=scan_limit)
+                else:
+                    exact_documents = await l4_tier.search(
+                        query_text="*",
+                        filters={"project_id": self.project_id},
+                        filter_by=filter_by,
+                        limit=scan_limit,
+                    )
                 l4_records.extend(
                     memory_result_from_knowledge(document, scope)
                     for document in exact_documents or []
