@@ -98,6 +98,36 @@ When `YAAM_PROJECT_ID` is a different consumer namespace and
 `YAAM_MCP_DOMAIN_PACKS=auto`, those Skill Factory resources and prompts should
 not appear.
 
+For the planned Cognitive Sandwich domain pack:
+
+```bash
+YAAM_PROJECT_ID=scm-cognitive-sandwich
+YAAM_MCP_DOMAIN_PACKS=auto
+```
+
+After the pack is implemented, expected MCP discovery should include:
+
+- `yaam://artifacts/{artifact_id}/lineage`
+- `yaam://sessions/{session_id}/artifacts`
+- `yaam://runs/{run_id}/artifacts`
+- `yaam://runs/{run_id}/evidence`
+- `yaam://incidents/{incident_id}/reports`
+- `yaam.prompt.artifact_repair_context`
+- `yaam.prompt.artifact_lineage_summary`
+
+The Cognitive Sandwich pack is read-only in v0.1. Native mutating
+`yaam.artifact.*` lifecycle tools are not expected in discovery unless a later
+artifact-service milestone explicitly adds them.
+
+Troubleshooting notes:
+
+- If these resources are absent, confirm the pack has been implemented and
+  enabled for `YAAM_PROJECT_ID=scm-cognitive-sandwich`.
+- If resources are present but empty, confirm synthetic records include
+  `domain="cognitive_sandwich"` and canonical artifact/run metadata.
+- If `YAAM_MCP_DOMAIN_PACKS=none`, no domain-pack resources or prompts should
+  appear for any namespace.
+
 ## REST Smoke Checks
 
 REST smoke checks should cover:

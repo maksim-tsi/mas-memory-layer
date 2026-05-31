@@ -164,6 +164,56 @@ The pack is not a separate YAAM version. It does not enable write tools, mutate
 memory through resources, or change generic MCP discovery for other project
 namespaces.
 
+The planned `cognitive-sandwich` pack follows the same isolation pattern for
+SCM Cognitive Sandwich artifact workflows. It should be enabled automatically
+after implementation when the shared runtime is started with:
+
+```bash
+YAAM_PROJECT_ID=scm-cognitive-sandwich
+YAAM_MCP_DOMAIN_PACKS=auto
+```
+
+The v0.1 Cognitive Sandwich pack is expected to add read-only artifact and
+evidence views over canonical metadata already stored through generic L2/L3/L4
+write tools:
+
+- `yaam://artifacts/{artifact_id}/lineage`
+- `yaam://sessions/{session_id}/artifacts`
+- `yaam://runs/{run_id}/artifacts`
+- `yaam://runs/{run_id}/evidence`
+- `yaam://incidents/{incident_id}/reports`
+
+Cognitive Sandwich views should use canonical metadata keys such as:
+
+```json
+{
+  "domain": "cognitive_sandwich",
+  "artifact_id": "artifact-001",
+  "revision_id": "revision-001",
+  "parent_revision_id": "revision-000",
+  "feedback_id": "feedback-001",
+  "commit_id": "commit-001",
+  "run_id": "run-001",
+  "thread_id": "thread-001",
+  "incident_id": "incident-001",
+  "scenario_id": "scenario-001",
+  "artifact_kind": "routing_parameters",
+  "artifact_status": "draft",
+  "revision_number": 1,
+  "verification_state": "infeasible",
+  "feedback_type": "solver_iis",
+  "source_system": "deterministic_solver",
+  "payload_hash": "sha256:example",
+  "fatal_status": "FATAL_VALIDATION_ERROR",
+  "retry_count": 3
+}
+```
+
+This pack is not a native artifact lifecycle service. It does not by itself add
+mutating `yaam.artifact.*` tools, enforce draft/revision/feedback/commit state
+transitions, or validate that only feasible revisions are committed. Those
+capabilities remain a separate artifact-service milestone.
+
 ## Prompts
 
 Prompt templates are intended to help agent hosts request consistent memory
@@ -177,6 +227,11 @@ operations. YAAM 0.10 exposes these prompts:
 When the Skill Factory domain pack is enabled, prompt discovery also includes:
 
 - `yaam.prompt.repair_pattern_summary`
+
+The planned Cognitive Sandwich pack should add artifact-oriented prompts:
+
+- `yaam.prompt.artifact_repair_context`
+- `yaam.prompt.artifact_lineage_summary`
 
 Hosts should still own task orchestration and final user-facing behavior.
 

@@ -109,14 +109,42 @@ MCP v1 surface:
 YAAM_MCP_DOMAIN_PACKS=auto
 ```
 
-Supported values are `auto`, `none`, and `skill-factory`. The default `auto`
-enables the Skill Factory pack only when `YAAM_PROJECT_ID=scm-skill-factory`.
-Other project namespaces keep the generic MCP resource and prompt discovery
-surface unless a pack is explicitly enabled.
+Supported values are currently `auto`, `none`, and `skill-factory`. The default
+`auto` enables the Skill Factory pack only when
+`YAAM_PROJECT_ID=scm-skill-factory`. Other project namespaces keep the generic
+MCP resource and prompt discovery surface unless a pack is explicitly enabled.
 
 The Skill Factory pack adds read-only resources for skills, CTTs, run episodes,
 QA status, active-tool status, and the `yaam.prompt.repair_pattern_summary`
 prompt. It does not enable MCP writes or change REST behavior.
+
+The planned `cognitive-sandwich` pack should use the same operational model
+after implementation:
+
+```bash
+YAAM_PROJECT_ID=scm-cognitive-sandwich
+YAAM_MCP_DOMAIN_PACKS=auto
+```
+
+It is intended to add read-only artifact/evidence resources and artifact repair
+prompts over canonical metadata written through existing L2/L3/L4 tools. It is
+not expected to expose mutating `yaam.artifact.*` lifecycle tools in v0.1.
+
+When validating Cognitive Sandwich, operators should:
+
+- switch the shared endpoint to `YAAM_PROJECT_ID=scm-cognitive-sandwich`;
+- keep `YAAM_MCP_ENABLE_WRITES=false`, `YAAM_MCP_ENABLE_LIFECYCLE=false`, and an
+  empty allowlist by default;
+- verify generic MCP discovery first;
+- verify Cognitive Sandwich resources and prompts only after the pack is
+  implemented and enabled;
+- open a short allowlisted write window only for synthetic L2/L3/L4 records with
+  canonical artifact metadata.
+
+If Cognitive Sandwich resources return empty results after implementation, first
+check whether the synthetic records include `domain="cognitive_sandwich"` plus
+artifact/run identifiers. Empty resources are usually a metadata issue, not a
+DBMS outage.
 
 ## Secret Handling Policy
 

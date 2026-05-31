@@ -9,8 +9,9 @@
 ## What This Project Should Validate
 
 SCM Cognitive Sandwich is artifact-centric and MCP-first. Current YAAM should be evaluated for
-generic memory, evidence, and durable artifact support, while specialized artifact lifecycle tools
-and lineage resources should be recorded as expected product gaps.
+generic memory, evidence, and durable artifact support. If the Cognitive Sandwich MCP domain pack is
+enabled, also verify its read-only artifact/evidence resources and prompts. Native mutating artifact
+lifecycle tools remain expected product gaps until a separate artifact-service milestone exists.
 
 | Requirement | Expected current coverage |
 | --- | --- |
@@ -24,12 +25,12 @@ and lineage resources should be recorded as expected product gaps.
 | `YAAM-REQ-0011` read-only MCP resources | implemented |
 | `YAAM-REQ-0012` allowlisted MCP writes | implemented |
 | `YAAM-REQ-0016` Evidence Table | mixed; verify artifact usefulness |
-| `YAAM-REQ-0019` artifact draft/revision/feedback/commit lineage | missing or partially implemented |
-| `YAAM-REQ-0020` artifact lineage resources | missing or partially implemented |
+| `YAAM-REQ-0019` artifact draft/revision/feedback/commit lineage | partial at most; v0.1 domain pack may reconstruct lineage from metadata but does not enforce lifecycle transitions |
+| `YAAM-REQ-0020` artifact lineage resources | expected through Cognitive Sandwich domain pack if implemented |
 | `YAAM-REQ-0021` deterministic feedback/solver evidence | implemented generically |
 | `YAAM-REQ-0028` transitional facade until MCP parity | partially implemented by generic MCP surface |
 | `YAAM-REQ-0030` autonomous lifecycle consolidation | deferred |
-| `YAAM-REQ-0032` domain-specific artifact prompts | missing or partially implemented |
+| `YAAM-REQ-0032` domain-specific artifact prompts | expected through Cognitive Sandwich domain pack if implemented |
 
 ## Required Checks
 
@@ -41,6 +42,20 @@ Against `http://192.168.107.187:8003/mcp`, verify:
 - `yaam.health.check` succeeds;
 - `yaam://config/ciar` is readable;
 - common prompts render.
+
+If the Cognitive Sandwich domain pack is implemented and enabled for
+`YAAM_PROJECT_ID=scm-cognitive-sandwich`, discovery should also include:
+
+- `yaam://artifacts/{artifact_id}/lineage`
+- `yaam://sessions/{session_id}/artifacts`
+- `yaam://runs/{run_id}/artifacts`
+- `yaam://runs/{run_id}/evidence`
+- `yaam://incidents/{incident_id}/reports`
+- `yaam.prompt.artifact_repair_context`
+- `yaam.prompt.artifact_lineage_summary`
+
+If these resources are absent in the current test window, record this under
+`YAAM-REQ-0020` and `YAAM-REQ-0032` rather than treating generic MCP as failed.
 
 ### 2. Artifact Context Query
 
@@ -71,6 +86,36 @@ deterministic feedback:
 Expected: writes return created ids and provenance. Later reads should retrieve the same evidence
 within the project namespace.
 
+Use canonical metadata so generic reads and any Cognitive Sandwich domain views can project artifact
+lineage:
+
+```json
+{
+  "domain": "cognitive_sandwich",
+  "artifact_id": "artifact-readiness-001",
+  "revision_id": "revision-001",
+  "parent_revision_id": "revision-000",
+  "feedback_id": "feedback-001",
+  "commit_id": "commit-001",
+  "run_id": "artifact-run-001",
+  "thread_id": "scm-cognitive-sandwich-readiness-<timestamp>",
+  "incident_id": "incident-readiness-001",
+  "scenario_id": "scenario-readiness-001",
+  "artifact_kind": "routing_parameters",
+  "artifact_status": "draft",
+  "revision_number": 1,
+  "verification_state": "infeasible",
+  "feedback_type": "solver_iis",
+  "source_system": "deterministic_solver",
+  "payload_hash": "sha256:synthetic-readiness",
+  "fatal_status": "FATAL_VALIDATION_ERROR",
+  "retry_count": 1
+}
+```
+
+If the domain pack is enabled, read back the synthetic records through the artifact resources above.
+The domain pack should return read-only projections; it should not mutate YAAM.
+
 ### 4. Evidence Table
 
 Call `yaam.evidence.table` or the REST equivalent if used by the project. Use a simple claim such
@@ -96,11 +141,21 @@ This confirms the same backend service layer behaves consistently across interfa
 
 Do not treat these as surprise failures. Record them as product gaps:
 
-- dedicated `yaam.artifact.*` lifecycle tools: `missing` or `partially implemented`;
-- `yaam://artifacts/{artifact_id}/lineage` resource: `missing` or `partially implemented`;
+- dedicated mutating `yaam.artifact.*` lifecycle tools: `missing`;
+- `yaam://artifacts/{artifact_id}/lineage` resource: `implemented` or `partial` only if the
+  Cognitive Sandwich domain pack returns metadata-derived lineage;
 - first-class draft/revision/feedback/commit graph model: `missing` or `partially implemented`;
-- domain-specific artifact repair prompts: `missing` or `partially implemented`;
+- domain-specific artifact repair prompts: `implemented` or `partial` only if
+  `yaam.prompt.artifact_repair_context` and `yaam.prompt.artifact_lineage_summary` render;
 - autonomous consolidation/distillation: `deferred`.
+
+In the report, classify requirements as follows:
+
+- `YAAM-REQ-0020`: implemented/partial based on artifact lineage resource evidence.
+- `YAAM-REQ-0021`: implemented/partial based on deterministic feedback write/read evidence.
+- `YAAM-REQ-0032`: implemented/partial based on artifact prompt evidence.
+- `YAAM-REQ-0019`: partial unless YAAM provides native draft/revision/feedback/commit lifecycle
+  semantics, not only metadata-derived projections.
 
 ## Report Focus
 
@@ -109,7 +164,8 @@ SCM Cognitive Sandwich should answer:
 - Is generic MCP memory/context enough for a temporary integration?
 - Which artifact lifecycle primitive is the first blocker for production use?
 - Does generic L3/L4 storage preserve enough provenance for artifact repair audit?
+- If the domain pack is enabled, do artifact resources and prompts materially reduce dependence on
+  the transitional facade?
 - Are write gates and read-only resources acceptable for agent safety?
 - Can the project migrate away from transitional facade usage with the current MCP surface, or is
   dedicated artifact MCP still required?
-
