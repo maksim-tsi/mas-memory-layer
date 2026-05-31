@@ -324,12 +324,13 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
         """
         async with OperationTimer(self.metrics, "l4_exact_metadata_search"):
             start_time = time.perf_counter()
+            per_page = min(max(limit, 1), 250)
             results = await self.typesense.search(
                 collection_name=self.collection_name,
                 query="*",
                 query_by="title,content",
                 filter_by=filter_by,
-                limit=limit,
+                limit=per_page,
                 sort_by=None,
             )
 
@@ -345,7 +346,7 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
                 status="HIT",
                 latency_ms=latency_ms,
                 item_count=len(documents),
-                metadata={"filter_by": filter_by[:100]},
+                metadata={"filter_by": filter_by[:100], "requested_limit": limit},
             )
 
             return documents

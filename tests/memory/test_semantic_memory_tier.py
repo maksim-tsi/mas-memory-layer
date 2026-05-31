@@ -394,7 +394,7 @@ class TestSemanticMemoryTierSearch:
         results = await semantic_tier.search_by_exact_metadata(
             "project_id:=`scm-cognitive-sandwich` && domain:=`cognitive_sandwich` "
             "&& artifact_id:=`artifact-readiness-001`",
-            limit=20,
+            limit=500,
         )
 
         assert [result.knowledge_id for result in results] == ["know_cognitive_001"]
@@ -404,6 +404,7 @@ class TestSemanticMemoryTierSearch:
         semantic_tier.typesense.search.assert_called_once()
         call_args = semantic_tier.typesense.search.call_args
         assert call_args.kwargs["query"] == "*"
+        assert call_args.kwargs["limit"] == 250
         assert call_args.kwargs["sort_by"] is None
         assert "artifact_id:=`artifact-readiness-001`" in call_args.kwargs["filter_by"]
 
