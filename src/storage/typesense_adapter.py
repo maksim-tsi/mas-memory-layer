@@ -31,6 +31,26 @@ from .metrics import OperationTimer
 
 logger = logging.getLogger(__name__)
 
+COGNITIVE_SANDWICH_TYPESENSE_STRING_FIELDS = (
+    "artifact_id",
+    "revision_id",
+    "parent_revision_id",
+    "feedback_id",
+    "commit_id",
+    "run_id",
+    "thread_id",
+    "incident_id",
+    "scenario_id",
+    "artifact_kind",
+    "artifact_status",
+    "verification_state",
+    "feedback_type",
+    "source_system",
+    "payload_hash",
+    "fatal_status",
+)
+COGNITIVE_SANDWICH_TYPESENSE_INT_FIELDS = ("revision_number", "retry_count")
+
 
 class TypesenseAdapter(StorageAdapter):
     """
@@ -136,6 +156,14 @@ class TypesenseAdapter(StorageAdapter):
                 {"name": "timestamp", "type": "int64", "optional": True},
                 {"name": "fact_type", "type": "string", "facet": True, "optional": True},
                 {"name": "created_at", "type": "int64", "optional": True},
+                *[
+                    {"name": field, "type": "string", "facet": True, "optional": True}
+                    for field in COGNITIVE_SANDWICH_TYPESENSE_STRING_FIELDS
+                ],
+                *[
+                    {"name": field, "type": "int32", "optional": True}
+                    for field in COGNITIVE_SANDWICH_TYPESENSE_INT_FIELDS
+                ],
             ],
         }
 

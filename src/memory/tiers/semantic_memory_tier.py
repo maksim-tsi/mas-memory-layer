@@ -12,7 +12,11 @@ import warnings
 from datetime import UTC, datetime
 from typing import Any
 
-from src.memory.models import KnowledgeDocument
+from src.memory.models import (
+    COGNITIVE_SANDWICH_L4_INT_METADATA_KEYS,
+    COGNITIVE_SANDWICH_L4_STRING_METADATA_KEYS,
+    KnowledgeDocument,
+)
 from src.memory.namespace import normalize_project_id, typesense_collection_name
 from src.memory.tiers.base_tier import BaseTier
 from src.storage.metrics.collector import MetricsCollector
@@ -20,6 +24,26 @@ from src.storage.metrics.timer import OperationTimer
 from src.storage.typesense_adapter import TypesenseAdapter
 
 logger = logging.getLogger(__name__)
+
+
+def _metadata_from_typesense_document(
+    document: dict[str, Any], project_id: str
+) -> dict[str, Any]:
+    """Restore allowlisted metadata fields from a Typesense knowledge document."""
+    metadata: dict[str, Any] = {"project_id": document.get("project_id") or project_id}
+    for key in ("client_session_id", "domain"):
+        value = document.get(key)
+        if value not in (None, ""):
+            metadata[key] = value
+    for key in COGNITIVE_SANDWICH_L4_STRING_METADATA_KEYS:
+        value = document.get(key)
+        if value not in (None, ""):
+            metadata[key] = value
+    for key in COGNITIVE_SANDWICH_L4_INT_METADATA_KEYS:
+        value = document.get(key)
+        if value is not None:
+            metadata[key] = value
+    return metadata
 
 
 class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
@@ -175,10 +199,7 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
                 usefulness_score=result["usefulness_score"],
                 validation_count=result["validation_count"],
                 project_id=result.get("project_id") or self.project_id,
-                metadata={
-                    "project_id": result.get("project_id") or self.project_id,
-                    "client_session_id": result.get("client_session_id"),
-                },
+                metadata=_metadata_from_typesense_document(result, self.project_id),
             )
 
             # Update access tracking
@@ -270,10 +291,7 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
                     usefulness_score=doc["usefulness_score"],
                     validation_count=doc["validation_count"],
                     project_id=doc.get("project_id") or self.project_id,
-                    metadata={
-                        "project_id": doc.get("project_id") or self.project_id,
-                        "client_session_id": doc.get("client_session_id"),
-                    },
+                    metadata=_metadata_from_typesense_document(doc, self.project_id),
                 )
                 # Attach search score
                 score = hit.get("text_match", 0)

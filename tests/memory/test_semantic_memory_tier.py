@@ -85,6 +85,50 @@ def sample_knowledge():
     )
 
 
+def test_knowledge_document_typesense_document_preserves_cognitive_sandwich_metadata():
+    """L4 must index only canonical Cognitive Sandwich metadata for domain views."""
+    knowledge = KnowledgeDocument(
+        knowledge_id="know_cognitive_001",
+        title="Cognitive Sandwich artifact repair report",
+        content="Final report for a repaired Cognitive Sandwich artifact.",
+        metadata={
+            "domain": "cognitive_sandwich",
+            "project_id": "scm-cognitive-sandwich",
+            "client_session_id": "session-readiness-001",
+            "artifact_id": "artifact-readiness-001",
+            "revision_id": "revision-002",
+            "parent_revision_id": "revision-001",
+            "feedback_id": "feedback-001",
+            "commit_id": "commit-001",
+            "run_id": "artifact-run-001",
+            "thread_id": "thread-001",
+            "incident_id": "incident-readiness-001",
+            "scenario_id": "scenario-readiness-001",
+            "artifact_kind": "milp_model",
+            "artifact_status": "committed",
+            "revision_number": "2",
+            "verification_state": "feasible",
+            "feedback_type": "solver_iis",
+            "source_system": "scm-cognitive-sandwich",
+            "payload_hash": "sha256:repair",
+            "fatal_status": "resolved",
+            "retry_count": 1,
+            "api_token": "secret",
+        },
+    )
+
+    document = knowledge.to_typesense_document()
+
+    assert document["domain"] == "cognitive_sandwich"
+    assert document["project_id"] == "scm-cognitive-sandwich"
+    assert document["artifact_id"] == "artifact-readiness-001"
+    assert document["run_id"] == "artifact-run-001"
+    assert document["incident_id"] == "incident-readiness-001"
+    assert document["revision_number"] == 2
+    assert document["retry_count"] == 1
+    assert "api_token" not in document
+
+
 # ============================================
 # Store Tests
 # ============================================
@@ -174,6 +218,13 @@ class TestSemanticMemoryTierRetrieve:
                 "category": "technical",
                 "tags": ["test"],
                 "domain": "testing",
+                "project_id": "scm-cognitive-sandwich",
+                "client_session_id": "session-readiness-001",
+                "artifact_id": "artifact-readiness-001",
+                "run_id": "artifact-run-001",
+                "incident_id": "incident-readiness-001",
+                "revision_number": 2,
+                "retry_count": 1,
                 "distilled_at": int(now.timestamp()),
                 "access_count": 5,
                 "usefulness_score": 0.8,
@@ -193,6 +244,13 @@ class TestSemanticMemoryTierRetrieve:
         assert knowledge.knowledge_id == "know_001"
         assert knowledge.title == "Test knowledge"
         assert knowledge.confidence_score == 0.85
+        assert knowledge.metadata["project_id"] == "scm-cognitive-sandwich"
+        assert knowledge.metadata["client_session_id"] == "session-readiness-001"
+        assert knowledge.metadata["artifact_id"] == "artifact-readiness-001"
+        assert knowledge.metadata["run_id"] == "artifact-run-001"
+        assert knowledge.metadata["incident_id"] == "incident-readiness-001"
+        assert knowledge.metadata["revision_number"] == 2
+        assert knowledge.metadata["retry_count"] == 1
 
         # Verify access was updated
         semantic_tier.typesense.update_document.assert_called_once()
@@ -261,6 +319,14 @@ class TestSemanticMemoryTierSearch:
                             "knowledge_type": "preference",
                             "confidence_score": 0.9,
                             "episode_count": 3,
+                            "domain": "cognitive_sandwich",
+                            "project_id": "scm-cognitive-sandwich",
+                            "client_session_id": "session-readiness-001",
+                            "artifact_id": "artifact-readiness-001",
+                            "run_id": "artifact-run-001",
+                            "incident_id": "incident-readiness-001",
+                            "revision_number": 2,
+                            "retry_count": 1,
                             "distilled_at": int(now.timestamp()),
                             "access_count": 10,
                             "usefulness_score": 0.85,
@@ -280,6 +346,11 @@ class TestSemanticMemoryTierSearch:
         assert results[0].knowledge_id == "know_001"
         assert results[0].title == "Morning meetings preference"
         assert results[0].metadata["search_score"] == 0.95
+        assert results[0].metadata["artifact_id"] == "artifact-readiness-001"
+        assert results[0].metadata["run_id"] == "artifact-run-001"
+        assert results[0].metadata["incident_id"] == "incident-readiness-001"
+        assert results[0].metadata["revision_number"] == 2
+        assert results[0].metadata["retry_count"] == 1
 
         # Verify search was called correctly
         semantic_tier.typesense.search.assert_called_once()

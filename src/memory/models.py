@@ -411,7 +411,7 @@ class KnowledgeDocument(BaseModel):
 
     def to_typesense_document(self) -> dict[str, Any]:
         """Convert to Typesense document format."""
-        return {
+        document = {
             "id": self.knowledge_id,
             "session_id": self.session_id or "",
             "project_id": self.project_id or self.metadata.get("project_id", ""),
@@ -425,12 +425,51 @@ class KnowledgeDocument(BaseModel):
             "provenance_links": self.provenance_links,
             "category": self.category or "",
             "tags": self.tags,
-            "domain": self.domain or "",
+            "domain": self.domain or self.metadata.get("domain", ""),
             "distilled_at": int(self.distilled_at.timestamp()),
             "access_count": self.access_count,
             "usefulness_score": self.usefulness_score,
             "validation_count": self.validation_count,
         }
+        for key in COGNITIVE_SANDWICH_L4_STRING_METADATA_KEYS:
+            value = self.metadata.get(key)
+            if value is not None:
+                document[key] = str(value)
+        for key in COGNITIVE_SANDWICH_L4_INT_METADATA_KEYS:
+            value = _coerce_optional_int(self.metadata.get(key))
+            if value is not None:
+                document[key] = value
+        return document
+
+
+COGNITIVE_SANDWICH_L4_STRING_METADATA_KEYS = (
+    "artifact_id",
+    "revision_id",
+    "parent_revision_id",
+    "feedback_id",
+    "commit_id",
+    "run_id",
+    "thread_id",
+    "incident_id",
+    "scenario_id",
+    "artifact_kind",
+    "artifact_status",
+    "verification_state",
+    "feedback_type",
+    "source_system",
+    "payload_hash",
+    "fatal_status",
+)
+COGNITIVE_SANDWICH_L4_INT_METADATA_KEYS = ("revision_number", "retry_count")
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class EpisodeQuery(BaseModel):

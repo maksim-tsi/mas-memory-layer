@@ -346,9 +346,11 @@ async def test_cognitive_sandwich_artifact_and_evidence_views_filter_records() -
     assert artifact_summary["commit_ids"] == ["commit-001"]
 
     assert run_view["counts"]["items"] == 3
+    assert run_view["counts"]["l4"] == 1
     assert "episode-other" not in {item["source_id"] for item in run_view["items"]}
 
     assert evidence_view["counts"]["evidence"] == 3
+    assert evidence_view["counts"]["l4"] == 1
     assert evidence_view["evidence"][0]["artifact_id"] == "artifact-readiness-001"
     assert evidence_view["evidence"][0]["source_system"] == "deterministic_solver"
 

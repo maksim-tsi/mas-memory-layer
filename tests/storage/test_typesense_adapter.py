@@ -1080,6 +1080,11 @@ class TestTypesenseAdapterSchemaAndSearch:
             patched_names = {field["name"] for field in patch_payload["fields"]}
             assert "usefulness_score" in patched_names
             assert "confidence_score" in patched_names
+            assert "artifact_id" in patched_names
+            assert "run_id" in patched_names
+            assert "incident_id" in patched_names
+            assert "revision_number" in patched_names
+            assert "retry_count" in patched_names
             assert "id" not in patched_names
             await adapter.disconnect()
 
