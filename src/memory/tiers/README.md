@@ -60,6 +60,9 @@ The L3/L4 tiers support environment-driven collection isolation for embedding mi
   `EpisodicMemoryTier(..., config={"vector_size": 1536})` uses 1536 even when
   `EMBEDDING_DIMENSIONS=4096`.
 
+For dimension-safe blue-green migrations, use a clean L3 base collection name or recreate the target
+collection so the immutable Qdrant vector schema matches the configured embedding dimensions.
+
 This configuration prevents dimensionality collisions when changing embedding providers
 (for example, migrating from 768-dimension embeddings to 4096-dimension embeddings).
 
