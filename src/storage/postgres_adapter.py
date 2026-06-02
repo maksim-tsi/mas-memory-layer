@@ -285,14 +285,15 @@ class PostgresAdapter(StorageAdapter):
             data["ttl_expires_at"] = datetime.now(UTC) + timedelta(days=7)
 
         # Prepare metadata and arrays
+        metadata = json.dumps(data.get("metadata", {}))
         source_turn_ids = data.get("source_turn_ids", [])
 
         query = sql.SQL("""
             INSERT INTO working_memory 
             (session_id, fact_type, content, confidence, source_turn_ids, 
-             created_at, updated_at, ttl_expires_at,
+             metadata, created_at, updated_at, ttl_expires_at,
              ciar_score, certainty, impact, recency_boost, age_decay)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
         """)
 
@@ -310,6 +311,7 @@ class PostgresAdapter(StorageAdapter):
                     data["content"],
                     data.get("confidence", 1.0),
                     source_turn_ids,
+                    metadata,
                     datetime.now(UTC),
                     datetime.now(UTC),
                     data["ttl_expires_at"],

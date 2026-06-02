@@ -21,6 +21,21 @@ The repository-level tracing strategy for YAAM and the GoodAI benchmark integrat
 The reusable execution and evidence-collection procedure for live Phoenix experiments is documented
 in [docs/runbooks/phoenix-experiment-reproducibility.md](../runbooks/phoenix-experiment-reproducibility.md).
 
+## YAAM Consumer Readiness
+
+The current handoff package for project-scoped YAAM consumer testing is:
+
+- [Consumer readiness wave 2026-05-30](consumer-readiness-2026-05-30/README.md)
+- [Sequential testing checklist](consumer-readiness-2026-05-30/consumer-testing-sequence.md)
+- [agentic-scm-tra26 instructions](consumer-readiness-2026-05-30/agentic-scm-tra26-test-instructions.md)
+- [scm-skill-factory instructions](consumer-readiness-2026-05-30/scm-skill-factory-test-instructions.md)
+- [scm-cognitive-sandwich instructions](consumer-readiness-2026-05-30/scm-cognitive-sandwich-test-instructions.md)
+- [readiness report template](consumer-readiness-2026-05-30/readiness-report-template.md)
+
+Use one shared YAAM endpoint for one project at a time unless operators intentionally deploy
+separate YAAM service instances and ports. The validated lab target is currently `skz-data-lv`;
+`skz-dev-lv` requires its own deployment gate before being used as the YAAM runtime.
+
 ## ✅ Provider Status
 
 **Multi-Provider Strategy: SELECTED**
@@ -66,9 +81,12 @@ Register and get free API keys from all providers:
 # Add to .env file (or copy from .env.example)
 cat >> .env << EOF
 OPENROUTER_API_KEY=your-openrouter-api-key-here
-OPENROUTER_MODEL=x-ai/grok-4.1-fast
+OPENROUTER_MODEL=tencent/hy3-preview
 OPENROUTER_EMBEDDING_MODEL=qwen/qwen3-embedding-8b
-EMBEDDING_DIMENSIONS=1024
+YAAM_PROJECT_ID=test
+EMBEDDING_DIMENSIONS=4096
+MAS_L3_COLLECTION=yaam-test-episodes
+MAS_L4_COLLECTION=yaam-test
 MAS_V2_MODE=true
 GOOGLE_API_KEY=your-google-api-key-here
 GROQ_API_KEY=your-groq-api-key-here
@@ -104,8 +122,8 @@ See **Week 4-5** in the [Implementation Plan](../plan/implementation_master_plan
 
 | Task | Primary Provider | Fallback 1 | Fallback 2 | Rationale |
 |------|------------------|------------|------------|-----------|
-| **V2 Chat/Reasoning** | OpenRouter (`x-ai/grok-4.1-fast`) | Gemini | Groq/Mistral | Unified API path with stable routing |
-| **V2 Embeddings** | OpenRouter (`qwen/qwen3-embedding-8b`) | Gemini embeddings | - | Aligns L3 vector dimensions to 1024 |
+| **V2 Chat/Reasoning** | OpenRouter (`tencent/hy3-preview`) | Gemini | Groq/Mistral | Unified API path with stable routing |
+| **V2 Embeddings** | OpenRouter (`qwen/qwen3-embedding-8b`) | Gemini embeddings | - | Aligns L3 vector dimensions to 4096 |
 | **Development/Testing** | Groq (Llama 8B) | OpenRouter | Gemini | Fast turnaround with fallback coverage |
 
 ## V2 Verification Sequence
@@ -119,8 +137,14 @@ set -a && . ./.env && set +a && ./.venv/bin/python scripts/debug/check_tier_coll
 ```
 
 Expected introspection output pattern:
-- `Adapter collection: episodes_v2 vector_size: 1024`
-- `Tier collection: episodes_v2 vector_size: 1024`
+- `Adapter collection: yaam-test-episodes vector_size: 4096`
+- `Tier collection: yaam-test-episodes vector_size: 4096`
+
+Production REST/MCP runtime uses OpenRouter API embeddings
+(`qwen/qwen3-embedding-8b`) and does not install the local SentenceTransformer/Torch stack.
+`YAAM_PROJECT_ID` controls physical/logical DBMS namespace: `scm-bench` maps
+to Typesense `yaam-scm-bench`, while test runs use `yaam-test`.
+Use `poetry install --with local-embeddings` only for legacy/offline embedding experiments.
 
 **See ADR-006** for detailed task-to-provider mappings and fallback logic.
 

@@ -12,13 +12,69 @@ import warnings
 from datetime import UTC, datetime
 from typing import Any
 
-from src.memory.models import KnowledgeDocument
+from src.memory.models import (
+    COGNITIVE_SANDWICH_L4_INT_METADATA_KEYS,
+    COGNITIVE_SANDWICH_L4_STRING_METADATA_KEYS,
+    KnowledgeDocument,
+)
+from src.memory.namespace import normalize_project_id, typesense_collection_name
 from src.memory.tiers.base_tier import BaseTier
 from src.storage.metrics.collector import MetricsCollector
 from src.storage.metrics.timer import OperationTimer
 from src.storage.typesense_adapter import TypesenseAdapter
 
 logger = logging.getLogger(__name__)
+
+
+def _metadata_from_typesense_document(
+    document: dict[str, Any], project_id: str
+) -> dict[str, Any]:
+    """Restore allowlisted metadata fields from a Typesense knowledge document."""
+    metadata: dict[str, Any] = {"project_id": document.get("project_id") or project_id}
+    for key in ("client_session_id", "domain"):
+        value = document.get(key)
+        if value not in (None, ""):
+            metadata[key] = value
+    for key in COGNITIVE_SANDWICH_L4_STRING_METADATA_KEYS:
+        value = document.get(key)
+        if value not in (None, ""):
+            metadata[key] = value
+    for key in COGNITIVE_SANDWICH_L4_INT_METADATA_KEYS:
+        value = document.get(key)
+        if value is not None:
+            metadata[key] = value
+    return metadata
+
+
+def _knowledge_from_typesense_document(
+    document: dict[str, Any],
+    project_id: str,
+    *,
+    search_score: float | int | None = None,
+) -> KnowledgeDocument:
+    """Convert a Typesense document/hit into a KnowledgeDocument."""
+    knowledge = KnowledgeDocument(
+        knowledge_id=document["id"],
+        title=document["title"],
+        content=document["content"],
+        knowledge_type=document["knowledge_type"],
+        confidence_score=document["confidence_score"],
+        source_episode_ids=document.get("source_episode_ids", []),
+        episode_count=document["episode_count"],
+        provenance_links=document.get("provenance_links", []),
+        category=document.get("category"),
+        tags=document.get("tags", []),
+        domain=document.get("domain"),
+        distilled_at=datetime.fromtimestamp(document["distilled_at"], tz=UTC),
+        access_count=document["access_count"],
+        usefulness_score=document["usefulness_score"],
+        validation_count=document["validation_count"],
+        project_id=document.get("project_id") or project_id,
+        metadata=_metadata_from_typesense_document(document, project_id),
+    )
+    if search_score is not None:
+        knowledge.metadata["search_score"] = search_score
+    return knowledge
 
 
 class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
@@ -42,14 +98,22 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
         super().__init__(storage_adapters, metrics_collector, config, telemetry_stream)
 
         self.typesense = typesense_adapter
+        self.project_id = normalize_project_id(
+            config.get("project_id") if config else os.environ.get("YAAM_PROJECT_ID")
+        )
         self.collection_name = (
-            config.get("collection_name", self.COLLECTION_NAME) if config else self.COLLECTION_NAME
+            config.get("collection_name", typesense_collection_name(self.project_id))
+            if config
+            else typesense_collection_name(self.project_id)
         )
 
         # Collection versioning strategy: use _v2 for independent indices
         is_v2_mode = os.environ.get("MAS_V2_MODE", "true").lower() == "true"
         if is_v2_mode and not self.collection_name.endswith("_v2"):
             self.collection_name = f"{self.collection_name}_v2"
+        # Keep the adapter's connection-time schema reconciliation on the same
+        # collection that tier operations use after version suffix resolution.
+        self.typesense.collection_name = self.collection_name
 
     def _tier_name(self) -> str:
         """Return tier identifier for telemetry."""
@@ -85,6 +149,9 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
                 knowledge = data
 
             document = knowledge.to_typesense_document()
+            document["project_id"] = self.project_id
+            knowledge.project_id = knowledge.project_id or self.project_id
+            knowledge.metadata.setdefault("project_id", self.project_id)
 
             # Prefer explicit index_document when available (tests mock this)
             index_func = getattr(self.typesense, "index_document", None)
@@ -145,24 +212,7 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
                 )
                 return None
 
-            # Convert back to KnowledgeDocument
-            knowledge = KnowledgeDocument(
-                knowledge_id=result["id"],
-                title=result["title"],
-                content=result["content"],
-                knowledge_type=result["knowledge_type"],
-                confidence_score=result["confidence_score"],
-                source_episode_ids=result.get("source_episode_ids", []),
-                episode_count=result["episode_count"],
-                provenance_links=result.get("provenance_links", []),
-                category=result.get("category"),
-                tags=result.get("tags", []),
-                domain=result.get("domain"),
-                distilled_at=datetime.fromtimestamp(result["distilled_at"], tz=UTC),
-                access_count=result["access_count"],
-                usefulness_score=result["usefulness_score"],
-                validation_count=result["validation_count"],
-            )
+            knowledge = _knowledge_from_typesense_document(result, self.project_id)
 
             # Update access tracking
             await self._update_access(knowledge)
@@ -206,6 +256,8 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
             start_time = time.perf_counter()
             # Build filter string
             filter_terms: list[str] = []
+            if filter_by is None:
+                filter_terms.append(f"project_id:={(filters or {}).get('project_id', self.project_id)}")
             if filter_by is None and filters:
                 if "knowledge_type" in filters:
                     filter_terms.append(f"knowledge_type:={filters['knowledge_type']}")
@@ -229,31 +281,14 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
                 sort_by="usefulness_score:desc",
             )
 
-            # Convert to KnowledgeDocument objects
             documents = []
             max_score = 0
             for hit in results.get("hits", []):
                 doc = hit["document"]
-                knowledge = KnowledgeDocument(
-                    knowledge_id=doc["id"],
-                    title=doc["title"],
-                    content=doc["content"],
-                    knowledge_type=doc["knowledge_type"],
-                    confidence_score=doc["confidence_score"],
-                    source_episode_ids=doc.get("source_episode_ids", []),
-                    episode_count=doc["episode_count"],
-                    provenance_links=doc.get("provenance_links", []),
-                    category=doc.get("category"),
-                    tags=doc.get("tags", []),
-                    domain=doc.get("domain"),
-                    distilled_at=datetime.fromtimestamp(doc["distilled_at"], tz=UTC),
-                    access_count=doc["access_count"],
-                    usefulness_score=doc["usefulness_score"],
-                    validation_count=doc["validation_count"],
-                )
-                # Attach search score
                 score = hit.get("text_match", 0)
-                knowledge.metadata["search_score"] = score
+                knowledge = _knowledge_from_typesense_document(
+                    doc, self.project_id, search_score=score
+                )
                 documents.append(knowledge)
                 max_score = max(max_score, score)
 
@@ -273,6 +308,48 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
 
             return documents
         raise AssertionError("Unreachable: search should return or raise.")
+
+    async def search_by_exact_metadata(
+        self,
+        filter_by: str,
+        *,
+        limit: int = 10,
+    ) -> list[KnowledgeDocument]:
+        """
+        Query L4 documents by deterministic Typesense metadata filters.
+
+        This is intentionally separate from ``search()``: domain projections
+        must not depend on full-text ranking or usefulness sorting when they
+        already have canonical metadata identifiers.
+        """
+        async with OperationTimer(self.metrics, "l4_exact_metadata_search"):
+            start_time = time.perf_counter()
+            per_page = min(max(limit, 1), 250)
+            results = await self.typesense.search(
+                collection_name=self.collection_name,
+                query="*",
+                query_by="title,content",
+                filter_by=filter_by,
+                limit=per_page,
+                sort_by=None,
+            )
+
+            documents = [
+                _knowledge_from_typesense_document(hit["document"], self.project_id)
+                for hit in results.get("hits", [])
+            ]
+
+            latency_ms = (time.perf_counter() - start_time) * 1000
+            await self._emit_tier_access(
+                operation="EXACT_METADATA_SEARCH",
+                session_id="unknown",
+                status="HIT",
+                latency_ms=latency_ms,
+                item_count=len(documents),
+                metadata={"filter_by": filter_by[:100], "requested_limit": limit},
+            )
+
+            return documents
 
     async def query(
         self, filters: dict[str, Any] | None = None, limit: int = 10, **kwargs: Any
@@ -381,8 +458,14 @@ class SemanticMemoryTier(BaseTier[KnowledgeDocument]):
         """Check health of Typesense."""
         typesense_health = await self.typesense.health_check()
 
-        # Get statistics
-        stats = await self.get_statistics()
+        if "document_count" in typesense_health:
+            stats = {
+                "total_documents": typesense_health.get("document_count", 0),
+                "avg_confidence": 0.0,
+                "avg_usefulness": 0.0,
+            }
+        else:
+            stats = await self.get_statistics()
 
         return {
             "tier": "L4_semantic_memory",

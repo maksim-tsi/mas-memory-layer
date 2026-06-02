@@ -1,8 +1,8 @@
 # Dev Branch MAS-Agent Clean Start Diagnostic Report
 
-**Date:** April 21, 2026  
-**Branch:** `dev`  
-**Scope:** Non-destructive restart of `mas-agent` only using `docker-compose.interface.yml`  
+**Date:** April 21, 2026
+**Branch:** `dev`
+**Scope:** Non-destructive restart of `mas-agent` only using `docker-compose.interface.yml`
 **Policy Constraints:** No source-code edits; no database reset; no volume deletion; no dependency changes.
 
 ## 1. Objective

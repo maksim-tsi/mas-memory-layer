@@ -252,9 +252,21 @@ class WorkingMemoryTier(BaseTier[Fact]):
         async with OperationTimer(self.metrics, "l2_retrieve"):
             start_time = time.perf_counter()
             try:
-                result = await self.postgres.query(
-                    table="working_memory", filters={"fact_id": fact_id}, limit=1
-                )
+                if fact_id.isdigit():
+                    result = [await self.postgres.retrieve(fact_id)]
+                elif hasattr(self.postgres, "execute"):
+                    result = await self.postgres.execute(
+                        """
+                        SELECT * FROM working_memory
+                        WHERE metadata->>'fact_id' = %s
+                        AND (ttl_expires_at IS NULL OR ttl_expires_at > NOW())
+                        LIMIT 1
+                        """,
+                        fact_id,
+                    )
+                else:
+                    result = []
+                result = [item for item in result if item]
 
                 if not result:
                     logger.debug(f"Fact {fact_id} not found in L2")
@@ -275,8 +287,22 @@ class WorkingMemoryTier(BaseTier[Fact]):
                     fact_data["metadata"] = json.loads(fact_data["metadata"])
 
                 # Backfill fact_id when underlying storage returns generic id
-                if "fact_id" not in fact_data and "id" in fact_data:
+                metadata_fact_id = (
+                    fact_data.get("metadata", {}).get("fact_id")
+                    if isinstance(fact_data.get("metadata"), dict)
+                    else None
+                )
+                if "fact_id" not in fact_data and metadata_fact_id:
+                    fact_data["fact_id"] = str(metadata_fact_id)
+                elif "fact_id" not in fact_data and "id" in fact_data:
                     fact_data["fact_id"] = str(fact_data["id"])
+                if str(fact_data.get("fact_id")) != fact_id:
+                    logger.debug(
+                        "Fact lookup mismatch: requested=%s returned=%s",
+                        fact_id,
+                        fact_data.get("fact_id"),
+                    )
+                    return None
 
                 fact = Fact(**fact_data)
 

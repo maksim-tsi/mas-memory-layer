@@ -6,6 +6,16 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 
 ---
 
+## Current Customer Documentation
+
+Current customer-facing release: **YAAM 0.10**.
+
+Start with the [YAAM documentation portal](docs/README.md) for user guides,
+admin/operator validation, MCP v1 stdio, REST v2, public response contracts,
+requirements coverage, and release notes.
+
+---
+
 ## 🚀 **Current Status: Phase 4 Complete | Phase 5 In Progress (Wrapper + GoodAI Interfaces Implemented)**
 
 **Overall ADR-003 Completion:** Functional implementation ~98% (all tiers + lifecycle engines + storage adapters + agent tools + integration infrastructure complete).
@@ -53,6 +63,21 @@ This work is being developed in preparation for a submission to the **AIMS 2025 
 - [Phase 3 Implementation Plan](docs/plan/phase2_3_engineering_plans_version-0.9.md) for 6-week roadmap (Week 3 complete)
 - [Research Validation](docs/research/README.md) for RT1-RT5 findings
 - [ADR-003 Architecture Review](docs/reports/adr-003-architecture-review.md) for gap analysis
+- [Requirements Registry](docs/requirements/README.md) for customer requirements, interface planning inputs, and traceability to implementation plans
+
+### Requirements Registry And Interface Planning
+
+YAAM customer requirements are tracked under
+[docs/requirements/](docs/requirements/README.md). External customer submissions
+are preserved in [docs/requirements/external_requirements/](docs/requirements/external_requirements/),
+while normalized requirements are tracked in the Markdown and CSV registry:
+
+- [YAAM requirements registry](docs/requirements/yaam-requirements-registry.md)
+- [Customer requirements analysis](docs/requirements/2026-05-24-customer-requirements-analysis.md)
+
+New implementation plans should cite relevant `YAAM-REQ-*` IDs so interface,
+MCP, REST v2, CIAR, evidence, and lifecycle work remains traceable to customer
+needs.
 
 ### 2025-12-29 — Changelog (Phase 3 Week 3 BONUS: Gemini Structured Output)
 
@@ -411,7 +436,8 @@ See [`docs/metrics_usage.md`](docs/metrics_usage.md) for complete metrics docume
 - OpenRouter connectivity and V2 collection/vector validation re-test after env changes (see [LLM Provider Results](docs/llm_provider_guide.md))
 
 **LLM Infrastructure:**
-- Multi-provider `LLMClient` with OpenRouter, Gemini, Groq, and Mistral providers; V2 API defaults to OpenRouter (`x-ai/grok-4.1-fast`) with embeddings via `qwen/qwen3-embedding-8b` and `EMBEDDING_DIMENSIONS=1024`.
+- Multi-provider `LLMClient` with OpenRouter, Gemini, Groq, and Mistral providers; V2 API defaults to OpenRouter (`tencent/hy3-preview`) with embeddings via `qwen/qwen3-embedding-8b` and `EMBEDDING_DIMENSIONS=4096`.
+- Local SentenceTransformer embeddings are an optional legacy/offline path (`poetry install --with local-embeddings`); production REST/MCP runtime uses provider API embeddings and Qdrant as the L3 storage service.
 
 **See**: 
 - [ADR-006: Free-Tier LLM Provider Strategy](docs/ADR/006-free-tier-llm-strategy.md)

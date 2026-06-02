@@ -13,7 +13,7 @@ Features:
 - JSON serialization for complex data
 
 Key Design:
-- Key format: session:{session_id}:turns
+- Key format: {yaam:<project_id>:session:<session_id>}:turns
 - Data structure: Redis LIST (FIFO with limited size)
 - TTL: 24 hours (auto-renewed on access)
 
@@ -92,12 +92,12 @@ class RedisAdapter(StorageAdapter):
           Effect: Frequently accessed sessions stay cached indefinitely
 
     Data Structure:
-        Key: session:{session_id}:turns
+        Key: {yaam:<project_id>:session:<session_id>}:turns
         Type: LIST
         Value: JSON-encoded turn data
 
         Example:
-        session:abc123:turns -> [
+        {yaam:test:session:abc123}:turns -> [
             '{"turn_id": 3, "content": "Latest", "timestamp": "2025-10-20T10:03:00"}',
             '{"turn_id": 2, "content": "Middle", "timestamp": "2025-10-20T10:02:00"}',
             '{"turn_id": 1, "content": "Oldest", "timestamp": "2025-10-20T10:01:00"}'
@@ -266,7 +266,7 @@ class RedisAdapter(StorageAdapter):
             data: Dictionary with turn data
 
         Returns:
-            String identifier in format "session:{id}:turns:{turn_id}"
+            String identifier in format "{yaam:project:session:id}:turns:{turn_id}"
 
         Raises:
             StorageConnectionError: If not connected
@@ -333,7 +333,7 @@ class RedisAdapter(StorageAdapter):
         Generate Redis key for session with Hash Tag for Cluster safety.
 
         Uses NamespaceManager to ensure consistent Hash Tag formatting:
-        {session:ID}:turns
+        {yaam:PROJECT:session:ID}:turns
 
         Hash Tags enable atomic MULTI/EXEC and Lua operations across
         session keys by guaranteeing they colocate to the same Redis node.
@@ -342,7 +342,7 @@ class RedisAdapter(StorageAdapter):
             session_id: Unique session identifier
 
         Returns:
-            Redis key with Hash Tag: {session:ID}:turns
+            Redis key with Hash Tag: {yaam:PROJECT:session:ID}:turns
         """
         return NamespaceManager.l1_turns(session_id)
 
@@ -352,7 +352,7 @@ class RedisAdapter(StorageAdapter):
 
         If refresh_ttl_on_read is enabled, extends session TTL on access.
 
-        ID format: "{session:{session_id}}:turns:{turn_id}"
+        ID format: "{yaam:test:session:{session_id}}:turns:{turn_id}"
 
         Args:
             id: Turn identifier from store()
@@ -370,7 +370,7 @@ class RedisAdapter(StorageAdapter):
 
             try:
                 # Parse ID to extract key and turn_id
-                # Format: session:{id}:turns:{turn_id}
+                # Format: {yaam:project:session:id}:turns:{turn_id}
                 parts = id.rsplit(":", 1)
                 if len(parts) != 2:
                     raise StorageDataError(f"Invalid ID format: {id}")
@@ -501,8 +501,8 @@ class RedisAdapter(StorageAdapter):
         """
         Delete entire session cache or specific turn.
 
-        If id is in format "session:{id}:turns:{turn_id}", deletes specific turn.
-        If id is in format "session:{id}:turns", deletes entire session cache.
+        If id is in format "{yaam:project:session:id}:turns:{turn_id}", deletes specific turn.
+        If id is in format "{yaam:project:session:id}:turns", deletes entire session cache.
 
         Args:
             id: Session key or turn identifier
@@ -520,11 +520,11 @@ class RedisAdapter(StorageAdapter):
 
             try:
                 # Check if deleting specific turn or entire session
-                if id.count(":") == 3:
-                    # Specific turn: session:{id}:turns:{turn_id}
+                if "}:turns:" in id:
+                    # Specific turn: {yaam:project:session:id}:turns:{turn_id}
                     return await self._delete_turn(id)
                 else:
-                    # Entire session: session:{id}:turns
+                    # Entire session: {yaam:project:session:id}:turns
                     key = id if ":" in id else self._make_key(id)
                     result = await cast(Awaitable[int], self.client.delete(key))
                     deleted = int(result) > 0

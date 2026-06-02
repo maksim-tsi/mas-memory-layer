@@ -24,3 +24,6 @@ psql "$POSTGRES_URL" -c "\dt"
 ## Current Migrations
 
 - `001_active_context.sql` - L1/L2 memory tables (active_context, working_memory)
+- `002_l2_tsvector_index.sql` - L2 full-text search index
+- `003_add_memory_metrics.sql` - CIAR and access metrics for L2
+- `004_add_working_memory_metadata.sql` - L2 provenance/project metadata column and project lookup index

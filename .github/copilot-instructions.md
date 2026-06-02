@@ -47,10 +47,12 @@ VS Code or other agent runtimes).
 ## Repository Map (Progressive Disclosure)
 
 - Canonical harness rules: `AGENTS.MD`
+- Gemini CLI entrypoint: `GEMINI.MD`
 - Architecture (4-tier memory): `docs/ADR/003-four-layers-memory.md`
 - LangGraph tool injection (`ToolRuntime`): `docs/ADR/007-agent-integration-layer.md`
 - Benchmark isolation (“API Wall”): `docs/ADR/009-decoupling-benchmark-api-wall.md`
 - Environment guide: `docs/environment-guide.md`
+- Runtime dependency posture: `docs/reports/2026-05-28-yaam-runtime-dependency-hardening-validation-report.md`
 - Path-scoped guidelines:
   - Source: `.github/instructions/source.instructions.md`
   - Tests: `.github/instructions/testing.instructions.md`
@@ -61,3 +63,14 @@ VS Code or other agent runtimes).
 
 - YAAM (repo root): Python `>=3.12,<3.14` (see `pyproject.toml`)
 - GoodAI benchmark (`benchmarks/goodai-ltm-benchmark/`): Python `>=3.11,<3.13` (separate Poetry project)
+
+## Runtime Dependency Posture
+
+- Production YAAM REST/MCP runtime uses provider API embeddings via OpenRouter
+  `qwen/qwen3-embedding-8b` and 4096-dimensional Qdrant vectors.
+- Qdrant remains a production L3 backend through `qdrant-client`; do not confuse this with the
+  legacy `QdrantVectorStore` local embedding helper.
+- `sentence-transformers`, Torch, Transformers, Triton, and CUDA wheels belong only to the optional
+  `local-embeddings` Poetry group for offline/local embedding experiments.
+- Do not move the local embedding stack back into main dependencies or the production image without
+  explicit dependency/lockfile approval.

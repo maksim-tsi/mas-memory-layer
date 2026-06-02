@@ -1,10 +1,9 @@
-version: "3.9"
-
 services:
   mas-agent:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     ports:
       - "8080:8080"
       - "8002:8080"
@@ -12,6 +11,17 @@ services:
       MAS_AGENT_TYPE: ${MAS_AGENT_TYPE:-full}
       MAS_MODEL: ${MAS_MODEL:-gemini-2.5-flash-lite}
       MAS_PORT: "8080"
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-tencent/hy3-preview}
+      OPENROUTER_EMBEDDING_MODEL: ${OPENROUTER_EMBEDDING_MODEL:-qwen/qwen3-embedding-8b}
+      MAS_MAX_OUTPUT_TOKENS: ${MAS_MAX_OUTPUT_TOKENS:-8192}
+      MAS_OPENROUTER_TIMEOUT: ${MAS_OPENROUTER_TIMEOUT:-120.0}
+      OPENROUTER_REASONING_EFFORT: ${OPENROUTER_REASONING_EFFORT:-low}
+      OPENROUTER_REASONING_EXCLUDE: ${OPENROUTER_REASONING_EXCLUDE:-true}
+      YAAM_PROJECT_ID: ${YAAM_PROJECT_ID:-test}
+      YAAM_MCP_DOMAIN_PACKS: ${YAAM_MCP_DOMAIN_PACKS:-auto}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-4096}
+      MAS_L3_COLLECTION: ${MAS_L3_COLLECTION:-}
+      MAS_L4_COLLECTION: ${MAS_L4_COLLECTION:-}
       POSTGRES_URL: ${POSTGRES_URL:-postgresql://mas:mas@localhost:5432/mas}
       REDIS_URL: ${REDIS_URL:-redis://localhost:6379/0}
       QDRANT_URL: ${QDRANT_URL:-http://localhost:6333}
@@ -31,6 +41,12 @@ services:
       - ./logs:/app/logs
     networks:
       - mas_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   postgres:
     image: postgres:15

@@ -93,6 +93,7 @@ def wrapper_config(server_module):
         redis_url="redis://localhost:6379/0",
         postgres_url="postgresql://test:test@localhost:5432/test",
         session_prefix="full__unit",
+        project_id="test",
         window_size=10,
         ttl_hours=24,
         min_ciar=0.5,
@@ -155,6 +156,7 @@ def wrapper_state(server_module, mocker: pytest.MockFixture):
         agent_type="full",
         agent_variant="unit",
         session_prefix="full__unit",
+        project_id="test",
         rate_limiter=rate_limiter,
     )
 
@@ -209,7 +211,7 @@ def test_chat_completions_adds_trace_metadata(
     metadata = body["metadata"]
 
     assert metadata["client_session_id"] == "trace-test"
-    assert metadata["yaam_session_id"] == "full__unit:trace-test"
+    assert metadata["yaam_session_id"] == "test:full__unit:trace-test"
     assert metadata["yaam_trace_id"] == "1234567890abcdef1234567890abcdef"
     assert metadata["yaam_span_id"] == "1234567890abcdef"
     assert metadata["llm_provider"] == "groq"
@@ -222,7 +224,7 @@ def test_chat_completions_adds_trace_metadata(
         }
     ]
     assert fake_span.attributes["yaam.client_session_id"] == "trace-test"
-    assert fake_span.attributes["yaam.session_id"] == "full__unit:trace-test"
+    assert fake_span.attributes["yaam.session_id"] == "test:full__unit:trace-test"
     assert fake_span.attributes["yaam.agent_type"] == "full"
     assert fake_span.attributes["yaam.agent_variant"] == "unit"
     assert fake_span.attributes["yaam.llm_provider"] == "groq"

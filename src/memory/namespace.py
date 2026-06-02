@@ -7,17 +7,17 @@ that related keys colocate to the same cluster slot, enabling atomic
 MULTI/EXEC and Lua script operations across multiple keys.
 
 Hash Tag Format:
-- Session keys: {session:ID}:resource  (e.g., "{session:abc123}:turns")
-- Global keys:  {mas}:resource         (e.g., "{mas}:lifecycle")
+- Session keys: {yaam:PROJECT:session:ID}:resource
+- Project keys: {yaam:PROJECT}:resource
 
 The substring within braces {} is used for CRC16 slot calculation. All keys
 with the same Hash Tag value are guaranteed to reside on the same Redis node.
 
 Key Design Patterns:
-1. L1 Active Context:    {session:ID}:turns  (list of raw turns)
-2. Personal State:       {session:ID}:agent:AGENT_ID:state
-3. Shared Workspace:     {session:ID}:workspace
-4. Lifecycle Stream:     {mas}:lifecycle (single global stream)
+1. L1 Active Context:    {yaam:PROJECT:session:ID}:turns
+2. Personal State:       {yaam:PROJECT:session:ID}:agent:AGENT_ID:state
+3. Shared Workspace:     {yaam:PROJECT:session:ID}:workspace
+4. Lifecycle Stream:     {yaam:PROJECT}:lifecycle
 
 Performance Implications:
 - Hash Tags enable server-side Lua atomicity (eliminates 90% of WATCH retries)
@@ -34,12 +34,53 @@ References:
 import binascii
 import json
 import logging
+import os
+import re
 from datetime import UTC, datetime
 from typing import Any
 
 import redis.asyncio as redis
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_PROJECT_ID = "test"
+PROJECT_ID_ENV = "YAAM_PROJECT_ID"
+_PROJECT_ID_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+def normalize_project_id(project_id: str | None = None) -> str:
+    """Return a storage-safe YAAM project slug."""
+    raw = project_id if project_id is not None else os.environ.get(PROJECT_ID_ENV)
+    if raw is None or not raw.strip():
+        return DEFAULT_PROJECT_ID
+
+    normalized = re.sub(r"[\s_]+", "-", raw.strip().lower())
+    normalized = re.sub(r"-{2,}", "-", normalized).strip("-")
+    if not normalized or not _PROJECT_ID_PATTERN.fullmatch(normalized):
+        raise ValueError(
+            "YAAM project id must be a lowercase slug with letters, numbers, "
+            "and single hyphens."
+        )
+    return normalized
+
+
+def typesense_collection_name(project_id: str | None = None) -> str:
+    """Return the L4 Typesense collection name for a YAAM project."""
+    return f"yaam-{normalize_project_id(project_id)}"
+
+
+def qdrant_episodes_collection_name(project_id: str | None = None) -> str:
+    """Return the L3 Qdrant collection name for a YAAM project."""
+    return f"yaam-{normalize_project_id(project_id)}-episodes"
+
+
+def project_scoped_session_id(session_id: str, project_id: str | None = None) -> str:
+    """Prefix a client session id with the YAAM project boundary."""
+    project = normalize_project_id(project_id)
+    prefix = f"{project}:"
+    if session_id.startswith(prefix):
+        return session_id
+    return f"{prefix}{session_id}"
 
 
 class NamespaceManager:
@@ -61,13 +102,14 @@ class NamespaceManager:
             session_id: Unique session identifier
 
         Returns:
-            Redis key with Hash Tag: {session:ID}:turns
+            Redis key with Hash Tag: {yaam:PROJECT:session:ID}:turns
 
         Example:
             key = NamespaceManager.l1_turns("abc123")
-            # Returns: "{session:abc123}:turns"
+            # Returns: "{yaam:test:session:abc123}:turns"
         """
-        return f"{{session:{session_id}}}:turns"
+        project = normalize_project_id()
+        return f"{{yaam:{project}:session:{session_id}}}:turns"
 
     @staticmethod
     def personal_state(agent_id: str, session_id: str) -> str:
@@ -79,13 +121,14 @@ class NamespaceManager:
             session_id: Unique session identifier
 
         Returns:
-            Redis key with Hash Tag: {session:ID}:agent:AGENT_ID:state
+            Redis key with Hash Tag: {yaam:PROJECT:session:ID}:agent:AGENT_ID:state
 
         Example:
             key = NamespaceManager.personal_state("agent-1", "abc123")
-            # Returns: "{session:abc123}:agent:agent-1:state"
+            # Returns: "{yaam:test:session:abc123}:agent:agent-1:state"
         """
-        return f"{{session:{session_id}}}:agent:{agent_id}:state"
+        project = normalize_project_id()
+        return f"{{yaam:{project}:session:{session_id}}}:agent:{agent_id}:state"
 
     @staticmethod
     def shared_workspace(session_id: str) -> str:
@@ -96,13 +139,14 @@ class NamespaceManager:
             session_id: Unique session identifier
 
         Returns:
-            Redis key with Hash Tag: {session:ID}:workspace
+            Redis key with Hash Tag: {yaam:PROJECT:session:ID}:workspace
 
         Example:
             key = NamespaceManager.shared_workspace("abc123")
-            # Returns: "{session:abc123}:workspace"
+            # Returns: "{yaam:test:session:abc123}:workspace"
         """
-        return f"{{session:{session_id}}}:workspace"
+        project = normalize_project_id()
+        return f"{{yaam:{project}:session:{session_id}}}:workspace"
 
     # --- L2: Working Memory (Session-Scoped) ---
 
@@ -115,13 +159,14 @@ class NamespaceManager:
             session_id: Unique session identifier
 
         Returns:
-            Redis key with Hash Tag: {session:ID}:facts:index
+            Redis key with Hash Tag: {yaam:PROJECT:session:ID}:facts:index
 
         Example:
             key = NamespaceManager.l2_facts_index("abc123")
-            # Returns: "{session:abc123}:facts:index"
+            # Returns: "{yaam:test:session:abc123}:facts:index"
         """
-        return f"{{session:{session_id}}}:facts:index"
+        project = normalize_project_id()
+        return f"{{yaam:{project}:session:{session_id}}}:facts:index"
 
     # --- Global Resources (System-Scoped) ---
 
@@ -130,16 +175,17 @@ class NamespaceManager:
         """
         Generate key for global lifecycle event stream.
 
-        This is a single global stream for ALL sessions. Uses {mas} Hash Tag
-        to pin to a deterministic cluster slot, preventing CROSSSLOT errors
+        This is a single project stream for all sessions in that project.
+        It uses a project Hash Tag to pin to a deterministic cluster slot,
+        preventing CROSSSLOT errors
         with other system-level keys.
 
         Returns:
-            Redis key with Hash Tag: {mas}:lifecycle
+            Redis key with Hash Tag: {yaam:PROJECT}:lifecycle
 
         Example:
             key = NamespaceManager.lifecycle_stream()
-            # Returns: "{mas}:lifecycle"
+            # Returns: "{yaam:test}:lifecycle"
 
         Note:
             Global stream is NOT atomic with session state updates. This is
@@ -147,7 +193,8 @@ class NamespaceManager:
             the Wake-Up Sweep (consolidation_engine.py) provides eventual
             consistency by catching missed events.
         """
-        return "{mas}:lifecycle"
+        project = normalize_project_id()
+        return f"{{yaam:{project}}}:lifecycle"
 
     # --- Lifecycle Event Publishing (Requires Redis Client) ---
 

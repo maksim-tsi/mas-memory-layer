@@ -119,6 +119,13 @@ class TestEpisodicMemoryTierStore:
         """Test storing episode in both Qdrant and Neo4j."""
         # Setup
         episodic_tier.neo4j.execute_query = AsyncMock(return_value=[{"id": "ep_001"}])
+        sample_episode.metadata.update(
+            {
+                "domain": "skill_factory",
+                "run_id": "skill-run-001",
+                "qa_status": "failed",
+            }
+        )
 
         # Store episode
         payload = EpisodeStoreInput(
@@ -132,6 +139,10 @@ class TestEpisodicMemoryTierStore:
         # Verify
         assert episode_id == "ep_001"
         episodic_tier.qdrant.upsert.assert_called_once()
+        qdrant_payload = episodic_tier.qdrant.upsert.call_args.args[0]
+        assert qdrant_payload["metadata"]["domain"] == "skill_factory"
+        assert qdrant_payload["metadata"]["run_id"] == "skill-run-001"
+        assert qdrant_payload["metadata"]["metadata"]["qa_status"] == "failed"
         # Neo4j should be called at least twice (create episode + link indexes)
         assert episodic_tier.neo4j.execute_query.call_count >= 2
 
@@ -377,6 +388,48 @@ class TestEpisodicMemoryTierSearch:
         episodic_tier.qdrant.search.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_search_similar_accepts_flattened_qdrant_adapter_results(
+        self, episodic_tier, sample_embedding
+    ):
+        """Real QdrantAdapter.search() returns payload fields flattened at top level."""
+        now = datetime.now(UTC)
+        episodic_tier.qdrant.search = AsyncMock(
+            return_value=[
+                {
+                    "id": "vector_001",
+                    "score": 0.91,
+                    "content": "Flattened adapter episode summary",
+                    "metadata": {
+                        "episode_id": "ep_flat_001",
+                        "session_id": "agentic-scm-tra26:readiness-session",
+                        "project_id": "agentic-scm-tra26",
+                        "client_session_id": "readiness-session",
+                        "summary": "Flattened adapter episode summary",
+                        "time_window_start": now.isoformat(),
+                        "time_window_end": now.isoformat(),
+                        "fact_valid_from": now.isoformat(),
+                        "fact_valid_to": None,
+                        "topics": ["readiness"],
+                        "importance_score": 0.7,
+                    },
+                    "episode_id": "ep_flat_001",
+                    "session_id": "agentic-scm-tra26:readiness-session",
+                    "project_id": "agentic-scm-tra26",
+                }
+            ]
+        )
+
+        results = await episodic_tier.search_similar(query_embedding=sample_embedding, limit=5)
+
+        assert len(results) == 1
+        assert results[0].episode_id == "ep_flat_001"
+        assert results[0].session_id == "agentic-scm-tra26:readiness-session"
+        assert results[0].summary == "Flattened adapter episode summary"
+        assert results[0].project_id == "agentic-scm-tra26"
+        assert results[0].metadata["client_session_id"] == "readiness-session"
+        assert results[0].metadata["similarity_score"] == 0.91
+
+    @pytest.mark.asyncio
     async def test_search_with_filters(self, episodic_tier, sample_embedding):
         """Test similarity search with filters."""
         episodic_tier.qdrant.search = AsyncMock(return_value=[])
@@ -389,7 +442,7 @@ class TestEpisodicMemoryTierSearch:
 
         # Verify filters passed to Qdrant
         call_args = episodic_tier.qdrant.search.call_args
-        assert call_args.kwargs["filter_dict"] == filters
+        assert call_args.kwargs["filter_dict"] == {**filters, "project_id": "test"}
 
 
 # ============================================

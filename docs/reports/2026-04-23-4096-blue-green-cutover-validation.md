@@ -1,7 +1,7 @@
 # 4096 Blue-Green Cutover Validation (Interface Compose)
 
-**Date:** 2026-04-23  
-**Branch:** dev-tests  
+**Date:** 2026-04-23
+**Branch:** dev-tests
 **Scope:** Validate that YAAM V2 writes route to a new 4096 collection lineage with backward compatibility preserved.
 
 ## 1. Final Collection Name

@@ -10,8 +10,18 @@ Prerequisites
 - Install dependencies in the virtual environment:
 
 ```bash
-./.venv/bin/pip install -r requirements.txt
+poetry install --with test,dev
 ```
+
+The local SentenceTransformer/Torch stack is not installed by default. It is an optional
+legacy/offline embedding path only:
+
+```bash
+poetry install --with test,dev,local-embeddings
+```
+
+Production REST/MCP runtime uses API embeddings (`qwen/qwen3-embedding-8b`, 4096 dimensions) and
+Qdrant through `qdrant-client`.
 
 Running the demo and provider scripts
 ------------------------------------

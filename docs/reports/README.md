@@ -51,6 +51,7 @@ This directory contains technical reports, status updates, and debugging documen
 | [2026-03-10-phoenix-retriever-live-validation-report.md](2026-03-10-phoenix-retriever-live-validation-report.md) | First live Phoenix validation of the API-Wall retriever span chain |
 | [2026-03-10-phoenix-option-a-write-enabled-api-wall-report.md](2026-03-10-phoenix-option-a-write-enabled-api-wall-report.md) | Controlled write-enabled API-Wall validation preserving benchmark-safe defaults |
 | [2026-03-10-phoenix-option-b-live-tool-loop-report.md](2026-03-10-phoenix-option-b-live-tool-loop-report.md) | Successful live Option B validation of normal-request tool execution and nested retriever spans |
+| [2026-05-30-phoenix-batch-span-processor-implementation-report.md](2026-05-30-phoenix-batch-span-processor-implementation-report.md) | Implementation report for Phoenix BatchSpanProcessor hardening in shared REST/MCP runtimes |
 
 ## Naming Conventions
 

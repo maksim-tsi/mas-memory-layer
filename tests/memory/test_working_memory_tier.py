@@ -172,7 +172,7 @@ class TestWorkingMemoryTierRetrieve:
             "last_accessed": datetime.now(UTC),
             "access_count": 0,
         }
-        postgres_adapter.query = AsyncMock(return_value=[mock_fact_data])
+        postgres_adapter.execute = AsyncMock(return_value=[mock_fact_data])
         postgres_adapter.update = AsyncMock()
 
         tier = WorkingMemoryTier(postgres_adapter=postgres_adapter, config={"ciar_threshold": 0.6})
@@ -196,9 +196,78 @@ class TestWorkingMemoryTierRetrieve:
         await tier.cleanup()
 
     @pytest.mark.asyncio
+    async def test_retrieve_numeric_id_uses_exact_row_lookup(self, postgres_adapter):
+        """Numeric fact resources use exact DB id lookup, not broad search fallback."""
+        mock_fact_data = {
+            "id": 42,
+            "session_id": "session-123",
+            "content": "Test fact",
+            "ciar_score": 0.75,
+            "certainty": 0.85,
+            "impact": 0.90,
+            "age_decay": 1.0,
+            "recency_boost": 1.0,
+            "source_uri": None,
+            "source_type": "extracted",
+            "fact_type": "preference",
+            "fact_category": None,
+            "metadata": {},
+            "extracted_at": datetime.now(UTC),
+            "last_accessed": datetime.now(UTC),
+            "access_count": 0,
+        }
+        postgres_adapter.retrieve = AsyncMock(return_value=mock_fact_data)
+        postgres_adapter.query = AsyncMock()
+        postgres_adapter.update = AsyncMock()
+
+        tier = WorkingMemoryTier(postgres_adapter=postgres_adapter, config={"ciar_threshold": 0.6})
+        await tier.initialize()
+
+        fact = await tier.retrieve("42")
+
+        assert fact is not None
+        assert fact.fact_id == "42"
+        postgres_adapter.retrieve.assert_awaited_once_with("42")
+        postgres_adapter.query.assert_not_awaited()
+
+        await tier.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_retrieve_nonexistent_fact_does_not_return_latest_row(self, postgres_adapter):
+        """Nonexistent fact ids must not fall back to the latest L2 record."""
+        postgres_adapter.execute = AsyncMock(return_value=[])
+        postgres_adapter.query = AsyncMock(
+            return_value=[
+                {
+                    "id": 99,
+                    "session_id": "other-session",
+                    "content": "Unrelated latest fact",
+                    "ciar_score": 0.75,
+                    "certainty": 0.85,
+                    "impact": 0.90,
+                    "age_decay": 1.0,
+                    "recency_boost": 1.0,
+                    "fact_type": "event",
+                    "metadata": {},
+                }
+            ]
+        )
+
+        tier = WorkingMemoryTier(postgres_adapter=postgres_adapter)
+        await tier.initialize()
+
+        fact = await tier.retrieve("nonexistent-readiness-fact")
+
+        assert fact is None
+        postgres_adapter.execute.assert_awaited_once()
+        postgres_adapter.query.assert_not_awaited()
+
+        await tier.cleanup()
+
+    @pytest.mark.asyncio
     async def test_retrieve_fact_not_found(self, postgres_adapter):
         """Test retrieving non-existent fact."""
-        postgres_adapter.query = AsyncMock(return_value=[])
+        postgres_adapter.execute = AsyncMock(return_value=[])
 
         tier = WorkingMemoryTier(postgres_adapter=postgres_adapter)
         await tier.initialize()
@@ -230,7 +299,7 @@ class TestWorkingMemoryTierRetrieve:
             "last_accessed": datetime.now(UTC),
             "access_count": 5,  # Already accessed 5 times
         }
-        postgres_adapter.query = AsyncMock(return_value=[mock_fact_data])
+        postgres_adapter.execute = AsyncMock(return_value=[mock_fact_data])
         postgres_adapter.update = AsyncMock()
 
         tier = WorkingMemoryTier(
@@ -460,7 +529,7 @@ class TestWorkingMemoryTierCIARUpdates:
             "last_accessed": datetime.now(UTC),
             "access_count": 0,
         }
-        postgres_adapter.query = AsyncMock(return_value=[mock_fact])
+        postgres_adapter.execute = AsyncMock(return_value=[mock_fact])
         postgres_adapter.update = AsyncMock()
 
         tier = WorkingMemoryTier(postgres_adapter=postgres_adapter)

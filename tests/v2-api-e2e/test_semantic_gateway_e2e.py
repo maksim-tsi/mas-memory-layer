@@ -14,7 +14,13 @@ pytestmark = pytest.mark.integration
 # MUST load environment before importing src.server or else missing REDIS_URL will fail initialization
 load_dotenv(override=True)
 
-_SCOPED_ENV_KEYS = ("MAS_V2_MODE", "EMBEDDING_DIMENSIONS")
+_SCOPED_ENV_KEYS = (
+    "MAS_V2_MODE",
+    "EMBEDDING_DIMENSIONS",
+    "YAAM_PROJECT_ID",
+    "MAS_L3_COLLECTION",
+    "MAS_L4_COLLECTION",
+)
 _ORIGINAL_SCOPED_ENV = {key: os.environ.get(key) for key in _SCOPED_ENV_KEYS}
 
 data_node_ip = os.environ.get("DATA_NODE_IP", "192.168.107.187")
@@ -47,6 +53,7 @@ if "AGENT_TYPE" in os.environ:
 # Force v2 behavior for app import, then restore so collection does not
 # contaminate unrelated unit tests.
 os.environ["MAS_V2_MODE"] = "true"
+os.environ.setdefault("YAAM_PROJECT_ID", "test")
 # Enforce empirically verified native dimension for qwen/qwen3-embedding-8b.
 e2e_embedding_dimensions = os.environ.get("E2E_EMBEDDING_DIMENSIONS", "4096")
 os.environ["EMBEDDING_DIMENSIONS"] = e2e_embedding_dimensions
@@ -66,7 +73,15 @@ for key, value in _ORIGINAL_SCOPED_ENV.items():
 
 
 SCENARIOS_DIR = Path(__file__).parent.parent / "data" / "scm_scenarios"
-QDRANT_E2E_COLLECTION = "test_v2"
+E2E_PROJECT_ID = os.environ.get("YAAM_PROJECT_ID", "test")
+QDRANT_E2E_COLLECTION = os.environ.get(
+    "E2E_QDRANT_COLLECTION",
+    os.environ.get("MAS_L3_COLLECTION") or f"yaam-{E2E_PROJECT_ID}-episodes",
+)
+TYPESENSE_E2E_COLLECTION = os.environ.get(
+    "E2E_TYPESENSE_COLLECTION",
+    os.environ.get("MAS_L4_COLLECTION") or f"yaam-{E2E_PROJECT_ID}",
+)
 
 
 async def _assert_qdrant_collection_dimension(
@@ -109,6 +124,7 @@ async def client():
 
     scoped_env = {key: os.environ.get(key) for key in _SCOPED_ENV_KEYS}
     os.environ["MAS_V2_MODE"] = "true"
+    os.environ.setdefault("YAAM_PROJECT_ID", E2E_PROJECT_ID)
     os.environ["EMBEDDING_DIMENSIONS"] = e2e_embedding_dimensions
 
     qdrant_url = os.environ.get("QDRANT_URL", f"http://{data_node_ip}:6333")
@@ -150,7 +166,13 @@ async def client():
         neo4j_adapter = Neo4jAdapter(
             {"uri": neo4j_uri, "user": neo4j_user, "password": neo4j_password}
         )
-        typesense_adapter = TypesenseAdapter({"url": typesense_url, "api_key": typesense_key})
+        typesense_adapter = TypesenseAdapter(
+            {
+                "url": typesense_url,
+                "api_key": typesense_key,
+                "collection_name": TYPESENSE_E2E_COLLECTION,
+            }
+        )
 
         l3 = EpisodicMemoryTier(
             qdrant_adapter,
@@ -158,9 +180,13 @@ async def client():
             config={
                 "collection_name": QDRANT_E2E_COLLECTION,
                 "vector_size": e2e_vector_size,
+                "project_id": E2E_PROJECT_ID,
             },
         )
-        l4 = SemanticMemoryTier(typesense_adapter)
+        l4 = SemanticMemoryTier(
+            typesense_adapter,
+            config={"collection_name": TYPESENSE_E2E_COLLECTION, "project_id": E2E_PROJECT_ID},
+        )
 
         await qdrant_adapter.connect()
         await neo4j_adapter.connect()

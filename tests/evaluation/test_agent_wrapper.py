@@ -49,6 +49,7 @@ def wrapper_config() -> agent_wrapper.WrapperConfig:
         redis_url="redis://localhost:6379/0",
         postgres_url="postgresql://test:test@localhost:5432/test",
         session_prefix="full__unit",
+        project_id="test",
         window_size=10,
         ttl_hours=24,
         min_ciar=0.5,
@@ -106,6 +107,7 @@ def wrapper_state(mocker: pytest.MockFixture) -> agent_wrapper.AgentWrapperState
         agent_type="full",
         agent_variant="unit",
         session_prefix="full__unit",
+        project_id="test",
         rate_limiter=rate_limiter,
     )
 
@@ -128,7 +130,7 @@ def test_apply_prefix_idempotent(wrapper_state):
     """Ensure session prefixes are applied once and remain stable."""
     session_id = "test-session"
     prefixed = wrapper_state.apply_prefix(session_id)
-    assert prefixed == "full__unit:test-session"
+    assert prefixed == "test:full__unit:test-session"
     assert wrapper_state.apply_prefix(prefixed) == prefixed
 
 
@@ -147,7 +149,7 @@ def test_run_turn_success(test_client, wrapper_state):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["session_id"] == "full__unit:test-session"
+    assert body["session_id"] == "test:full__unit:test-session"
     assert body["role"] == "assistant"
     assert wrapper_state.agent.run_turn.await_count == 1
     assert wrapper_state.l1_tier.store.await_count == 2
@@ -158,7 +160,7 @@ def test_run_turn_success(test_client, wrapper_state):
 async def test_store_turn_skips_empty_content(wrapper_state):
     """Empty or whitespace content should be ignored when storing L1 turns."""
     msg = types.SimpleNamespace(
-        session_id="full__unit:test-session",
+        session_id="test:full__unit:test-session",
         turn_id=0,
         content="",
         metadata={},
@@ -199,7 +201,7 @@ def test_sessions_endpoint_tracks_prefixed_sessions(test_client):
     response = test_client.get("/sessions")
 
     assert response.status_code == 200
-    assert response.json()["sessions"] == ["full__unit:test-session"]
+    assert response.json()["sessions"] == ["test:full__unit:test-session"]
 
 
 @pytest.mark.unit
@@ -216,7 +218,7 @@ def test_memory_state_counts(test_client, wrapper_state):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["session_id"] == "full__unit:test-session"
+    assert payload["session_id"] == "test:full__unit:test-session"
     assert payload["l1_turns"] == 2
     assert payload["l2_facts"] == 3
 
@@ -224,14 +226,14 @@ def test_memory_state_counts(test_client, wrapper_state):
 @pytest.mark.unit
 def test_cleanup_force_all(test_client, wrapper_state):
     """Verify cleanup_force removes all sessions and returns deletion counts."""
-    wrapper_state.sessions.update({"full__unit:alpha", "full__unit:beta"})
+    wrapper_state.sessions.update({"test:full__unit:alpha", "test:full__unit:beta"})
     wrapper_state.l2_tier.query_by_session.return_value = [_FactStub("a"), _FactStub("b")]
 
     response = test_client.post("/cleanup_force", params={"session_id": "all"})
 
     assert response.status_code == 200
     results = response.json()["results"]
-    assert set(results.keys()) == {"full__unit:alpha", "full__unit:beta"}
+    assert set(results.keys()) == {"test:full__unit:alpha", "test:full__unit:beta"}
     assert wrapper_state.sessions == set()
 
 
@@ -279,6 +281,7 @@ def test_build_config_from_env(monkeypatch):
     config = agent_wrapper.build_config(args)
 
     assert config.session_prefix == "full__baseline"
+    assert config.project_id == "test"
     assert config.window_size == 15
     assert config.ttl_hours == 12
     assert config.min_ciar == 0.7

@@ -47,9 +47,14 @@ tier = WorkingMemoryTier(
 
 The L3/L4 tiers support environment-driven collection isolation for embedding migrations.
 
-- `MAS_V2_MODE=true` enables automatic `_v2` suffixing for tier collections.
-    - L3 default: `episodes` -> `episodes_v2`
-    - L4 default: `knowledge_base` -> `knowledge_base_v2`
+- Current production REST/MCP runtime uses OpenRouter API embeddings:
+  `qwen/qwen3-embedding-8b`, `EMBEDDING_DIMENSIONS=4096`, and
+  `YAAM_PROJECT_ID=test`.
+- Project-scoped default collections are derived from `YAAM_PROJECT_ID`.
+    - L3 default: `yaam-test-episodes`
+    - L4 default: `yaam-test`
+- Explicit `MAS_L3_COLLECTION` / `MAS_L4_COLLECTION` values still override
+  project-derived defaults for migrations and one-off admin runs.
 - `EMBEDDING_DIMENSIONS` controls the effective vector size used by L3/Qdrant operations.
 - Explicit tier config wins over the environment. For example,
   `EpisodicMemoryTier(..., config={"vector_size": 1536})` uses 1536 even when
@@ -60,3 +65,7 @@ collection so the immutable Qdrant vector schema matches the configured embeddin
 
 This configuration prevents dimensionality collisions when changing embedding providers
 (for example, migrating from 768-dimension embeddings to 4096-dimension embeddings).
+
+Qdrant remains a production L3 backend through `qdrant-client`. Local SentenceTransformer embeddings
+are a legacy/offline path only and require `poetry install --with local-embeddings`; do not treat the
+local embedding stack as required for production L3.
