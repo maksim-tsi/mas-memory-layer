@@ -33,8 +33,8 @@ The current handoff package for project-scoped YAAM consumer testing is:
 - [readiness report template](consumer-readiness-2026-05-30/readiness-report-template.md)
 
 Use one shared YAAM endpoint for one project at a time unless operators intentionally deploy
-separate YAAM service instances and ports. The validated lab target is currently `skz-data-lv`;
-`skz-dev-lv` requires its own deployment gate before being used as the YAAM runtime.
+separate YAAM service instances and ports. The validated lab target is currently `local-yaam-host`;
+`development-host` requires its own deployment gate before being used as the YAAM runtime.
 
 ## ✅ Provider Status
 

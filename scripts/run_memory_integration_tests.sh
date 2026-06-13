@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Integration Test Runner for Memory Tier System
-# Runs tests that connect to real DBMS instances on skz-dev-lv and skz-stg-lv
+# Runs tests that connect to real DBMS instances on development-host and staging-host
 #
 # Usage:
 #   ./scripts/run_memory_integration_tests.sh [test_path]
@@ -42,9 +42,9 @@ if [ ! -f "$PROJECT_ROOT/.env" ]; then
     echo "  cp .env.example .env"
     echo ""
     echo "Then edit .env and add your actual credentials for:"
-    echo "  - POSTGRES_PASSWORD (skz-dev-lv)"
-    echo "  - NEO4J_PASSWORD (skz-stg-lv)"
-    echo "  - TYPESENSE_API_KEY (skz-stg-lv)"
+    echo "  - POSTGRES_PASSWORD (development-host)"
+    echo "  - NEO4J_PASSWORD (staging-host)"
+    echo "  - TYPESENSE_API_KEY (staging-host)"
     exit 1
 fi
 echo -e "${GREEN}✓${NC} .env file found"
@@ -75,11 +75,11 @@ echo ""
 
 # Step 4: Display connection information
 echo -e "${YELLOW}[4/5]${NC} Connection configuration:"
-echo "  skz-dev-lv (${DEV_IP}):"
+echo "  development-host (${DEV_IP}):"
 echo "    - PostgreSQL: ${POSTGRES_HOST}:${POSTGRES_PORT} (DB: ${POSTGRES_DB})"
 echo "    - Redis: ${REDIS_HOST}:${REDIS_PORT}"
 echo ""
-echo "  skz-stg-lv (${STG_IP}):"
+echo "  staging-host (${STG_IP}):"
 echo "    - Qdrant: ${QDRANT_HOST}:${QDRANT_PORT}"
 echo "    - Neo4j: ${NEO4J_HOST}:${NEO4J_BOLT_PORT}"
 echo "    - Typesense: ${TYPESENSE_HOST}:${TYPESENSE_PORT}"

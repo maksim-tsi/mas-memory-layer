@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 # Configuration with fallback chain
-TYPESENSE_HOST = os.getenv("TYPESENSE_HOST") or os.getenv("DATA_NODE_IP") or "192.168.107.187"
+TYPESENSE_HOST = os.getenv("TYPESENSE_HOST") or os.getenv("DATA_NODE_IP") or "127.0.0.1"
 TYPESENSE_PORT = os.getenv("TYPESENSE_PORT", "8108")
 TYPESENSE_PROTOCOL = os.getenv("TYPESENSE_PROTOCOL", "http")
 TYPESENSE_API_KEY = os.getenv("TYPESENSE_API_KEY", "")

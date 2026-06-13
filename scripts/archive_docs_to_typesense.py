@@ -13,10 +13,10 @@ Usage:
 
 Environment Variables (from .env):
     TYPESENSE_API_KEY: API key for Typesense authentication (required)
-    TYPESENSE_HOST: Typesense host (default: DATA_NODE_IP or 192.168.107.187)
+    TYPESENSE_HOST: Typesense host (default: DATA_NODE_IP or 127.0.0.1)
     TYPESENSE_PORT: Typesense port (default: 8108)
     TYPESENSE_PROTOCOL: Protocol (default: http)
-    DATA_NODE_IP: Fallback for TYPESENSE_HOST (default: 192.168.107.187)
+    DATA_NODE_IP: Fallback for TYPESENSE_HOST (default: 127.0.0.1)
 """
 
 import argparse
@@ -37,8 +37,8 @@ _ENV_FILE = _PROJECT_ROOT / ".env"
 load_dotenv(_ENV_FILE)
 
 # --- Configuration ---
-# Fallback chain: TYPESENSE_HOST -> DATA_NODE_IP -> 192.168.107.187 (skz-data-lv)
-DEFAULT_DATA_NODE_IP = "192.168.107.187"
+# Fallback chain: TYPESENSE_HOST -> DATA_NODE_IP -> 127.0.0.1 (local-yaam-host)
+DEFAULT_DATA_NODE_IP = "127.0.0.1"
 TYPESENSE_HOST = os.getenv("TYPESENSE_HOST", os.getenv("DATA_NODE_IP", DEFAULT_DATA_NODE_IP))
 TYPESENSE_PORT = os.getenv("TYPESENSE_PORT", "8108")
 TYPESENSE_PROTOCOL = os.getenv("TYPESENSE_PROTOCOL", "http")
@@ -306,7 +306,7 @@ Examples:
 
 Environment Variables:
   TYPESENSE_API_KEY    API key for authentication (required)
-  TYPESENSE_HOST       Host address (default: DATA_NODE_IP or 192.168.107.187)
+  TYPESENSE_HOST       Host address (default: DATA_NODE_IP or 127.0.0.1)
   TYPESENSE_PORT       Port number (default: 8108)
   TYPESENSE_PROTOCOL   Protocol (default: http)
 """,

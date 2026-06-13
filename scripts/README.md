@@ -105,7 +105,7 @@ Unit tests for the demo output behaviors are provided at `tests/utils/test_llm_c
 - `scripts/check_openrouter_grok_connectivity.py` - Legacy-named script to validate OpenRouter connectivity for the configured default model (`tencent/hy3-preview`) and smoke-test CIAR experiment task fitness without printing secrets.
 - `scripts/experiments/analyze_ciar_policy_runs.py` - Aggregates CIAR policy experiment artifact directories into JSON/Markdown comparison summaries for default-policy analysis.
 - `scripts/experiments/run_ciar_regression_pack.py` - Runs the canonical local CIAR regression pack: repo venv check, ruff, and focused CIAR tests without live providers or `.env` loading.
-- `scripts/experiments/run_ciar_challenge_with_env.py` - Loads CIAR live-run keys from `.env` into `os.environ`, prints only key names/presence, optionally forces skz-data-lv service endpoints, selects a CIAR `--promotion-policy-mode`, and runs the CIAR challenge harness as a child process.
+- `scripts/experiments/run_ciar_challenge_with_env.py` - Loads CIAR live-run keys from `.env` into `os.environ`, prints only key names/presence, optionally forces local-yaam-host service endpoints, selects a CIAR `--promotion-policy-mode`, and runs the CIAR challenge harness as a child process.
 - `scripts/debug/check_yaam_data_node.py` - Verifies local `.env` YAAM data-node endpoints for Redis, PostgreSQL, Phoenix, Qdrant, Neo4j, and Typesense without printing secret values. Run this before CIAR live checkpoints when service reachability is in doubt.
 - `scripts/run_smoke_tests.sh` - Higher-level script to run smoke tests (see the scripts folder for details).
 - `scripts/run_memory_integration_tests.sh` - Integration harness for memory system tests (includes storage and LLM connectivity checks).
@@ -149,7 +149,7 @@ The `archive_docs_to_typesense.py` script performs selective ingestion of markdo
 
 **Environment Variables (from `.env`):**
 - `TYPESENSE_API_KEY` - API key for authentication (required)
-- `TYPESENSE_HOST` - Host address (default: `DATA_NODE_IP` or `192.168.107.187`)
+- `TYPESENSE_HOST` - Host address (default: `DATA_NODE_IP` or `127.0.0.1`)
 - `TYPESENSE_PORT` - Port number (default: `8108`)
 - `TYPESENSE_PROTOCOL` - Protocol (default: `http`)
 

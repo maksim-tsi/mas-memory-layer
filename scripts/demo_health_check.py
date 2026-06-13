@@ -23,7 +23,7 @@ async def demo_health_checks():
     print("=" * 60)
 
     qdrant_config = {
-        "url": "http://192.168.107.187:6333",
+        "url": "http://127.0.0.1:6333",
         "collection_name": "test_health",
         "vector_size": 384,
     }
@@ -51,7 +51,7 @@ async def demo_health_checks():
     print("=" * 60)
 
     neo4j_config = {
-        "uri": "bolt://192.168.107.187:7687",
+        "uri": "bolt://127.0.0.1:7687",
         "user": "neo4j",
         "password": "password",
         "database": "neo4j",
@@ -80,7 +80,7 @@ async def demo_health_checks():
     print("=" * 60)
 
     typesense_config = {
-        "url": "http://192.168.107.187:8108",
+        "url": "http://127.0.0.1:8108",
         "api_key": "test-key",
         "collection_name": "test_health",
     }

@@ -74,9 +74,9 @@ Secret scanning (gitleaks pre-commit)
 Install and run the secret-scanning hook locally to prevent committing credentials:
 
 ```bash
-/home/max/code/mas-memory-layer/.venv/bin/pip install pre-commit
-/home/max/code/mas-memory-layer/.venv/bin/pre-commit install
-/home/max/code/mas-memory-layer/.venv/bin/pre-commit run --all-files
+<repo>/.venv/bin/pip install pre-commit
+<repo>/.venv/bin/pre-commit install
+<repo>/.venv/bin/pre-commit run --all-files
 ```
 
 The hook uses gitleaks (verbose, redacted) and runs automatically on each commit after installation.

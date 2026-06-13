@@ -32,6 +32,17 @@ logger = logging.getLogger(__name__)
 PROMOTION_POLICY_MODES = {"segment_gate", "fact_gate", "hybrid_gate"}
 DEFAULT_PROMOTION_POLICY_MODE = "hybrid_gate"
 
+LIFETIME_DECISION_CLASSES = {
+    "store_durable",
+    "store_segment_inherited",
+    "review_conversational_residue",
+    "review_uncertain_or_inferred",
+    "review_access_boost_only",
+    "review_low_evidence",
+    "filter_low_ciar",
+    "suppress_superseded",
+}
+
 
 @dataclass(frozen=True)
 class EvidenceAssessment:
@@ -511,6 +522,12 @@ class PromotionEngine(BaseEngine):
                                     data={
                                         "fact_id": fact.fact_id,
                                         "content": fact.content,
+                                        "lifetime_decision_class": policy_result[
+                                            "lifetime_decision_class"
+                                        ],
+                                        "lifetime_decision_reason": policy_result[
+                                            "lifetime_decision_reason"
+                                        ],
                                         "ciar_provenance": fact.metadata.get("ciar_provenance"),
                                         "contradiction_policy": fact.metadata.get(
                                             "contradiction_policy"
@@ -527,6 +544,12 @@ class PromotionEngine(BaseEngine):
                                     data={
                                         "fact_id": fact.fact_id,
                                         "content": fact.content,
+                                        "lifetime_decision_class": policy_result[
+                                            "lifetime_decision_class"
+                                        ],
+                                        "lifetime_decision_reason": policy_result[
+                                            "lifetime_decision_reason"
+                                        ],
                                         "ciar_provenance": fact.metadata.get("ciar_provenance"),
                                     },
                                 )
@@ -553,6 +576,12 @@ class PromotionEngine(BaseEngine):
                                     "fact_id": fact.fact_id,
                                     "content": fact.content,
                                     "ciar_score": fact.ciar_score,
+                                    "lifetime_decision_class": policy_result[
+                                        "lifetime_decision_class"
+                                    ],
+                                    "lifetime_decision_reason": policy_result[
+                                        "lifetime_decision_reason"
+                                    ],
                                     "ciar_provenance": fact.metadata.get("ciar_provenance"),
                                     "justification": fact.justification,
                                     "source_segment": segment.topic,
@@ -745,6 +774,12 @@ class PromotionEngine(BaseEngine):
 
         fact.ciar_score = round(stored_ciar, 4)
         segment_inherited = bool(inherited_fields)
+        lifetime_class, lifetime_reason = self._classify_lifetime_decision(
+            decision=decision,
+            segment_inherited=segment_inherited,
+            evidence=evidence,
+            contradiction=contradiction,
+        )
         provenance = {
             "promotion_policy_mode": self.promotion_policy_mode,
             "segment_ciar": round(segment_score, 4),
@@ -763,6 +798,8 @@ class PromotionEngine(BaseEngine):
             "evidence_score": evidence.score,
             "evidence_decision": evidence.decision,
             "evidence_quality_flags": evidence.flags,
+            "lifetime_decision_class": lifetime_class,
+            "lifetime_decision_reason": lifetime_reason,
         }
         if contradiction:
             fact.metadata = {
@@ -774,7 +811,54 @@ class PromotionEngine(BaseEngine):
             "decision": decision,
             "gate_threshold": gate_threshold,
             "ciar_provenance": provenance,
+            "lifetime_decision_class": lifetime_class,
+            "lifetime_decision_reason": lifetime_reason,
         }
+
+    def _classify_lifetime_decision(
+        self,
+        *,
+        decision: str,
+        segment_inherited: bool,
+        evidence: EvidenceAssessment,
+        contradiction: ContradictionAssessment | None,
+    ) -> tuple[str, str]:
+        """Classify the memory-lifetime meaning of a promotion decision."""
+        flags = evidence.flags
+        if decision == "SUPPRESS":
+            reason = "superseded by contradiction/supersession policy"
+            if contradiction and contradiction.reason:
+                reason = contradiction.reason
+            return "suppress_superseded", reason
+
+        if decision == "FILTER":
+            return "filter_low_ciar", "raw fact CIAR did not reach the L2 gate"
+
+        if decision == "REVIEW_ONLY":
+            if flags.get("conversational_residue"):
+                return (
+                    "review_conversational_residue",
+                    "candidate is chatter, assistant-action residue, or low-value mention",
+                )
+            if flags.get("speculative_claim") or flags.get("assistant_inference"):
+                return (
+                    "review_uncertain_or_inferred",
+                    "candidate is speculative or inferred rather than user-confirmed",
+                )
+            if flags.get("recency_access_guardrail"):
+                return (
+                    "review_access_boost_only",
+                    "recency/access boost alone pushed weak base evidence over threshold",
+                )
+            return "review_low_evidence", "candidate failed the hybrid evidence gate"
+
+        if self.promotion_policy_mode == "segment_gate" and segment_inherited:
+            return (
+                "store_segment_inherited",
+                "stored after inheriting segment-level certainty or impact",
+            )
+
+        return "store_durable", "stored as durable memory with no special lifetime concern"
 
     async def _assess_contradictions(
         self,

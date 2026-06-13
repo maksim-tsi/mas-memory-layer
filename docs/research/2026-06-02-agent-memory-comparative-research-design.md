@@ -1,9 +1,9 @@
 # Comparative Research Design: Agent Memory Systems
 
-**Date:** 2026-06-02  
-**Status:** Research design for documentation-only comparative analysis  
-**Scope:** External agent-memory systems, YAAM comparison strategy, and evidence rules  
-**Constraint:** No benchmark runs, provider calls, dependency changes, or `skz-data-lv` checks.
+**Date:** 2026-06-02
+**Status:** Research design for documentation-only comparative analysis
+**Scope:** External agent-memory systems, YAAM comparison strategy, and evidence rules
+**Constraint:** No benchmark runs, provider calls, dependency changes, or `local-yaam-host` checks.
 
 ## 1. Purpose
 
@@ -22,6 +22,7 @@ The systems in scope are:
 - Alibaba/Wuhan University Agentic Memory, AgeMem;
 - LangMem;
 - A-MEM / A-mem-sys;
+- H-Mem;
 - YAAM, used as the final comparison target.
 
 ## 2. Evidence Classes
@@ -147,7 +148,7 @@ The research package must preserve these limitations:
   authorization, or lifecycle workers;
 - open-source repositories may lag hosted products;
 - YAAM evidence is richer operationally but currently lacks fresh live
-  competitor benchmark runs because `skz-data-lv` is offline.
+  competitor benchmark runs because `local-yaam-host` is offline.
 
 ## 8. Source Inventory
 
@@ -160,4 +161,5 @@ Primary sources identified for this research:
 - AgeMem: https://arxiv.org/html/2601.01885v1.
 - LangMem: https://langchain-ai.github.io/langmem/.
 - A-MEM: https://arxiv.org/abs/2502.12110, https://github.com/WujiangXu/A-mem, and https://github.com/WujiangXu/A-mem-sys/.
+- H-Mem: https://arxiv.org/html/2605.15701v1.
 - YAAM: local repository documentation, reports, logs, and source under this checkout.

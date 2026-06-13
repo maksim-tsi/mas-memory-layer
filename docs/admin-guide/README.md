@@ -86,7 +86,7 @@ For shared consumer testing, run the dedicated `yaam-mcp` Compose service. The
 service uses the same MCP tool surface as stdio and publishes Streamable HTTP on:
 
 ```text
-http://192.168.107.187:8003/mcp
+http://127.0.0.1:8003/mcp
 ```
 
 The service should remain read-only by default:

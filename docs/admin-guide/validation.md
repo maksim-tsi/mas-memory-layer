@@ -64,7 +64,7 @@ running and intentionally exposed:
 
 ```bash
 YAAM_MCP_RUN_LIVE_HTTP_CONTRACT=1 \
-YAAM_MCP_HTTP_URL=http://192.168.107.187:8003/mcp \
+YAAM_MCP_HTTP_URL=http://127.0.0.1:8003/mcp \
 ./.venv/bin/pytest tests/mcp/test_streamable_http_contract.py::test_mcp_streamable_http_live_read_contract_is_env_gated -v
 ```
 
@@ -175,7 +175,7 @@ the export timeout should be treated as degraded observability.
 
 ## Customer Validation Location
 
-The most reliable customer validation target is the `skz-data-lv` machine after
+The most reliable customer validation target is the `local-yaam-host` machine after
 pulling the latest branch, because it can use the configured local backends and
 provider environment without moving secrets across the network.
 
@@ -190,7 +190,7 @@ Customers should validate:
 
 - MCP discovery, health, resources, prompts, and representative read tools.
 - MCP stdio when the consumer launches YAAM as a subprocess.
-- MCP Streamable HTTP when the consumer connects to the shared `skz-data-lv`
+- MCP Streamable HTTP when the consumer connects to the shared `local-yaam-host`
   runtime.
 - REST guarded reads through `/v2/memory/context` and `/v2/memory/query`.
 - Maintainer-only curation write/list flows.
