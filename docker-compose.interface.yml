@@ -1,10 +1,9 @@
-version: "3.9"
-
 services:
   mas-agent:
     build:
       context: .
       dockerfile: Dockerfile
+    restart: unless-stopped
     ports:
       - "8080:8080"
       - "8002:8080"
@@ -12,11 +11,33 @@ services:
       MAS_AGENT_TYPE: ${MAS_AGENT_TYPE:-full}
       MAS_MODEL: ${MAS_MODEL:-gemini-2.5-flash-lite}
       MAS_PORT: "8080"
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-tencent/hy3-preview}
+      OPENROUTER_EMBEDDING_MODEL: ${OPENROUTER_EMBEDDING_MODEL:-qwen/qwen3-embedding-8b}
+      MAS_MAX_OUTPUT_TOKENS: ${MAS_MAX_OUTPUT_TOKENS:-8192}
+      MAS_OPENROUTER_TIMEOUT: ${MAS_OPENROUTER_TIMEOUT:-120.0}
+      OPENROUTER_REASONING_EFFORT: ${OPENROUTER_REASONING_EFFORT:-low}
+      OPENROUTER_REASONING_EXCLUDE: ${OPENROUTER_REASONING_EXCLUDE:-true}
+      YAAM_PROJECT_ID: ${YAAM_PROJECT_ID:-test}
+      YAAM_MCP_DOMAIN_PACKS: ${YAAM_MCP_DOMAIN_PACKS:-auto}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-4096}
+      YAAM_OTEL_SPAN_PROCESSOR: ${YAAM_OTEL_SPAN_PROCESSOR:-batch}
+      YAAM_OTEL_FORCE_FLUSH_TIMEOUT_MS: ${YAAM_OTEL_FORCE_FLUSH_TIMEOUT_MS:-5000}
+      PHOENIX_PROJECT_NAME: ${PHOENIX_PROJECT_NAME:-mlm-mas-dev}
+      OTEL_BSP_MAX_QUEUE_SIZE: ${OTEL_BSP_MAX_QUEUE_SIZE:-2048}
+      OTEL_BSP_MAX_EXPORT_BATCH_SIZE: ${OTEL_BSP_MAX_EXPORT_BATCH_SIZE:-512}
+      OTEL_BSP_SCHEDULE_DELAY: ${OTEL_BSP_SCHEDULE_DELAY:-1000}
+      OTEL_BSP_EXPORT_TIMEOUT: ${OTEL_BSP_EXPORT_TIMEOUT:-30000}
+      MAS_L3_COLLECTION: ${MAS_L3_COLLECTION:-}
+      MAS_L4_COLLECTION: ${MAS_L4_COLLECTION:-}
       POSTGRES_URL: ${POSTGRES_URL:-postgresql://mas:mas@localhost:5432/mas}
       REDIS_URL: ${REDIS_URL:-redis://localhost:6379/0}
       QDRANT_URL: ${QDRANT_URL:-http://localhost:6333}
       NEO4J_URI: ${NEO4J_URI:-bolt://localhost:7687}
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-mas-password}
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
       TYPESENSE_URL: ${TYPESENSE_URL:-http://localhost:8108}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
@@ -25,6 +46,90 @@ services:
       - ./logs:/app/logs
     networks:
       - mas_network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  yaam-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command:
+      - poetry
+      - run
+      - python
+      - -m
+      - src.mcp.server
+      - --transport
+      - streamable-http
+      - --agent-type
+      - full
+      - --agent-variant
+      - mcp
+      - --mcp-host
+      - 0.0.0.0
+      - --mcp-port
+      - "8081"
+      - --mcp-path
+      - /mcp
+    ports:
+      - "8003:8081"
+    environment:
+      MAS_AGENT_TYPE: ${MAS_AGENT_TYPE:-full}
+      MAS_MODEL: ${MAS_MODEL:-gemini-2.5-flash-lite}
+      MAS_PORT: "8080"
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-tencent/hy3-preview}
+      OPENROUTER_EMBEDDING_MODEL: ${OPENROUTER_EMBEDDING_MODEL:-qwen/qwen3-embedding-8b}
+      MAS_MAX_OUTPUT_TOKENS: ${MAS_MAX_OUTPUT_TOKENS:-8192}
+      MAS_OPENROUTER_TIMEOUT: ${MAS_OPENROUTER_TIMEOUT:-120.0}
+      OPENROUTER_REASONING_EFFORT: ${OPENROUTER_REASONING_EFFORT:-low}
+      OPENROUTER_REASONING_EXCLUDE: ${OPENROUTER_REASONING_EXCLUDE:-true}
+      YAAM_PROJECT_ID: ${YAAM_PROJECT_ID:-test}
+      YAAM_MCP_DOMAIN_PACKS: ${YAAM_MCP_DOMAIN_PACKS:-auto}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-4096}
+      YAAM_OTEL_SPAN_PROCESSOR: ${YAAM_OTEL_SPAN_PROCESSOR:-batch}
+      YAAM_OTEL_FORCE_FLUSH_TIMEOUT_MS: ${YAAM_OTEL_FORCE_FLUSH_TIMEOUT_MS:-5000}
+      PHOENIX_PROJECT_NAME: ${PHOENIX_PROJECT_NAME:-mlm-mas-dev}
+      OTEL_BSP_MAX_QUEUE_SIZE: ${OTEL_BSP_MAX_QUEUE_SIZE:-2048}
+      OTEL_BSP_MAX_EXPORT_BATCH_SIZE: ${OTEL_BSP_MAX_EXPORT_BATCH_SIZE:-512}
+      OTEL_BSP_SCHEDULE_DELAY: ${OTEL_BSP_SCHEDULE_DELAY:-1000}
+      OTEL_BSP_EXPORT_TIMEOUT: ${OTEL_BSP_EXPORT_TIMEOUT:-30000}
+      MAS_L3_COLLECTION: ${MAS_L3_COLLECTION:-}
+      MAS_L4_COLLECTION: ${MAS_L4_COLLECTION:-}
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql://mas:mas@localhost:5432/mas}
+      REDIS_URL: ${REDIS_URL:-redis://localhost:6379/0}
+      QDRANT_URL: ${QDRANT_URL:-http://localhost:6333}
+      NEO4J_URI: ${NEO4J_URI:-bolt://localhost:7687}
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-mas-password}
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-neo4j}
+      TYPESENSE_URL: ${TYPESENSE_URL:-http://localhost:8108}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      TYPESENSE_API_KEY: ${TYPESENSE_API_KEY:-mas-typesense-key}
+      YAAM_MCP_ENABLE_WRITES: "false"
+      YAAM_MCP_ENABLE_LIFECYCLE: "false"
+      YAAM_MCP_ALLOWLISTED_TOOLS: ""
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - mas_network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import socket; s=socket.create_connection(('127.0.0.1', 8081), 5); s.close()\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
 networks:
   mas_network:

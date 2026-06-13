@@ -10,6 +10,7 @@ import asyncio
 import importlib
 import logging
 import os
+import warnings
 from collections.abc import Sequence
 from typing import Any
 
@@ -21,6 +22,11 @@ logger = logging.getLogger(__name__)
 class GeminiProvider(BaseProvider):
     def __init__(self, api_key: str):
         super().__init__(name="gemini")
+        warnings.warn(
+            "GeminiProvider is deprecated and retained only for backward compatibility. Please migrate to OpenRouter.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         genai = importlib.import_module("google.genai")
 
         self.client = genai.Client(api_key=api_key)

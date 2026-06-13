@@ -11,3 +11,15 @@ may describe:
 
 When an RFC becomes a stable architectural commitment, it should be translated into an ADR under
 `docs/ADR/`.
+
+## Current RFCs
+
+- [EMAS 2026 Reviewer Feedback Response Plan for YAAM](2026-03-28-emas-reviewer-feedback-rfc.md)
+- [YAAM MCP Interface and Memory Policy Evolution](2026-05-18-yaam-mcp-and-memory-policy-evolution.md)
+- [YAAM Interface Evolution Toward MCP - Initial Findings](2026-05-24-yaam-interface-evolution-to-mcp-initial-findings.md)
+- [YAAM MCP v1 Planning Freeze](2026-05-24-yaam-mcp-v1-planning-freeze.md)
+
+## Related Requirements
+
+- [YAAM Requirements Registry](../requirements/yaam-requirements-registry.md)
+- [Customer Requirements Analysis For YAAM Interface Evolution](../requirements/2026-05-24-customer-requirements-analysis.md)

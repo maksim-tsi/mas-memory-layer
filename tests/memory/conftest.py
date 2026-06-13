@@ -31,6 +31,9 @@ def postgres_adapter():
     adapter.disconnect = AsyncMock()
     adapter.insert = AsyncMock(return_value="inserted_id")
     adapter.query = AsyncMock(return_value=[])
+    adapter.retrieve = AsyncMock(return_value=None)
+    adapter.execute = AsyncMock(return_value=[])
+    adapter.update = AsyncMock(return_value=False)
     adapter.delete = AsyncMock(return_value=False)
     adapter.health_check = AsyncMock(return_value={"status": "healthy"})
     return adapter

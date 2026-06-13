@@ -53,6 +53,10 @@ CIAR = BaseSignificance × TimeDecay × Reinforcement
 CIAR = (Certainty × Impact) × exp(-λ × days_since_creation) × (1 + α × access_count)
 ```
 
+The reinforcement term is intentionally linear and can exceed `1.0`; the
+stored final CIAR score is clamped to the inclusive `[0.0, 1.0]` range after
+the full formula is evaluated.
+
 ### **Component Definitions**
 
 | Component | Formula | Range | Meaning |

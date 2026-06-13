@@ -5,10 +5,10 @@ This directory contains documentation for Large Language Model (LLM) integration
 ## GoodAI LTM Benchmark Integration (Phase 5)
 
 The Phase 5 evaluation pipeline integrates the GoodAI LTM Benchmark with the MAS Memory Layer via
-FastAPI wrapper services. The wrapper exposes `/run_turn`, `/sessions`, `/memory_state`, and `/health`
-endpoints and is configured per agent type (full, rag, full_context). Benchmark-facing model
-interfaces are implemented in `benchmarks/goodai-ltm-benchmark/model_interfaces/mas_agents.py` and
-apply session prefixing (`full:`, `rag:`, `full_context:`) for database isolation.
+the YAAM API Wall. YAAM exposes OpenAI-compatible `/v1/chat/completions` plus operational health
+endpoints. Benchmark-facing model interfaces now live in the external
+`goodai-ltm-benchmark-yaam` repository and apply session IDs through HTTP headers for database
+isolation.
 
 For installation, configuration, and execution guidance, see
 [docs/integrations/goodai-benchmark-setup.md](goodai-benchmark-setup.md).
@@ -21,14 +21,32 @@ The repository-level tracing strategy for YAAM and the GoodAI benchmark integrat
 The reusable execution and evidence-collection procedure for live Phoenix experiments is documented
 in [docs/runbooks/phoenix-experiment-reproducibility.md](../runbooks/phoenix-experiment-reproducibility.md).
 
+## YAAM Consumer Readiness
+
+The current handoff package for project-scoped YAAM consumer testing is:
+
+- [Consumer readiness wave 2026-05-30](consumer-readiness-2026-05-30/README.md)
+- [Sequential testing checklist](consumer-readiness-2026-05-30/consumer-testing-sequence.md)
+- [agentic-scm-tra26 instructions](consumer-readiness-2026-05-30/agentic-scm-tra26-test-instructions.md)
+- [scm-skill-factory instructions](consumer-readiness-2026-05-30/scm-skill-factory-test-instructions.md)
+- [scm-cognitive-sandwich instructions](consumer-readiness-2026-05-30/scm-cognitive-sandwich-test-instructions.md)
+- [readiness report template](consumer-readiness-2026-05-30/readiness-report-template.md)
+
+Use one shared YAAM endpoint for one project at a time unless operators intentionally deploy
+separate YAAM service instances and ports. The validated lab target is currently `local-yaam-host`;
+`development-host` requires its own deployment gate before being used as the YAAM runtime.
+
 ## ✅ Provider Status
 
 **Multi-Provider Strategy: SELECTED**
 
-5 providers with automatic fallback and task-specific optimization:
-- **Google Gemini** (3 models) - Primary provider, massive context (1M tokens)
-- **Groq** (2 models) - Ultra-fast inference (250-800 tok/sec)
-- **Mistral AI** (2 models) - Complex reasoning and analysis
+Current V2 API runtime uses OpenRouter as the primary path, with additional providers available
+for fallback or specialized workloads.
+
+- **OpenRouter** - Primary V2 provider for generation and embeddings
+- **Google Gemini** - Secondary/fallback provider
+- **Groq** - Low-latency fallback provider
+- **Mistral AI** - Reasoning-focused fallback provider
 
 **Implementation Status:** Ready for Phase 2 integration (Week 4-11)
 
@@ -44,6 +62,9 @@ See related ADRs for LLM provider strategy:
 
 Register and get free API keys from all providers:
 ```bash
+# OpenRouter
+# Visit: https://openrouter.ai/keys
+
 # Google Gemini
 # Visit: https://aistudio.google.com/apikey
 
@@ -59,6 +80,14 @@ Register and get free API keys from all providers:
 ```bash
 # Add to .env file (or copy from .env.example)
 cat >> .env << EOF
+OPENROUTER_API_KEY=your-openrouter-api-key-here
+OPENROUTER_MODEL=tencent/hy3-preview
+OPENROUTER_EMBEDDING_MODEL=qwen/qwen3-embedding-8b
+YAAM_PROJECT_ID=test
+EMBEDDING_DIMENSIONS=4096
+MAS_L3_COLLECTION=yaam-test-episodes
+MAS_L4_COLLECTION=yaam-test
+MAS_V2_MODE=true
 GOOGLE_API_KEY=your-google-api-key-here
 GROQ_API_KEY=your-groq-api-key-here
 MISTRAL_API_KEY=your-mistral-api-key-here
@@ -68,8 +97,7 @@ EOF
 ### 3. Install Dependencies
 
 ```bash
-pip install -r requirements.txt
-# Installs: google-genai, groq, mistralai
+poetry install --with test,dev
 ```
 
 ### 4. Test Connectivity
@@ -94,12 +122,29 @@ See **Week 4-5** in the [Implementation Plan](../plan/implementation_master_plan
 
 | Task | Primary Provider | Fallback 1 | Fallback 2 | Rationale |
 |------|------------------|------------|------------|-----------|
-| **CIAR Scoring** | Groq (Llama 8B) | Gemini 2.5 Flash-Lite | Gemini 2.5 Flash | Ultra-fast classification (800 tok/sec) |
-| **Fact Extraction** | Gemini 2.5 Flash | Mistral Large | Gemini 2.0 Flash | Best quality + 1M context |
-| **Episode Summary** | Gemini 2.5 Flash | Gemini 2.0 Flash | Mistral Large | Narrative generation |
-| **Knowledge Synthesis** | Mistral Large | Gemini 2.5 Flash | Gemini 2.0 Flash | Complex reasoning |
-| **Pattern Mining** | Gemini 2.5 Flash | Mistral Large | Groq (GPT OSS 120B) | Pattern recognition |
-| **Development/Testing** | Groq (Llama 8B) | Gemini 2.5 Flash-Lite | - | Instant feedback (800 tok/sec) |
+| **V2 Chat/Reasoning** | OpenRouter (`tencent/hy3-preview`) | Gemini | Groq/Mistral | Unified API path with stable routing |
+| **V2 Embeddings** | OpenRouter (`qwen/qwen3-embedding-8b`) | Gemini embeddings | - | Aligns L3 vector dimensions to 4096 |
+| **Development/Testing** | Groq (Llama 8B) | OpenRouter | Gemini | Fast turnaround with fallback coverage |
+
+## V2 Verification Sequence
+
+After configuration changes, validate runtime behavior with:
+
+```bash
+docker compose up -d --build mas-agent
+make healthcheck
+set -a && . ./.env && set +a && ./.venv/bin/python scripts/debug/check_tier_collection.py
+```
+
+Expected introspection output pattern:
+- `Adapter collection: yaam-test-episodes vector_size: 4096`
+- `Tier collection: yaam-test-episodes vector_size: 4096`
+
+Production REST/MCP runtime uses OpenRouter API embeddings
+(`qwen/qwen3-embedding-8b`) and does not install the local SentenceTransformer/Torch stack.
+`YAAM_PROJECT_ID` controls physical/logical DBMS namespace: `scm-bench` maps
+to Typesense `yaam-scm-bench`, while test runs use `yaam-test`.
+Use `poetry install --with local-embeddings` only for legacy/offline embedding experiments.
 
 **See ADR-006** for detailed task-to-provider mappings and fallback logic.
 
@@ -124,5 +169,5 @@ See **Week 4-5** in the [Implementation Plan](../plan/implementation_master_plan
 
 ---
 
-**Last Updated:** November 2, 2025  
+**Last Updated:** April 17, 2026  
 **Maintained By:** Development Team

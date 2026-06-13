@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS working_memory (
     content TEXT NOT NULL,
     confidence FLOAT DEFAULT 1.0,
     source_turn_ids INTEGER[] DEFAULT '{}',
+    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     ttl_expires_at TIMESTAMP

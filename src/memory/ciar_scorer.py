@@ -10,8 +10,8 @@ Formula: CIAR = (Certainty x Impact) x Age_Decay x Recency_Boost
 Components:
 - Certainty (C): Confidence in the fact's accuracy (0.0-1.0)
 - Impact (I): Importance/relevance of the fact (0.0-1.0)
-- Age Decay (AD): Time-based decay factor (0.1-1.0)
-- Recency Boost (RB): Access-based reinforcement (1.0-1.3)
+- Age Decay (AD): Time-based decay factor (configured minimum to 1.0)
+- Recency Boost (RB): Access-based reinforcement (1.0 or higher, optionally capped)
 
 Author: MAS Memory Layer Team
 Date: November 2025
@@ -107,13 +107,13 @@ class CIARScorer:
             fact: Fact dictionary or Fact model instance
 
         Returns:
-            float: CIAR score (typically 0.0-1.0, can exceed 1.0 with high recency boost)
+            float: CIAR score clamped to the unit interval [0.0, 1.0]
 
         Example:
             >>> fact = {'content': 'Test', 'fact_type': 'preference',
             ...         'certainty': 0.8, 'created_at': datetime.now()}
             >>> score = scorer.calculate(fact)
-            >>> assert 0.0 <= score <= 1.5
+            >>> assert 0.0 <= score <= 1.0
         """
         # Convert Fact model to dict if needed, preserving whether impact was explicitly set
         if isinstance(fact, Fact):
@@ -224,7 +224,7 @@ class CIARScorer:
             fact: Fact dictionary with 'created_at' timestamp
 
         Returns:
-            float: Age decay factor (min_score to 1.0)
+            float: Age decay factor (configured minimum to 1.0)
         """
         created_at = resolve_created_at(fact)
 
@@ -249,7 +249,7 @@ class CIARScorer:
             fact: Fact dictionary with 'access_count'
 
         Returns:
-            float: Recency boost (1.0 or higher)
+            float: Recency boost (1.0 or higher, optionally capped by config)
         """
         return calculate_recency_boost(
             fact.get("access_count", 0),
@@ -281,8 +281,8 @@ class CIARScorer:
             dict: Component scores with keys:
                 - certainty: Confidence score (0.0-1.0)
                 - impact: Importance score (0.0-1.0)
-                - age_decay: Time decay factor (0.1-1.0)
-                - recency_boost: Access boost (1.0-1.3)
+                - age_decay: Time decay factor (configured minimum to 1.0)
+                - recency_boost: Access boost (1.0 or higher, optionally capped)
                 - base_score: certainty x impact
                 - temporal_score: age_decay x recency_boost
                 - final_score: base_score x temporal_score

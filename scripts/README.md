@@ -102,10 +102,40 @@ Unit tests for the demo output behaviors are provided at `tests/utils/test_llm_c
 - `scripts/test_gemini.py` - Small script to validate Google Gemini connectivity and basic generation flows.
 - `scripts/test_groq.py` - Small script to validate Groq connectivity and basic generation flows.
 - `scripts/test_mistral.py` - Small script to validate Mistral connectivity and basic generation flows.
+- `scripts/check_openrouter_grok_connectivity.py` - Legacy-named script to validate OpenRouter connectivity for the configured default model (`tencent/hy3-preview`) and smoke-test CIAR experiment task fitness without printing secrets.
+- `scripts/experiments/analyze_ciar_policy_runs.py` - Aggregates CIAR policy experiment artifact directories into JSON/Markdown comparison summaries for default-policy analysis.
+- `scripts/experiments/run_ciar_regression_pack.py` - Runs the canonical local CIAR regression pack: repo venv check, ruff, and focused CIAR tests without live providers or `.env` loading.
+- `scripts/experiments/run_ciar_challenge_with_env.py` - Loads CIAR live-run keys from `.env` into `os.environ`, prints only key names/presence, optionally forces local-yaam-host service endpoints, selects a CIAR `--promotion-policy-mode`, and runs the CIAR challenge harness as a child process.
+- `scripts/debug/check_yaam_data_node.py` - Verifies local `.env` YAAM data-node endpoints for Redis, PostgreSQL, Phoenix, Qdrant, Neo4j, and Typesense without printing secret values. Run this before CIAR live checkpoints when service reachability is in doubt.
 - `scripts/run_smoke_tests.sh` - Higher-level script to run smoke tests (see the scripts folder for details).
 - `scripts/run_memory_integration_tests.sh` - Integration harness for memory system tests (includes storage and LLM connectivity checks).
 - `scripts/archive_docs_to_typesense.py` - Archive markdown documentation to Typesense for semantic search. Scans the repository for `.md` files, excludes benchmark code, and uploads with doc_type tagging.
 - `scripts/verify_typesense_docs.py` - Quick verification of uploaded documents in Typesense. Checks collection existence, document count, search functionality, and doc_type distribution.
+
+CIAR Regression Pack
+--------------------
+Use the CIAR regression pack before landing CIAR policy, scoring, contradiction,
+or experiment-harness changes. It is a local gate and intentionally avoids live
+providers, `.env` loading, Redis/PostgreSQL/Phoenix connectivity, and generated
+experiment artifacts.
+
+```bash
+# Full local CIAR gate: venv check, ruff, focused CIAR tests
+./.venv/bin/python scripts/experiments/run_ciar_regression_pack.py
+
+# Print the exact commands without running them
+./.venv/bin/python scripts/experiments/run_ciar_regression_pack.py --list
+
+# Re-run focused CIAR tests after a separate ruff pass
+./.venv/bin/python scripts/experiments/run_ciar_regression_pack.py --skip-ruff
+```
+
+Run the full suite instead when a change touches shared `src/` behavior outside
+the CIAR-local surface:
+
+```bash
+./.venv/bin/pytest tests/ -v
+```
 
 Archive Docs to Typesense
 -------------------------
@@ -113,13 +143,13 @@ The `archive_docs_to_typesense.py` script performs selective ingestion of markdo
 
 **Features:**
 - Scans the repository root for `.md` files
-- Excludes benchmark code (`benchmarks/goodai-ltm-benchmark`) and standard noise (`.git`, `node_modules`, `.venv`, etc.)
+- Excludes accidental embedded benchmark checkouts (`benchmarks/goodai-ltm-benchmark`) and standard noise (`.git`, `node_modules`, `.venv`, etc.)
 - Adds `repository_label: "mas-memory-layer-repo"` to all documents
 - Auto-tags documents by type: `adr`, `specification`, `plan`, `report`, `readme`, or `documentation`
 
 **Environment Variables (from `.env`):**
 - `TYPESENSE_API_KEY` - API key for authentication (required)
-- `TYPESENSE_HOST` - Host address (default: `DATA_NODE_IP` or `192.168.107.187`)
+- `TYPESENSE_HOST` - Host address (default: `DATA_NODE_IP` or `127.0.0.1`)
 - `TYPESENSE_PORT` - Port number (default: `8108`)
 - `TYPESENSE_PROTOCOL` - Protocol (default: `http`)
 

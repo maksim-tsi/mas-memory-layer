@@ -15,7 +15,6 @@ References:
 """
 
 import asyncio
-import hashlib
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, cast
@@ -34,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 class EmbeddingProvider(Protocol):
     async def get_embedding(
-        self, text: str, model: str | None = None, output_dimensionality: int = 768
+        self, text: str, model: str | None = None, output_dimensionality: int | None = None
     ) -> list[float]: ...
 
 
@@ -606,15 +605,14 @@ Format as JSON:
 
         provider = self._get_embedding_provider()
         if not provider:
-            logger.warning("No embedding-capable provider registered; using fallback embedding")
-            return self._fallback_embedding(text)
+            raise RuntimeError("No embedding-capable provider registered for consolidation")
 
         try:
             embedding = await provider.get_embedding(text=text, model=self.embedding_model)
             return [float(value) for value in embedding]
         except Exception as e:
-            logger.warning("Embedding generation failed (%s); using fallback", e)
-            return self._fallback_embedding(text)
+            logger.error("Embedding generation failed during consolidation: %s", e)
+            raise
 
     async def health_check(self) -> dict[str, Any]:
         """Check health of dependencies."""
@@ -643,15 +641,3 @@ Format as JSON:
             if hasattr(provider, "get_embedding"):
                 return cast(EmbeddingProvider, provider)
         return None
-
-    def _fallback_embedding(self, text: str) -> list[float]:
-        """Generate deterministic fallback embedding when provider is unavailable."""
-        # Use 768 dims to match EpisodicMemoryTier.VECTOR_SIZE and Qdrant schema
-        vector_size = getattr(self.l3, "vector_size", 768)
-        digest = hashlib.sha256(text.encode("utf-8")).digest()
-        vector = []
-        for i in range(vector_size):
-            idx = i % len(digest)
-            value = digest[idx] / 255.0
-            vector.append(round(value, 6))
-        return vector

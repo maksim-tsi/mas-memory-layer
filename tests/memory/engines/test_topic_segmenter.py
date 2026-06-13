@@ -253,7 +253,12 @@ class TestTopicSegmenter:
         """Test successful multi-segment extraction."""
         mock_llm_client.generate = AsyncMock(return_value=mock_llm_response_multi_segment)
 
-        segmenter = TopicSegmenter(llm_client=mock_llm_client, min_turns=5, max_turns=20)
+        segmenter = TopicSegmenter(
+            llm_client=mock_llm_client,
+            model_name="gemini-3-flash-preview",
+            min_turns=5,
+            max_turns=20,
+        )
 
         segments = await segmenter.segment_turns(sample_turns)
 

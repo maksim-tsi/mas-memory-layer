@@ -10,8 +10,18 @@ Prerequisites
 - Install dependencies in the virtual environment:
 
 ```bash
-./.venv/bin/pip install -r requirements.txt
+poetry install --with test,dev
 ```
+
+The local SentenceTransformer/Torch stack is not installed by default. It is an optional
+legacy/offline embedding path only:
+
+```bash
+poetry install --with test,dev,local-embeddings
+```
+
+Production REST/MCP runtime uses API embeddings (`qwen/qwen3-embedding-8b`, 4096 dimensions) and
+Qdrant through `qdrant-client`.
 
 Running the demo and provider scripts
 ------------------------------------
@@ -64,9 +74,9 @@ Secret scanning (gitleaks pre-commit)
 Install and run the secret-scanning hook locally to prevent committing credentials:
 
 ```bash
-/home/max/code/mas-memory-layer/.venv/bin/pip install pre-commit
-/home/max/code/mas-memory-layer/.venv/bin/pre-commit install
-/home/max/code/mas-memory-layer/.venv/bin/pre-commit run --all-files
+<repo>/.venv/bin/pip install pre-commit
+<repo>/.venv/bin/pre-commit install
+<repo>/.venv/bin/pre-commit run --all-files
 ```
 
 The hook uses gitleaks (verbose, redacted) and runs automatically on each commit after installation.

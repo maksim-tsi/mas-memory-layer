@@ -18,7 +18,13 @@ import pytest
 import pytest_asyncio
 import redis.asyncio as redis
 
-from src.memory.namespace import NamespaceManager
+from src.memory.namespace import (
+    NamespaceManager,
+    normalize_project_id,
+    project_scoped_session_id,
+    qdrant_episodes_collection_name,
+    typesense_collection_name,
+)
 
 try:
     import pytest_benchmark  # noqa: F401
@@ -38,6 +44,12 @@ def session_id():
 def agent_id():
     """Generate unique test agent ID."""
     return f"agent-{uuid.uuid4()}"
+
+
+@pytest.fixture(autouse=True)
+def default_project(monkeypatch):
+    """Keep namespace unit tests independent from caller environment."""
+    monkeypatch.delenv("YAAM_PROJECT_ID", raising=False)
 
 
 @pytest_asyncio.fixture
@@ -83,35 +95,35 @@ class TestKeyGeneration:
 
     def test_l1_turns_key_format(self, session_id):
         key = NamespaceManager.l1_turns(session_id)
-        assert key == f"{{session:{session_id}}}:turns"
+        assert key == f"{{yaam:test:session:{session_id}}}:turns"
         assert "{" in key and "}" in key
 
     def test_personal_state_key_format(self, session_id, agent_id):
         key = NamespaceManager.personal_state(agent_id, session_id)
-        assert key == f"{{session:{session_id}}}:agent:{agent_id}:state"
-        assert f"{{session:{session_id}}}" in key
+        assert key == f"{{yaam:test:session:{session_id}}}:agent:{agent_id}:state"
+        assert f"{{yaam:test:session:{session_id}}}" in key
 
     def test_shared_workspace_key_format(self, session_id):
         key = NamespaceManager.shared_workspace(session_id)
-        assert key == f"{{session:{session_id}}}:workspace"
-        assert f"{{session:{session_id}}}" in key
+        assert key == f"{{yaam:test:session:{session_id}}}:workspace"
+        assert f"{{yaam:test:session:{session_id}}}" in key
 
     def test_l2_facts_index_key_format(self, session_id):
         key = NamespaceManager.l2_facts_index(session_id)
-        assert key == f"{{session:{session_id}}}:facts:index"
-        assert f"{{session:{session_id}}}" in key
+        assert key == f"{{yaam:test:session:{session_id}}}:facts:index"
+        assert f"{{yaam:test:session:{session_id}}}" in key
 
     def test_lifecycle_stream_key_format(self):
         key = NamespaceManager.lifecycle_stream()
-        assert key == "{mas}:lifecycle"
-        assert "{mas}" in key
+        assert key == "{yaam:test}:lifecycle"
+        assert "{yaam:test}" in key
 
     def test_hash_tag_extraction(self, session_id):
         key = NamespaceManager.l1_turns(session_id)
         start = key.index("{")
         end = key.index("}", start)
         hash_tag = key[start + 1 : end]
-        assert hash_tag == f"session:{session_id}"
+        assert hash_tag == f"yaam:test:session:{session_id}"
 
     def test_consistent_hash_tag_across_session_keys(self, session_id, agent_id):
         l1_key = NamespaceManager.l1_turns(session_id)
@@ -126,7 +138,19 @@ class TestKeyGeneration:
 
         tags = [extract_hash_tag(k) for k in [l1_key, personal_key, workspace_key, facts_key]]
         assert len(set(tags)) == 1
-        assert tags[0] == f"session:{session_id}"
+        assert tags[0] == f"yaam:test:session:{session_id}"
+
+    def test_project_id_helpers(self):
+        assert normalize_project_id("SCM Bench") == "scm-bench"
+        assert typesense_collection_name("scm-bench") == "yaam-scm-bench"
+        assert qdrant_episodes_collection_name("cognitive-sandwich") == (
+            "yaam-cognitive-sandwich-episodes"
+        )
+        assert project_scoped_session_id("session-a", "test") == "test:session-a"
+
+    def test_invalid_project_id_rejected(self):
+        with pytest.raises(ValueError):
+            normalize_project_id("bad/project")
 
 
 class TestLifecycleEventPublishing:
@@ -239,7 +263,7 @@ class TestHashTagClusterSafety:
     def test_global_stream_has_consistent_slot(self):
         key1 = NamespaceManager.lifecycle_stream()
         key2 = NamespaceManager.lifecycle_stream()
-        assert key1 == key2 == "{mas}:lifecycle"
+        assert key1 == key2 == "{yaam:test}:lifecycle"
 
 
 class TestNamespacePerformance:

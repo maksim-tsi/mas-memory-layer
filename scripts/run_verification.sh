@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+BENCH_ROOT="${GOODAI_BENCHMARK_DIR:-$PROJECT_ROOT/../goodai-ltm-benchmark-yaam}"
+BENCH_PYTHON="$BENCH_ROOT/.venv/bin/python"
+
 # Start wrappers in background
 echo "Starting wrappers..."
 ./scripts/start_benchmark_wrappers.sh > logs/verification_wrappers.log 2>&1 &
@@ -21,10 +26,14 @@ done
 
 # Run Benchmark
 echo "Running verification benchmark..."
-export GOOGLE_API_KEY=$(grep GOOGLE_API_KEY .env | cut -d '=' -f2)
-cd benchmarks/goodai-ltm-benchmark
-export PYTHONPATH=$PYTHONPATH:$(pwd)
-poetry run python runner/run_benchmark.py --configuration configurations/mas_verification_run.yml --agent-name mas-full
+if [ ! -x "$BENCH_PYTHON" ]; then
+    echo "Benchmark venv not found at $BENCH_PYTHON"
+    echo "Set GOODAI_BENCHMARK_DIR to the external benchmark checkout and run poetry install there."
+    exit 1
+fi
+cd "$BENCH_ROOT"
+export PYTHONPATH="${PYTHONPATH:-}:$(pwd)"
+"$BENCH_PYTHON" runner/run_benchmark.py --configuration configurations/mas_verification_run.yml --agent-name mas-full
 
 # Cleanup
 echo "Stopping wrappers..."

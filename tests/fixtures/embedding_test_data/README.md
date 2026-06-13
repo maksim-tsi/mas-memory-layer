@@ -35,7 +35,9 @@ This directory contains test documents for evaluating embedding generation and s
 ## Usage
 
 These documents are used for:
-- Testing embedding generation with `gemini-embedding-001`
+- Testing embedding generation with the active runtime model:
+   - OpenRouter V2 default: `qwen/qwen3-embedding-8b` (`EMBEDDING_DIMENSIONS=4096`)
+   - Legacy/compatibility path: `gemini-embedding-001`
 - Evaluating semantic similarity and clustering
 - Validating episode consolidation in the memory system
 - Benchmarking vector search performance

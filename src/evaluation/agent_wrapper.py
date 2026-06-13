@@ -12,10 +12,12 @@ from collections.abc import Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Literal
 
 import redis
 import uvicorn
+import yaml
 from fastapi import FastAPI, HTTPException, Query
 
 from src.agents.base_agent import BaseAgent
@@ -29,6 +31,13 @@ from src.memory.engines.fact_extractor import FactExtractor
 from src.memory.engines.promotion_engine import PromotionEngine
 from src.memory.engines.topic_segmenter import TopicSegmenter
 from src.memory.models import TurnData
+from src.memory.namespace import (
+    DEFAULT_PROJECT_ID,
+    normalize_project_id,
+    project_scoped_session_id,
+    qdrant_episodes_collection_name,
+    typesense_collection_name,
+)
 from src.memory.tiers import (
     ActiveContextTier,
     EpisodicMemoryTier,
@@ -43,6 +52,17 @@ from src.storage.redis_adapter import RedisAdapter
 from src.storage.typesense_adapter import TypesenseAdapter
 
 logger = logging.getLogger(__name__)
+
+RUNTIME_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "runtime.yaml"
+DEFAULT_OPENROUTER_MODEL = "tencent/hy3-preview"
+DEFAULT_OPENROUTER_EMBEDDING_MODEL = "qwen/qwen3-embedding-8b"
+DEFAULT_MAS_MAX_OUTPUT_TOKENS = 8192
+DEFAULT_MAS_OPENROUTER_TIMEOUT = 120.0
+DEFAULT_OPENROUTER_REASONING_EFFORT = "low"
+DEFAULT_OPENROUTER_REASONING_EXCLUDE = True
+DEFAULT_L3_VECTOR_SIZE = 4096
+DEFAULT_L3_COLLECTION = qdrant_episodes_collection_name(DEFAULT_PROJECT_ID)
+DEFAULT_L4_COLLECTION = typesense_collection_name(DEFAULT_PROJECT_ID)
 
 
 class RateLimiter:
@@ -149,9 +169,188 @@ class WrapperConfig:
     redis_url: str
     postgres_url: str
     session_prefix: str
+    project_id: str = DEFAULT_PROJECT_ID
     window_size: int = 20
     ttl_hours: int = 24
     min_ciar: float = 0.6
+    promotion_policy_mode: str = "hybrid_gate"
+    contradiction_policy_mode: str = "off"
+    openrouter_model: str = DEFAULT_OPENROUTER_MODEL
+    openrouter_embedding_model: str = DEFAULT_OPENROUTER_EMBEDDING_MODEL
+    max_output_tokens: int = DEFAULT_MAS_MAX_OUTPUT_TOKENS
+    openrouter_timeout: float = DEFAULT_MAS_OPENROUTER_TIMEOUT
+    openrouter_reasoning_effort: str = DEFAULT_OPENROUTER_REASONING_EFFORT
+    openrouter_reasoning_exclude: bool = DEFAULT_OPENROUTER_REASONING_EXCLUDE
+    l3_collection_name: str = DEFAULT_L3_COLLECTION
+    l3_vector_size: int = DEFAULT_L3_VECTOR_SIZE
+    l4_collection_name: str = DEFAULT_L4_COLLECTION
+
+
+@dataclass(frozen=True)
+class RuntimeSettings:
+    """Non-secret runtime defaults loaded from config/runtime.yaml and env."""
+
+    openrouter_model: str
+    openrouter_embedding_model: str
+    max_output_tokens: int
+    openrouter_timeout: float
+    openrouter_reasoning_effort: str
+    openrouter_reasoning_exclude: bool
+    project_id: str
+    l3_collection_name: str
+    l3_vector_size: int
+    l4_collection_name: str
+
+
+def load_runtime_settings(config_path: Path | None = None) -> RuntimeSettings:
+    """Load non-secret runtime settings with environment overrides."""
+    path = config_path or Path(os.environ.get("YAAM_RUNTIME_CONFIG", RUNTIME_CONFIG_PATH))
+    raw = _load_runtime_config(path)
+    project_id = normalize_project_id(
+        os.environ.get("YAAM_PROJECT_ID") or _nested_str(raw, ("project", "id"), DEFAULT_PROJECT_ID)
+    )
+    explicit_l3_collection = os.environ.get("MAS_L3_COLLECTION")
+    explicit_l4_collection = os.environ.get("MAS_L4_COLLECTION")
+    config_l3_collection = _nested_str(raw, ("memory", "l3", "collection_name"), "")
+    config_l4_collection = _nested_str(raw, ("memory", "l4", "collection_name"), "")
+    l3_collection = explicit_l3_collection or (
+        qdrant_episodes_collection_name(project_id)
+        if os.environ.get("YAAM_PROJECT_ID") or not config_l3_collection
+        else config_l3_collection
+    )
+    l4_collection = explicit_l4_collection or (
+        typesense_collection_name(project_id)
+        if os.environ.get("YAAM_PROJECT_ID") or not config_l4_collection
+        else config_l4_collection
+    )
+    return RuntimeSettings(
+        openrouter_model=os.environ.get("OPENROUTER_MODEL")
+        or _nested_str(raw, ("llm", "openrouter_model"), DEFAULT_OPENROUTER_MODEL),
+        openrouter_embedding_model=os.environ.get("OPENROUTER_EMBEDDING_MODEL")
+        or _nested_str(
+            raw,
+            ("llm", "openrouter_embedding_model"),
+            DEFAULT_OPENROUTER_EMBEDDING_MODEL,
+        ),
+        max_output_tokens=_read_int_override(
+            "MAS_MAX_OUTPUT_TOKENS",
+            raw,
+            ("llm", "max_output_tokens"),
+            DEFAULT_MAS_MAX_OUTPUT_TOKENS,
+        ),
+        openrouter_timeout=_read_float_override(
+            "MAS_OPENROUTER_TIMEOUT",
+            raw,
+            ("llm", "openrouter_timeout_seconds"),
+            DEFAULT_MAS_OPENROUTER_TIMEOUT,
+        ),
+        openrouter_reasoning_effort=os.environ.get("OPENROUTER_REASONING_EFFORT")
+        or _nested_str(
+            raw,
+            ("llm", "openrouter_reasoning_effort"),
+            DEFAULT_OPENROUTER_REASONING_EFFORT,
+        ),
+        openrouter_reasoning_exclude=_read_bool_override(
+            "OPENROUTER_REASONING_EXCLUDE",
+            raw,
+            ("llm", "openrouter_reasoning_exclude"),
+            DEFAULT_OPENROUTER_REASONING_EXCLUDE,
+        ),
+        project_id=project_id,
+        l3_collection_name=l3_collection,
+        l3_vector_size=_read_int_override(
+            "EMBEDDING_DIMENSIONS",
+            raw,
+            ("memory", "l3", "vector_size"),
+            DEFAULT_L3_VECTOR_SIZE,
+        ),
+        l4_collection_name=l4_collection,
+    )
+
+
+def apply_runtime_env_defaults(settings: RuntimeSettings) -> None:
+    """Expose config defaults to providers that still read environment values."""
+    os.environ.setdefault("OPENROUTER_MODEL", settings.openrouter_model)
+    os.environ.setdefault("OPENROUTER_EMBEDDING_MODEL", settings.openrouter_embedding_model)
+    os.environ.setdefault("MAS_MAX_OUTPUT_TOKENS", str(settings.max_output_tokens))
+    os.environ.setdefault("MAS_OPENROUTER_TIMEOUT", str(settings.openrouter_timeout))
+    os.environ.setdefault("OPENROUTER_REASONING_EFFORT", settings.openrouter_reasoning_effort)
+    os.environ.setdefault(
+        "OPENROUTER_REASONING_EXCLUDE",
+        "true" if settings.openrouter_reasoning_exclude else "false",
+    )
+    os.environ.setdefault("YAAM_PROJECT_ID", settings.project_id)
+    os.environ.setdefault("MAS_L3_COLLECTION", settings.l3_collection_name)
+    os.environ.setdefault("EMBEDDING_DIMENSIONS", str(settings.l3_vector_size))
+    os.environ.setdefault("MAS_L4_COLLECTION", settings.l4_collection_name)
+
+
+def _load_runtime_config(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    with path.open("r", encoding="utf-8") as handle:
+        loaded = yaml.safe_load(handle) or {}
+    if not isinstance(loaded, dict):
+        raise ValueError(f"Runtime config must be a mapping: {path}")
+    return loaded
+
+
+def _nested_value(raw: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    current: Any = raw
+    for key in keys:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _nested_str(raw: dict[str, Any], keys: tuple[str, ...], default: str) -> str:
+    value = _nested_value(raw, keys)
+    return str(value) if value not in (None, "") else default
+
+
+def _read_int_override(
+    env_name: str,
+    raw: dict[str, Any],
+    keys: tuple[str, ...],
+    default: int,
+) -> int:
+    raw_value = os.environ.get(env_name)
+    if raw_value in (None, ""):
+        raw_value = _nested_value(raw, keys)
+    if raw_value in (None, ""):
+        return default
+    return int(raw_value)
+
+
+def _read_float_override(
+    env_name: str,
+    raw: dict[str, Any],
+    keys: tuple[str, ...],
+    default: float,
+) -> float:
+    raw_value = os.environ.get(env_name)
+    if raw_value in (None, ""):
+        raw_value = _nested_value(raw, keys)
+    if raw_value in (None, ""):
+        return default
+    return float(raw_value)
+
+
+def _read_bool_override(
+    env_name: str,
+    raw: dict[str, Any],
+    keys: tuple[str, ...],
+    default: bool,
+) -> bool:
+    raw_value = os.environ.get(env_name)
+    if raw_value in (None, ""):
+        raw_value = _nested_value(raw, keys)
+    if raw_value in (None, ""):
+        return default
+    if isinstance(raw_value, bool):
+        return raw_value
+    return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass
@@ -167,15 +366,22 @@ class AgentWrapperState:
     agent_variant: str
     session_prefix: str
     rate_limiter: RateLimiter
+    project_id: str = DEFAULT_PROJECT_ID
     l3_tier: EpisodicMemoryTier | None = None
     l4_tier: SemanticMemoryTier | None = None
     sessions: set[str] = field(default_factory=set)
 
     def apply_prefix(self, session_id: str) -> str:
         prefix = f"{self.session_prefix}:"
-        if session_id.startswith(prefix):
-            return session_id
-        return f"{self.session_prefix}:{session_id}"
+        project_prefix = f"{self.project_id}:"
+        if session_id.startswith(project_prefix):
+            without_project = session_id[len(project_prefix) :]
+            prefixed_session = (
+                without_project if without_project.startswith(prefix) else f"{prefix}{without_project}"
+            )
+            return project_scoped_session_id(prefixed_session, self.project_id)
+        prefixed_session = session_id if session_id.startswith(prefix) else f"{prefix}{session_id}"
+        return project_scoped_session_id(prefixed_session, self.project_id)
 
     def track_session(self, session_id: str) -> None:
         self.sessions.add(session_id)
@@ -202,7 +408,15 @@ def _read_env_or_raise(key: str) -> str:
     value = os.environ.get(key)
     if not value:
         raise RuntimeError(f"Required environment variable '{key}' is not set.")
-    return value
+    return os.path.expandvars(value)
+
+
+def _read_env_with_fallback(*keys: str, default: str) -> str:
+    for key in keys:
+        value = os.environ.get(key)
+        if value:
+            return os.path.expandvars(value)
+    return default
 
 
 async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
@@ -253,16 +467,16 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
     qdrant_adapter = QdrantAdapter(
         {
             "url": _read_env_or_raise("QDRANT_URL"),
-            "collection_name": "episodes",
-            "vector_size": 768,
+            "collection_name": config.l3_collection_name,
+            "vector_size": config.l3_vector_size,
         }
     )
     neo4j_adapter = Neo4jAdapter(
         {
             "uri": _read_env_or_raise("NEO4J_URI"),
-            "user": os.environ.get("NEO4J_USER", "neo4j"),
-            "password": os.environ.get("NEO4J_PASSWORD", "mas-password"),
-            "database": os.environ.get("NEO4J_DATABASE", "neo4j"),
+            "user": _read_env_with_fallback("NEO4J_USER", "NEO4J_USERNAME", default="neo4j"),
+            "password": _read_env_with_fallback("NEO4J_PASSWORD", default="mas-password"),
+            "database": _read_env_with_fallback("NEO4J_DATABASE", default="neo4j"),
             "lock_redis_url": config.redis_url,
         }
     )
@@ -270,15 +484,23 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
         {
             "url": _read_env_or_raise("TYPESENSE_URL"),
             "api_key": os.environ.get("TYPESENSE_API_KEY", "mas-typesense-key"),
-            "collection_name": "knowledge_base",
+            "collection_name": config.l4_collection_name,
         }
     )
 
     episodic_tier = EpisodicMemoryTier(
         qdrant_adapter=qdrant_adapter,
         neo4j_adapter=neo4j_adapter,
+        config={
+            "collection_name": config.l3_collection_name,
+            "vector_size": config.l3_vector_size,
+            "project_id": config.project_id,
+        },
     )
-    semantic_tier = SemanticMemoryTier(typesense_adapter=typesense_adapter)
+    semantic_tier = SemanticMemoryTier(
+        typesense_adapter=typesense_adapter,
+        config={"collection_name": config.l4_collection_name, "project_id": config.project_id},
+    )
 
     await episodic_tier.initialize()
     await semantic_tier.initialize()
@@ -296,7 +518,11 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
         topic_segmenter=topic_segmenter,
         fact_extractor=fact_extractor,
         ciar_scorer=ciar_scorer,
-        config={"promotion_threshold": config.min_ciar},
+        config={
+            "promotion_threshold": config.min_ciar,
+            "promotion_policy_mode": config.promotion_policy_mode,
+            "contradiction_policy_mode": config.contradiction_policy_mode,
+        },
     )
 
     memory_system = UnifiedMemorySystem(
@@ -334,6 +560,7 @@ async def initialize_state(config: WrapperConfig) -> AgentWrapperState:
         agent_type=config.agent_type,
         agent_variant=config.agent_variant,
         session_prefix=config.session_prefix,
+        project_id=config.project_id,
         rate_limiter=rate_limiter,
     )
 
@@ -575,6 +802,8 @@ def build_config(args: argparse.Namespace) -> WrapperConfig:
     """Build wrapper configuration from CLI args and environment variables."""
 
     os.environ["AGENT_TYPE"] = args.agent_type
+    runtime_settings = load_runtime_settings()
+    apply_runtime_env_defaults(runtime_settings)
 
     redis_url = _read_env_or_raise("REDIS_URL")
     postgres_url = _read_env_or_raise("POSTGRES_URL")
@@ -583,6 +812,8 @@ def build_config(args: argparse.Namespace) -> WrapperConfig:
     window_size = int(os.environ.get("MAS_L1_WINDOW", "20"))
     ttl_hours = int(os.environ.get("MAS_L1_TTL_HOURS", "24"))
     min_ciar = float(os.environ.get("MAS_MIN_CIAR", "0.6"))
+    promotion_policy_mode = os.environ.get("MAS_PROMOTION_POLICY_MODE", "hybrid_gate")
+    contradiction_policy_mode = os.environ.get("MAS_CONTRADICTION_POLICY_MODE", "off")
 
     return WrapperConfig(
         agent_type=args.agent_type,
@@ -592,9 +823,21 @@ def build_config(args: argparse.Namespace) -> WrapperConfig:
         redis_url=redis_url,
         postgres_url=postgres_url,
         session_prefix=session_prefix,
+        project_id=runtime_settings.project_id,
         window_size=window_size,
         ttl_hours=ttl_hours,
         min_ciar=min_ciar,
+        promotion_policy_mode=promotion_policy_mode,
+        contradiction_policy_mode=contradiction_policy_mode,
+        openrouter_model=runtime_settings.openrouter_model,
+        openrouter_embedding_model=runtime_settings.openrouter_embedding_model,
+        max_output_tokens=runtime_settings.max_output_tokens,
+        openrouter_timeout=runtime_settings.openrouter_timeout,
+        openrouter_reasoning_effort=runtime_settings.openrouter_reasoning_effort,
+        openrouter_reasoning_exclude=runtime_settings.openrouter_reasoning_exclude,
+        l3_collection_name=runtime_settings.l3_collection_name,
+        l3_vector_size=runtime_settings.l3_vector_size,
+        l4_collection_name=runtime_settings.l4_collection_name,
     )
 
 

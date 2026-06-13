@@ -879,6 +879,28 @@ class TestTypesenseAdapterHealthCheck:
             assert health["document_count"] == 1000
             await adapter.disconnect()
 
+    async def test_health_check_accepts_sync_json_response(self, mock_httpx_client):
+        """Test health check with real httpx-style sync json()."""
+        mock_get_response = Mock()
+        mock_get_response.status_code = 200
+        mock_get_response.json = Mock(return_value={"name": "test_collection", "num_documents": 7})
+        mock_get_response.raise_for_status = Mock()
+        mock_httpx_client.get = AsyncMock(return_value=mock_get_response)
+
+        config = {
+            "url": "http://localhost:8108",
+            "api_key": "test_key",
+            "collection_name": "test_collection",
+        }
+        adapter = TypesenseAdapter(config)
+        adapter._connected = True
+        adapter.client = mock_httpx_client
+
+        health = await adapter.health_check()
+
+        assert health["status"] == "healthy"
+        assert health["document_count"] == 7
+
     async def test_health_check_not_connected(self):
         """Test health check when not connected."""
         config = {
@@ -1030,6 +1052,163 @@ class TestTypesenseAdapterSchemaAndSearch:
             # First result should have higher timestamp
             assert results[0]["timestamp"] >= results[1]["timestamp"]
             await adapter.disconnect()
+
+    async def test_connect_adds_missing_schema_fields(self, mock_httpx_client):
+        """Test additive schema reconciliation for legacy collections."""
+        collection_response = AsyncMock()
+        collection_response.status_code = 200
+        collection_response.json = AsyncMock(
+            return_value={"name": "test_collection", "fields": [{"name": "content", "type": "string"}]}
+        )
+        collection_response.raise_for_status = Mock()
+        patch_response = Mock()
+        patch_response.status_code = 200
+        patch_response.raise_for_status = Mock()
+        mock_httpx_client.get = AsyncMock(return_value=collection_response)
+        mock_httpx_client.patch = AsyncMock(return_value=patch_response)
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            config = {
+                "url": "http://localhost:8108",
+                "api_key": "test_key",
+                "collection_name": "test_collection",
+            }
+            adapter = TypesenseAdapter(config)
+            await adapter.connect()
+
+            patch_payload = mock_httpx_client.patch.call_args.kwargs["json"]
+            patched_names = {field["name"] for field in patch_payload["fields"]}
+            assert "usefulness_score" in patched_names
+            assert "confidence_score" in patched_names
+            assert "artifact_id" in patched_names
+            assert "run_id" in patched_names
+            assert "incident_id" in patched_names
+            assert "revision_number" in patched_names
+            assert "retry_count" in patched_names
+            assert "id" not in patched_names
+            await adapter.disconnect()
+
+    async def test_connect_reports_incompatible_schema_without_patch(self, mock_httpx_client):
+        """Test incompatible existing fields are reported but not mutated."""
+        collection_response = AsyncMock()
+        collection_response.status_code = 200
+        collection_response.json = AsyncMock(
+            return_value={
+                "name": "test_collection",
+                "fields": [
+                    {"name": field["name"], "type": field["type"]}
+                    for field in TypesenseAdapter(
+                        {
+                            "url": "http://localhost:8108",
+                            "api_key": "test_key",
+                            "collection_name": "test_collection",
+                        }
+                    )._get_default_schema()["fields"]
+                    if field["name"] != "usefulness_score"
+                ]
+                + [{"name": "usefulness_score", "type": "string"}],
+            }
+        )
+        collection_response.raise_for_status = Mock()
+        mock_httpx_client.get = AsyncMock(return_value=collection_response)
+        mock_httpx_client.patch = AsyncMock()
+
+        with patch("httpx.AsyncClient", return_value=mock_httpx_client):
+            config = {
+                "url": "http://localhost:8108",
+                "api_key": "test_key",
+                "collection_name": "test_collection",
+            }
+            adapter = TypesenseAdapter(config)
+            await adapter.connect()
+
+            assert mock_httpx_client.patch.call_count == 0
+            assert adapter._schema_warnings
+            assert "usefulness_score" in adapter._schema_warnings[0]
+            await adapter.disconnect()
+
+    async def test_search_retries_without_sort_by_on_422(self, mock_httpx_client):
+        """Test search degrades gracefully for legacy collections lacking sort field."""
+        bad_response = Mock()
+        bad_response.status_code = 422
+        bad_response.raise_for_status = Mock(
+            side_effect=httpx.HTTPStatusError(
+                "Invalid sort_by", request=Mock(), response=bad_response
+            )
+        )
+        retry_response = AsyncMock()
+        retry_response.status_code = 200
+        retry_response.json = AsyncMock(
+            return_value={"hits": [{"document": {"id": "doc1", "content": "Test"}}]}
+        )
+        retry_response.raise_for_status = Mock()
+        mock_httpx_client.get = AsyncMock(side_effect=[bad_response, retry_response])
+
+        config = {
+            "url": "http://localhost:8108",
+            "api_key": "test_key",
+            "collection_name": "test_collection",
+        }
+        adapter = TypesenseAdapter(config)
+        adapter._connected = True
+        adapter.client = mock_httpx_client
+
+        results = await adapter.search(
+            {
+                "q": "test",
+                "query_by": "content",
+                "sort_by": "usefulness_score:desc",
+                "limit": 10,
+            }
+        )
+
+        assert results == [{"id": "doc1", "content": "Test"}]
+        assert "sort_by" not in mock_httpx_client.get.call_args_list[1].kwargs["params"]
+
+    async def test_search_retry_failure_logs_without_traceback(self, mock_httpx_client, caplog):
+        """Test degraded retry failure logs compactly without exception traceback."""
+        bad_response = Mock()
+        bad_response.status_code = 422
+        bad_response.raise_for_status = Mock(
+            side_effect=httpx.HTTPStatusError(
+                "Invalid sort_by", request=Mock(), response=bad_response
+            )
+        )
+        retry_response = Mock()
+        retry_response.status_code = 422
+        retry_response.raise_for_status = Mock(
+            side_effect=httpx.HTTPStatusError(
+                "Invalid wildcard query", request=Mock(), response=retry_response
+            )
+        )
+        mock_httpx_client.get = AsyncMock(side_effect=[bad_response, retry_response])
+
+        config = {
+            "url": "http://localhost:8108",
+            "api_key": "test_key",
+            "collection_name": "test_collection",
+        }
+        adapter = TypesenseAdapter(config)
+        adapter._connected = True
+        adapter.client = mock_httpx_client
+
+        with pytest.raises(StorageQueryError):
+            await adapter.search(
+                {
+                    "q": "*",
+                    "query_by": "content",
+                    "sort_by": "usefulness_score:desc",
+                    "limit": 10,
+                }
+            )
+
+        retry_logs = [
+            record
+            for record in caplog.records
+            if "retry without sort_by failed" in record.getMessage()
+        ]
+        assert retry_logs
+        assert retry_logs[0].exc_info is None
 
     async def test_search_empty_results(self, mock_httpx_client):
         """Test search returning empty results."""

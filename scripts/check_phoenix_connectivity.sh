@@ -4,14 +4,14 @@
 # Usage: ./scripts/check_phoenix_connectivity.sh
 #
 # Environment variables (optional, defaults shown):
-#   DEV_NODE_IP=192.168.107.172
+#   DEV_NODE_IP=127.0.0.1
 #   PHOENIX_PORT=6006
 #   PHOENIX_GRPC_PORT=4317
 
 set -euo pipefail
 
 # Configuration with defaults
-PHOENIX_HOST="${DEV_NODE_IP:-192.168.107.172}"
+PHOENIX_HOST="${DEV_NODE_IP:-127.0.0.1}"
 PHOENIX_HTTP_PORT="${PHOENIX_PORT:-6006}"
 PHOENIX_GRPC_PORT="${PHOENIX_GRPC_PORT:-4317}"
 

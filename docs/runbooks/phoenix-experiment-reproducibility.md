@@ -53,8 +53,8 @@ Before starting any Phoenix experiment, confirm the following:
    - `./.venv/bin/python`
    - `./.venv/bin/pytest`
    - `./.venv/bin/ruff`
-2. The benchmark environment exists if benchmark-mode validation is required:
-   - `benchmarks/goodai-ltm-benchmark/.venv/bin/python`
+2. The external benchmark environment exists if benchmark-mode validation is required:
+   - `../goodai-ltm-benchmark-yaam/.venv/bin/python`
 3. `.env` is sourced only into the current shell and is never printed.
 4. `PHOENIX_COLLECTOR_ENDPOINT` points to the live local collector.
 5. The YAAM API Wall can be started from the root environment.
@@ -146,6 +146,27 @@ export PHOENIX_PROJECT_NAME="mlm-mas-dev-phoenix-${EXPERIMENT_LABEL}-$(date +%Y%
 
 This convention keeps project names sortable, human-readable, and safe for direct use in the REST
 paths confirmed by the local OpenAPI schema.
+
+## 5.1 Batch Span Export Defaults
+
+Shared REST/MCP runtimes should use Phoenix batch span export:
+
+```bash
+export YAAM_OTEL_SPAN_PROCESSOR=batch
+export YAAM_OTEL_FORCE_FLUSH_TIMEOUT_MS=5000
+export OTEL_BSP_MAX_QUEUE_SIZE=2048
+export OTEL_BSP_MAX_EXPORT_BATCH_SIZE=512
+export OTEL_BSP_SCHEDULE_DELAY=1000
+export OTEL_BSP_EXPORT_TIMEOUT=30000
+```
+
+Batch export can delay Phoenix UI/API visibility briefly. When validating an
+experiment, wait at least one schedule delay before concluding that spans are
+missing. For local debugging only, `YAAM_OTEL_SPAN_PROCESSOR=simple` restores
+immediate export behavior.
+
+On graceful shutdown, YAAM force-flushes the tracer provider it created. If a
+process is killed abruptly, buffered spans may still be lost.
 
 ## 6. Start the API Wall
 

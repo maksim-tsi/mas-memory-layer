@@ -7,9 +7,9 @@ with validation and serialization support.
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from src.memory.ciar_formula import (
     DEFAULT_AGE_DECAY_LAMBDA,
@@ -128,22 +128,25 @@ class Fact(BaseModel):
 
     model_config = {"use_enum_values": True}
 
-    @field_validator("ciar_score")
-    @classmethod
-    def validate_ciar_score(cls, v: float, info: ValidationInfo) -> float:
-        """Ensure CIAR score is consistent with components if all are present."""
-        values = info.data
-        if all(k in values for k in ["certainty", "impact", "age_decay", "recency_boost"]):
+    @model_validator(mode="after")
+    def validate_ciar_score(self) -> Self:
+        """Keep explicit CIAR components authoritative when all are supplied."""
+        component_fields = {"certainty", "impact", "age_decay", "recency_boost"}
+        fields_set = getattr(self, "model_fields_set", set())
+
+        if component_fields.issubset(fields_set) or (
+            "ciar_score" not in fields_set and component_fields & fields_set
+        ):
             expected = calculate_ciar_score(
-                values["certainty"],
-                values["impact"],
-                values["age_decay"],
-                values["recency_boost"],
+                self.certainty,
+                self.impact,
+                self.age_decay,
+                self.recency_boost,
             )
-            # Allow small floating point differences
-            if abs(v - expected) > 0.01:
-                return float(round(expected, 4))
-        return v
+            if abs(self.ciar_score - expected) > 0.01:
+                self.ciar_score = float(round(expected, 4))
+
+        return self
 
     def mark_accessed(self, alpha: float = DEFAULT_RECENCY_ALPHA) -> None:
         """Update access tracking."""
@@ -170,7 +173,7 @@ class Fact(BaseModel):
         Calculate age decay factor based on time since extraction.
 
         Args:
-            decay_lambda: Decay rate (default: 0.1 per day)
+            decay_lambda: Decay rate (default: ADR-004 lambda, about a 30-day half-life)
         """
         source_timestamp = self.created_at or self.extracted_at
         self.age_decay = round(
@@ -253,6 +256,7 @@ class Episode(BaseModel):
 
     episode_id: str
     session_id: str
+    project_id: str | None = None
 
     # Content
     summary: str = Field(..., min_length=10, max_length=10000)
@@ -291,9 +295,11 @@ class Episode(BaseModel):
 
     def to_qdrant_payload(self) -> dict[str, Any]:
         """Convert to Qdrant payload format."""
-        return {
+        payload = {
             "episode_id": self.episode_id,
             "session_id": self.session_id,
+            "project_id": self.project_id or self.metadata.get("project_id"),
+            "client_session_id": self.metadata.get("client_session_id"),
             "summary": self.summary,
             "narrative": self.narrative,
             "source_fact_ids": self.source_fact_ids,
@@ -307,12 +313,18 @@ class Episode(BaseModel):
             "graph_node_id": self.graph_node_id,
             "consolidated_at": self.consolidated_at.isoformat(),
         }
+        for key, value in self.metadata.items():
+            payload.setdefault(key, value)
+        payload["metadata"] = dict(self.metadata)
+        return payload
 
     def to_neo4j_properties(self) -> dict[str, Any]:
         """Convert to Neo4j node properties."""
         return {
             "episodeId": self.episode_id,
             "sessionId": self.session_id,
+            "projectId": self.project_id or self.metadata.get("project_id"),
+            "clientSessionId": self.metadata.get("client_session_id"),
             "summary": self.summary,
             "narrative": self.narrative or "",
             "factCount": self.fact_count,
@@ -329,6 +341,7 @@ class Episode(BaseModel):
             # Duplicate snake_case properties for compatibility with legacy queries
             "session_id": self.session_id,
             "episode_id": self.episode_id,
+            "project_id": self.project_id or self.metadata.get("project_id"),
         }
 
 
@@ -364,6 +377,7 @@ class KnowledgeDocument(BaseModel):
 
     knowledge_id: str
     session_id: str | None = None
+    project_id: str | None = None
 
     # Content
     title: str = Field(..., min_length=5, max_length=500)
@@ -397,9 +411,11 @@ class KnowledgeDocument(BaseModel):
 
     def to_typesense_document(self) -> dict[str, Any]:
         """Convert to Typesense document format."""
-        return {
+        document = {
             "id": self.knowledge_id,
             "session_id": self.session_id or "",
+            "project_id": self.project_id or self.metadata.get("project_id", ""),
+            "client_session_id": self.metadata.get("client_session_id", self.session_id or ""),
             "title": self.title,
             "content": self.content,
             "knowledge_type": self.knowledge_type,
@@ -409,12 +425,51 @@ class KnowledgeDocument(BaseModel):
             "provenance_links": self.provenance_links,
             "category": self.category or "",
             "tags": self.tags,
-            "domain": self.domain or "",
+            "domain": self.domain or self.metadata.get("domain", ""),
             "distilled_at": int(self.distilled_at.timestamp()),
             "access_count": self.access_count,
             "usefulness_score": self.usefulness_score,
             "validation_count": self.validation_count,
         }
+        for key in COGNITIVE_SANDWICH_L4_STRING_METADATA_KEYS:
+            value = self.metadata.get(key)
+            if value is not None:
+                document[key] = str(value)
+        for key in COGNITIVE_SANDWICH_L4_INT_METADATA_KEYS:
+            value = _coerce_optional_int(self.metadata.get(key))
+            if value is not None:
+                document[key] = value
+        return document
+
+
+COGNITIVE_SANDWICH_L4_STRING_METADATA_KEYS = (
+    "artifact_id",
+    "revision_id",
+    "parent_revision_id",
+    "feedback_id",
+    "commit_id",
+    "run_id",
+    "thread_id",
+    "incident_id",
+    "scenario_id",
+    "artifact_kind",
+    "artifact_status",
+    "verification_state",
+    "feedback_type",
+    "source_system",
+    "payload_hash",
+    "fatal_status",
+)
+COGNITIVE_SANDWICH_L4_INT_METADATA_KEYS = ("revision_number", "retry_count")
+
+
+def _coerce_optional_int(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class EpisodeQuery(BaseModel):

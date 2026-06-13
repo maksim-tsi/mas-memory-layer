@@ -6307,6 +6307,13 @@ Implement the **Episodic Memory Tier (L3)** which maintains permanent, cross-ses
 - Hybrid retrieval (vector + graph)
 - Episode versioning and updates
 
+> Current implementation note (2026-05-28): this Phase 2 spec preserves the original local
+> SentenceTransformer design for historical context. Production YAAM REST/MCP runtime now uses
+> provider API embeddings, currently OpenRouter `qwen/qwen3-embedding-8b` with 4096-dimensional
+> vectors, and stores L3 vectors in Qdrant through `qdrant-client`. The local SentenceTransformer,
+> Torch, Transformers, Triton, and CUDA stack is optional and installed only with
+> `poetry install --with local-embeddings`.
+
 ---
 
 ### Tier Characteristics
@@ -6318,7 +6325,7 @@ Implement the **Episodic Memory Tier (L3)** which maintains permanent, cross-ses
 | **TTL** | None (permanent) | Episodic memories persist indefinitely |
 | **Performance Target** | <50ms for vector search, <100ms for graph traversal | Network latency, optimized queries |
 | **Episode Types** | Consolidated facts from L2 | Multi-fact episodes with context |
-| **Embedding Model** | sentence-transformers (768-dim) | Balance accuracy vs. performance |
+| **Embedding Model** | OpenRouter `qwen/qwen3-embedding-8b` (4096-dim) in production; local SentenceTransformer only for optional legacy/offline runs | Production uses API embeddings; local model stack is not in the production image |
 | **Graph Schema** | Entity nodes + relationship edges | Flexible schema for evolving data |
 | **Consistency** | Eventual consistency | Separate Qdrant/Neo4j writes |
 | **Versioning** | Episode version tracking | Support updates to existing episodes |
@@ -7567,10 +7574,14 @@ candidates = await l3_tier.get_promotion_candidates(
 
 #### Embedding Model
 
-**Model**: `sentence-transformers/all-mpnet-base-v2`
-- **Dimensions**: 768
-- **Performance**: ~50ms inference on CPU
-- **Quality**: State-of-the-art semantic understanding
+**Current production model**: `qwen/qwen3-embedding-8b` via OpenRouter
+- **Dimensions**: 4096
+- **Runtime path**: provider API embeddings through `LLMClient.get_embedding()`
+- **Storage**: Qdrant collection such as `episodes_qwen_v2`
+
+**Legacy/offline model path**: `sentence-transformers/all-mpnet-base-v2`
+- Requires `poetry install --with local-embeddings`
+- Not installed in the production REST/MCP image
 
 **Alternative**: `text-embedding-ada-002` (OpenAI) for higher quality (requires API calls)
 

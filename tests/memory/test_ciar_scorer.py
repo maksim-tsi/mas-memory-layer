@@ -554,9 +554,8 @@ class TestCIARScorerEdgeCases:
         fact = {"created_at": future}
         decay = scorer._calculate_age_decay(fact)
 
-        # Negative age should be handled
-        assert decay >= 0.0
-        assert decay <= 1.0
+        # Future timestamps are treated as age 0.
+        assert decay == 1.0
 
     def test_calculate_clamps_final_score(self, scorer):
         """Should clamp final CIAR score to 1.0 for extreme reinforcement values."""
@@ -570,6 +569,67 @@ class TestCIARScorerEdgeCases:
         }
 
         assert scorer.calculate(fact) == 1.0
+
+    def test_high_access_recency_boost_is_unbounded_before_final_clamp(self, scorer):
+        """Should keep ADR-004 linear reinforcement while clamping final CIAR."""
+        fact = {
+            "content": "Frequently retrieved operational rule",
+            "certainty": 0.9,
+            "impact": 0.9,
+            "created_at": datetime.now(UTC),
+            "access_count": 100,
+        }
+
+        components = scorer.calculate_components(fact)
+
+        assert components["recency_boost"] == 11.0
+        assert components["final_score"] == 1.0
+
+    def test_fact_validator_recomputes_when_all_components_are_explicit(self):
+        """Should treat explicit CIAR components as authoritative."""
+        fact = Fact(
+            fact_id="fact-explicit-components",
+            session_id="session-1",
+            content="Component-authoritative fact",
+            ciar_score=1.0,
+            certainty=0.8,
+            impact=0.5,
+            age_decay=1.0,
+            recency_boost=1.0,
+        )
+
+        assert fact.ciar_score == 0.4
+
+    def test_fact_validator_keeps_standalone_explicit_score(self):
+        """Should not reinterpret legacy facts that only provide ciar_score."""
+        fact = Fact(
+            fact_id="fact-standalone-score",
+            session_id="session-1",
+            content="Legacy stored fact with only a score",
+            ciar_score=0.7,
+        )
+
+        assert fact.ciar_score == 0.7
+
+    def test_fact_mark_accessed_recalculates_clamped_ciar_score(self):
+        """Should update access count, recency boost, and final CIAR together."""
+        fact = Fact(
+            fact_id="fact-accessed",
+            session_id="session-1",
+            content="Accessed fact",
+            ciar_score=0.25,
+            certainty=0.5,
+            impact=0.5,
+            age_decay=1.0,
+            recency_boost=1.0,
+            access_count=0,
+        )
+
+        fact.mark_accessed(alpha=0.1)
+
+        assert fact.access_count == 1
+        assert fact.recency_boost == 1.1
+        assert fact.ciar_score == 0.275
 
     def test_case_insensitive_fact_type(self, scorer):
         """Should handle fact_type case insensitively"""

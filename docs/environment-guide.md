@@ -17,24 +17,26 @@ pwd
 Interpretation:
 
 - **macOS local checkout** – `uname` prints `Darwin` and `pwd` resolves to `/Users/<name>/Documents/code/mas-memory-layer` (or similar). Use the `./.venv/bin/...` commands documented below.
-- **Remote Ubuntu via SSH** – `uname` prints `Linux`, `hostname` typically includes the jumpbox label (for example, `skz-dev-lv`), and `pwd` resolves to `/home/max/code/mas-memory-layer`. Follow the repository instructions that reference `/home/max/code/mas-memory-layer/.venv/bin/...`.
+- **Remote Ubuntu via SSH** – `uname` prints `Linux`, `hostname` typically includes the jumpbox label (for example, `development-host`), and `pwd` resolves to `<repo>`. Follow the repository instructions that reference `<repo>/.venv/bin/...`.
 - **Local Ubuntu desktop/RDP** – `uname` prints `Linux`, `hostname` matches the physical workstation, and `pwd` resolves to `/home/<user>/Documents/code/mas-memory-layer`. Use the relative-path commands from this document to keep scripts portable.
 
 Document the answers in the worklog when switching contexts so that reviewers understand which interpreter produced a given artifact.
 
 ## 2. Create or Refresh the Poetry Environments
 
-This repository uses two isolated Poetry environments:
+YAAM and the GoodAI benchmark use isolated Poetry environments:
 
 1. **Root environment (MAS Memory Layer)**  
    - Location: repository root  
    - Command: `poetry install --with test,dev`  
    - Virtualenv: `.venv/`
+   - Optional legacy/offline embeddings: add `--with local-embeddings` only when explicitly testing
+     the local SentenceTransformer path. Production REST/MCP runtime does not install this group.
 
-2. **Benchmark environment (GoodAI LTM Benchmark)**  
-   - Location: `benchmarks/goodai-ltm-benchmark/`  
+2. **Benchmark environment (GoodAI LTM Benchmark for YAAM)**
+   - Location: external checkout of `git@github.com-skazo4ny:maksim-tsi/goodai-ltm-benchmark-yaam.git`
    - Command: `poetry install`  
-   - Virtualenv: `benchmarks/goodai-ltm-benchmark/.venv/`
+   - Virtualenv: `.venv/` inside the benchmark repository
 
 Keep these environments separate to avoid dependency conflicts.
 
@@ -47,9 +49,19 @@ Run the appropriate Poetry install command from the correct directory.
 poetry install --with test,dev
 ```
 
+Do not install the optional local embedding stack by default. Use it only for legacy/offline
+SentenceTransformer experiments:
+
+```bash
+poetry install --with test,dev,local-embeddings
+```
+
+Production YAAM runtime uses provider API embeddings, currently OpenRouter
+`qwen/qwen3-embedding-8b` with `EMBEDDING_DIMENSIONS=4096`, and Qdrant through `qdrant-client`.
+
 **Benchmark environment:**
 ```bash
-cd benchmarks/goodai-ltm-benchmark
+cd ../goodai-ltm-benchmark-yaam
 poetry install
 ```
 
@@ -64,7 +76,7 @@ Run the diagnostic below immediately after installing requirements. The printed 
 When working on the remote Ubuntu host that mandates absolute paths, the equivalent command is:
 
 ```bash
-/home/max/code/mas-memory-layer/.venv/bin/python -c "import sys; print(sys.executable)"
+<repo>/.venv/bin/python -c "import sys; print(sys.executable)"
 ```
 
 If the output differs, restart the session and recreate the environment. Continuing with the wrong interpreter will pollute system packages or CI caches.
@@ -78,12 +90,12 @@ After the interpreter check passes, run the lightweight diagnostics to confirm t
 ./scripts/run_smoke_tests.sh --summary
 ```
 
-For remote hosts replace the interpreter path with `/home/max/code/mas-memory-layer/.venv/bin/python` if required by operations.
+For remote hosts replace the interpreter path with `<repo>/.venv/bin/python` if required by operations.
 
 ## 6. Relative vs. Absolute Paths
 
 - Use **relative paths** (`./.venv/bin/python`, `./scripts/...`) in documentation and shared snippets. These commands succeed on macOS, local Ubuntu, and most CI runners.
-- Use **absolute paths** only when interacting with the managed remote environment that enforces `/home/max/code/mas-memory-layer/.venv/bin/...`. When documenting such commands, explicitly note the host requirement.
+- Use **absolute paths** only when interacting with the managed remote environment that enforces `<repo>/.venv/bin/...`. When documenting such commands, explicitly note the host requirement.
 
 Maintaining both forms prevents accidental edits to the remote interpreter while still honouring operational safeguards.
 

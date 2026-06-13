@@ -10,10 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import inspect
 import logging
 import os
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, ClassVar, cast
 
 from src.llm.providers.base import BaseProvider, LLMResponse, ProviderHealth
@@ -27,6 +29,151 @@ PHOENIX_SERVICE_NAME = "mas-memory-layer"
 
 _PHOENIX_INITIALIZED = False
 _PHOENIX_PROJECT_NAME: str | None = None
+_PHOENIX_OWNED_TRACER_PROVIDER: Any | None = None
+
+_GOOGLE_GENAI_OPENINFERENCE_MIN_VERSION = "1.57.0"
+_OPENAI_OPENINFERENCE_MIN_VERSION = "2.8.0"
+
+_PHOENIX_SPAN_PROCESSOR_ENV = "YAAM_OTEL_SPAN_PROCESSOR"
+_PHOENIX_FORCE_FLUSH_TIMEOUT_ENV = "YAAM_OTEL_FORCE_FLUSH_TIMEOUT_MS"
+_PHOENIX_DEFAULT_FORCE_FLUSH_TIMEOUT_MS = 5000
+
+
+def _package_version_at_least(package_name: str, minimum_version: str) -> bool:
+    """Return whether an installed package is new enough for explicit instrumentation."""
+    try:
+        from packaging.version import Version
+
+        return Version(version(package_name)) >= Version(minimum_version)
+    except PackageNotFoundError:
+        return False
+    except Exception as e:
+        logger.debug("Could not inspect package version for %s: %s", package_name, e)
+        return False
+
+
+def _phoenix_uses_batch_span_processor() -> bool:
+    """Return whether Phoenix should use its BatchSpanProcessor path."""
+    configured = os.environ.get(_PHOENIX_SPAN_PROCESSOR_ENV, "batch").strip().lower()
+    if configured == "simple":
+        return False
+    if configured == "batch":
+        return True
+    logger.warning(
+        "Invalid %s=%r; defaulting Phoenix tracing to BatchSpanProcessor",
+        _PHOENIX_SPAN_PROCESSOR_ENV,
+        configured,
+    )
+    return True
+
+
+def _phoenix_force_flush_timeout_ms() -> int:
+    """Return the configured Phoenix force-flush timeout in milliseconds."""
+    configured = os.environ.get(_PHOENIX_FORCE_FLUSH_TIMEOUT_ENV)
+    if configured is None:
+        return _PHOENIX_DEFAULT_FORCE_FLUSH_TIMEOUT_MS
+    try:
+        timeout = int(configured)
+    except ValueError:
+        logger.warning(
+            "Invalid %s=%r; defaulting to %dms",
+            _PHOENIX_FORCE_FLUSH_TIMEOUT_ENV,
+            configured,
+            _PHOENIX_DEFAULT_FORCE_FLUSH_TIMEOUT_MS,
+        )
+        return _PHOENIX_DEFAULT_FORCE_FLUSH_TIMEOUT_MS
+    if timeout <= 0:
+        logger.warning(
+            "Invalid %s=%r; defaulting to %dms",
+            _PHOENIX_FORCE_FLUSH_TIMEOUT_ENV,
+            configured,
+            _PHOENIX_DEFAULT_FORCE_FLUSH_TIMEOUT_MS,
+        )
+        return _PHOENIX_DEFAULT_FORCE_FLUSH_TIMEOUT_MS
+    return timeout
+
+
+def _get_current_tracer_provider() -> Any:
+    """Return the active OpenTelemetry tracer provider."""
+    from opentelemetry import trace
+
+    return trace.get_tracer_provider()
+
+
+def _is_proxy_tracer_provider(tracer_provider: Any) -> bool:
+    """Return whether OpenTelemetry still has only the lazy proxy provider."""
+    from opentelemetry import trace
+
+    return isinstance(tracer_provider, trace.ProxyTracerProvider)
+
+
+def _register_phoenix_tracer_provider(
+    *,
+    project_name: str,
+    endpoint: str,
+    batch: bool,
+) -> Any:
+    """Register YAAM's Phoenix tracer provider."""
+    from phoenix.otel import register
+
+    return register(
+        project_name=project_name,
+        endpoint=endpoint,
+        batch=batch,
+        verbose=False,
+        auto_instrument=False,
+    )
+
+
+def _instrument_provider_sdks(tracer_provider: Any) -> None:
+    """Enable supported provider SDK instrumentation against the tracer provider."""
+    # Explicitly instrument Google GenAI if auto_instrument missed it
+    try:
+        # Check if google.genai is actually installed first to avoid "Could not import" warning from instrumentor
+        if importlib.util.find_spec("google.genai"):
+            if _package_version_at_least("google-genai", _GOOGLE_GENAI_OPENINFERENCE_MIN_VERSION):
+                from openinference.instrumentation.google_genai import GoogleGenAIInstrumentor
+
+                instrumentor = GoogleGenAIInstrumentor()
+                if not getattr(instrumentor, "_is_instrumented_by_opentelemetry", False):
+                    instrumentor.instrument(tracer_provider=tracer_provider)
+                    logger.info("Google GenAI instrumentation enabled (explicit)")
+            else:
+                logger.info(
+                    "Skipping Google GenAI instrumentation: google-genai must be >=%s",
+                    _GOOGLE_GENAI_OPENINFERENCE_MIN_VERSION,
+                )
+        else:
+            logger.debug("google.genai module not found; skipping instrumentation")
+
+    except ImportError:
+        logger.debug(
+            "openinference-instrumentation-google-genai not installed; "
+            "Google GenAI calls will not be traced"
+        )
+    except Exception as e:
+        logger.warning("Failed to instrument Google GenAI: %s", e)
+
+    # Explicitly instrument OpenAI SDK (which powers OpenRouter calls)
+    try:
+        if _package_version_at_least("openai", _OPENAI_OPENINFERENCE_MIN_VERSION):
+            from openinference.instrumentation.openai import OpenAIInstrumentor
+
+            instrumentor = OpenAIInstrumentor()
+            if not getattr(instrumentor, "_is_instrumented_by_opentelemetry", False):
+                instrumentor.instrument(tracer_provider=tracer_provider)
+                logger.info("OpenAI instrumentation enabled")
+        else:
+            logger.info(
+                "Skipping OpenAI instrumentation: openai must be >=%s",
+                _OPENAI_OPENINFERENCE_MIN_VERSION,
+            )
+    except ImportError:
+        logger.debug(
+            "openinference-instrumentation-openai not installed; OpenAI calls will not be traced"
+        )
+    except Exception as e:
+        logger.warning("Failed to instrument OpenAI: %s", e)
 
 
 # Phoenix/OpenTelemetry auto-instrumentation (optional)
@@ -49,65 +196,36 @@ def _init_phoenix_instrumentation() -> None:
     try:
         global _PHOENIX_INITIALIZED
         global _PHOENIX_PROJECT_NAME
+        global _PHOENIX_OWNED_TRACER_PROVIDER
         # Mark as initialized immediately to prevent retries on partial failures
         _PHOENIX_INITIALIZED = True
         _PHOENIX_PROJECT_NAME = project_name
 
         # Register tracer provider with Phoenix collector
         # Check if tracer provider is already registered to avoid "Overriding of current TracerProvider" warning
-        from opentelemetry import trace
-        from phoenix.otel import register
+        current_provider = _get_current_tracer_provider()
 
-        if isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider):
+        if _is_proxy_tracer_provider(current_provider):
             # Only register if no real provider is set
-            tracer_provider = register(
+            use_batch = _phoenix_uses_batch_span_processor()
+            tracer_provider = _register_phoenix_tracer_provider(
                 project_name=project_name,
                 endpoint=endpoint,
-                auto_instrument=True,  # Auto-detect and instrument installed packages
+                batch=use_batch,
             )
+            _PHOENIX_OWNED_TRACER_PROVIDER = tracer_provider
 
             logger.info(
-                "Phoenix instrumentation enabled: project=%s, endpoint=%s", project_name, endpoint
+                "Phoenix instrumentation enabled: project=%s, endpoint=%s, span_processor=%s",
+                project_name,
+                endpoint,
+                "batch" if use_batch else "simple",
             )
         else:
             logger.debug("Phoenix instrumentation skipped: TracerProvider already set")
-            tracer_provider = trace.get_tracer_provider()  # type: ignore
+            tracer_provider = current_provider
 
-        # Explicitly instrument Google GenAI if auto_instrument missed it
-        try:
-            # Check if google.genai is actually installed first to avoid "Could not import" warning from instrumentor
-            if importlib.util.find_spec("google.genai"):
-                from openinference.instrumentation.google_genai import GoogleGenAIInstrumentor
-
-                instrumentor = GoogleGenAIInstrumentor()
-                if not getattr(instrumentor, "_is_instrumented_by_opentelemetry", False):
-                    instrumentor.instrument(tracer_provider=tracer_provider)
-                    logger.info("Google GenAI instrumentation enabled (explicit)")
-            else:
-                logger.debug("google.genai module not found; skipping instrumentation")
-
-        except ImportError:
-            logger.debug(
-                "openinference-instrumentation-google-genai not installed; "
-                "Google GenAI calls will not be traced"
-            )
-        except Exception as e:
-            logger.warning("Failed to instrument Google GenAI: %s", e)
-
-        # Explicitly instrument OpenAI SDK (which powers OpenRouter calls)
-        try:
-            from openinference.instrumentation.openai import OpenAIInstrumentor
-
-            instrumentor = OpenAIInstrumentor()
-            if not getattr(instrumentor, "_is_instrumented_by_opentelemetry", False):
-                instrumentor.instrument(tracer_provider=tracer_provider)
-                logger.info("OpenAI instrumentation enabled")
-        except ImportError:
-            logger.debug(
-                "openinference-instrumentation-openai not installed; OpenAI calls will not be traced"
-            )
-        except Exception as e:
-            logger.warning("Failed to instrument OpenAI: %s", e)
+        _instrument_provider_sdks(tracer_provider)
 
     except ImportError:
         logger.debug(
@@ -130,6 +248,36 @@ def ensure_phoenix_instrumentation() -> None:
     _init_phoenix_instrumentation()
 
 
+def shutdown_phoenix_instrumentation() -> None:
+    """Flush and shut down YAAM-owned Phoenix tracing resources."""
+    global _PHOENIX_INITIALIZED
+    global _PHOENIX_OWNED_TRACER_PROVIDER
+    global _PHOENIX_PROJECT_NAME
+
+    tracer_provider = _PHOENIX_OWNED_TRACER_PROVIDER
+    if tracer_provider is None:
+        return
+
+    timeout_ms = _phoenix_force_flush_timeout_ms()
+    if hasattr(tracer_provider, "force_flush"):
+        try:
+            tracer_provider.force_flush(timeout_millis=timeout_ms)
+        except TypeError:
+            tracer_provider.force_flush(timeout_ms)
+        except Exception as e:  # pragma: no cover - defensive cleanup path
+            logger.warning("Failed to force-flush Phoenix spans: %s", e)
+
+    if hasattr(tracer_provider, "shutdown"):
+        try:
+            tracer_provider.shutdown()
+        except Exception as e:  # pragma: no cover - defensive cleanup path
+            logger.warning("Failed to shut down Phoenix tracer provider: %s", e)
+
+    _PHOENIX_OWNED_TRACER_PROVIDER = None
+    _PHOENIX_INITIALIZED = False
+    _PHOENIX_PROJECT_NAME = None
+
+
 # Initialize at module load time (idempotent)
 ensure_phoenix_instrumentation()
 
@@ -150,13 +298,16 @@ class LLMClient:
 
     # Model-to-provider routing map
     MODEL_ROUTING: ClassVar[dict[str, list[str]]] = {
-        "gemini-3-flash-preview": ["google", "gemini"],  # Try both possible names
-        "gemini-3-pro-preview": ["google-pro", "google", "gemini"],
+        "x-ai/grok-4.1-fast": ["openrouter"],
+        "tencent/hy3-preview": ["openrouter"],
+        "qwen/qwen3-embedding-8b": ["openrouter"],
+        "gemini-3-flash-preview": ["google", "gemini", "openrouter"],  # Try both possible names
+        "gemini-3-pro-preview": ["google-pro", "google", "gemini", "openrouter"],
         "gemini-2.5-flash": ["google", "gemini"],
         "gemini-embedding-001": ["google", "gemini"],
         "text-embedding-004": ["google", "gemini"],
-        "openai/gpt-oss-120b": ["groq"],
-        "mistral-large": ["mistral"],
+        "openai/gpt-oss-120b": ["groq", "openrouter"],
+        "mistral-large": ["mistral", "openrouter"],
     }
 
     def __init__(self, provider_configs: Iterable[ProviderConfig] | None = None) -> None:
@@ -174,22 +325,30 @@ class LLMClient:
         from src.llm.providers.gemini import GeminiProvider
         from src.llm.providers.groq import GroqProvider
         from src.llm.providers.mistral import MistralProvider
+        from src.llm.providers.openrouter import OpenRouterProvider
 
         ensure_phoenix_instrumentation()
 
+        openrouter_timeout = float(os.environ.get("MAS_OPENROUTER_TIMEOUT", "120.0"))
+
         client = cls(
             provider_configs=[
-                ProviderConfig(name="gemini", timeout=30.0, priority=0),
+                ProviderConfig(name="openrouter", timeout=openrouter_timeout, priority=0),
                 ProviderConfig(name="groq", timeout=30.0, priority=1),
                 ProviderConfig(name="mistral", timeout=30.0, priority=2),
+                ProviderConfig(name="gemini", timeout=30.0, priority=3),
             ]
         )
+
+        openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+        if openrouter_key:
+            client.register_provider(OpenRouterProvider(api_key=openrouter_key))
+        else:
+            logger.warning("OPENROUTER_API_KEY not set; OpenRouter provider disabled.")
 
         google_key = os.environ.get("GOOGLE_API_KEY")
         if google_key:
             client.register_provider(GeminiProvider(api_key=google_key))
-        else:
-            logger.warning("GOOGLE_API_KEY not set; Gemini provider disabled.")
 
         groq_key = os.environ.get("GROQ_API_KEY")
         if groq_key:
@@ -222,6 +381,59 @@ class LLMClient:
     def available_providers(self) -> Sequence[str]:
         """Return the currently registered provider names."""
         return list(self._providers.keys())
+
+    async def close(self) -> dict[str, Any]:
+        """Best-effort cleanup for registered provider SDK clients.
+
+        Provider SDKs differ in lifecycle support. This method intentionally
+        reports cleanup errors instead of raising so callers can preserve the
+        original operation result.
+        """
+        errors: list[dict[str, str]] = []
+        for provider_name, provider in self._providers.items():
+            errors.extend(await self._close_provider(provider_name, provider))
+        return {
+            "status": "warning" if errors else "ok",
+            "errors": errors,
+        }
+
+    async def aclose(self) -> dict[str, Any]:
+        """Alias for async context-manager style callers."""
+        return await self.close()
+
+    async def _close_provider(self, provider_name: str, provider: BaseProvider) -> list[dict[str, str]]:
+        errors: list[dict[str, str]] = []
+        targets = [provider]
+        provider_client = getattr(provider, "client", None)
+        if provider_client is not None and provider_client is not provider:
+            targets.append(provider_client)
+
+        seen: set[int] = set()
+        for target in targets:
+            if id(target) in seen:
+                continue
+            seen.add(id(target))
+            close_method = getattr(target, "aclose", None) or getattr(target, "close", None)
+            if close_method is None:
+                continue
+            try:
+                if inspect.iscoroutinefunction(close_method):
+                    await close_method()
+                else:
+                    result = await asyncio.to_thread(close_method)
+                    if inspect.isawaitable(result):
+                        await result
+            except Exception as exc:  # pragma: no cover - defensive diagnostics
+                logger.warning("Failed to close provider '%s': %s", provider_name, exc)
+                errors.append(
+                    {
+                        "provider": provider_name,
+                        "target": type(target).__name__,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    }
+                )
+        return errors
 
     async def generate(
         self,
@@ -311,7 +523,12 @@ class LLMClient:
                     response.provider = provider_name
                 return response
             except Exception as exc:  # pragma: no cover - defensive fallback
-                logger.warning("Provider '%s' failed: %s", provider_name, exc)
+                logger.warning(
+                    "Provider '%s' failed: %s: %s",
+                    provider_name,
+                    type(exc).__name__,
+                    exc,
+                )
                 last_exc = exc
                 continue
 
@@ -320,19 +537,18 @@ class LLMClient:
     async def get_embedding(
         self, text: str, model: str | None = None, provider: str | None = None
     ) -> list[float]:
-        """Get embedding for text from specified or default provider."""
-        # Simple routing for now - default to gemini if available, otherwise first available
-        target_provider = None
+        """Get embedding for text using explicit or OpenRouter-first fail-fast routing."""
+        if provider:
+            target_provider = self._providers.get(provider)
+            if not target_provider:
+                raise RuntimeError(f"Requested embedding provider '{provider}' is not configured")
+            return await target_provider.get_embedding(text, model=model)
 
-        if provider and provider in self._providers:
-            target_provider = self._providers[provider]
-        elif "gemini" in self._providers:
-            target_provider = self._providers["gemini"]
-        elif self._providers:
-            target_provider = next(iter(self._providers.values()))
-
+        target_provider = self._providers.get("openrouter")
         if not target_provider:
-            raise RuntimeError("No LLM provider available for embeddings")
+            raise RuntimeError(
+                "OpenRouter provider is required for embeddings but is not configured"
+            )
 
         return await target_provider.get_embedding(text, model=model)
 
@@ -399,4 +615,5 @@ __all__ = [
     "ProviderConfig",
     "ProviderHealth",
     "ensure_phoenix_instrumentation",
+    "shutdown_phoenix_instrumentation",
 ]
