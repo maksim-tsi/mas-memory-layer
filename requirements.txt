@@ -1,0 +1,100 @@
+# file: requirements.txt
+#
+# Python Version: 3.13.5
+# Date: September 14, 2025
+#
+# This file contains the Python dependencies for the Hybrid Memory System project.
+# To install, run: pip install -r requirements.txt
+#
+# SYSTEM DEPENDENCIES (install before pip install):
+# - PostgreSQL client tools (psql): Required for database setup and migrations
+#   Ubuntu/Debian: sudo apt install -y postgresql-client
+#   macOS: brew install postgresql
+#   Verify: psql --version
+
+# --- Core Frameworks & Data Validation ---
+pydantic==2.8.2          # For data validation, settings management, and defining our data schemas.
+
+# --- Operating Memory Layer (Redis) ---
+redis==5.0.7             # The official Python client for Redis.
+
+# PostgreSQL Async Driver
+# Note: asyncpg requires compilation. If you encounter build errors:
+# Option 1 (Recommended): Use psycopg[binary] instead
+# Option 2: Ensure build tools are installed: apt-get install build-essential python3-dev
+# For Python 3.13, we use psycopg with binary wheels (works with Python 3.13)
+psycopg[binary]>=3.2.0  # PostgreSQL adapter with binary wheels (works with Python 3.13)
+psycopg_pool==3.2.7     # Async connection pooling layer used by PostgresAdapter
+
+# --- Persistent Knowledge Layer (Specialized Databases) ---
+
+# Vector Store Client
+qdrant-client==1.9.2     # The official Python client for the Qdrant vector database.
+sentence-transformers==3.0.1 # Used for creating high-quality sentence/text embeddings.
+# Note: sentence-transformers will pull in PyTorch, transformers, etc.
+
+# Graph Store Client
+neo4j==5.22.0            # The official Python driver for the Neo4j graph database.
+
+# --- LLM Providers (ADR-006: Free-Tier Multi-Provider Strategy) ---
+
+# OpenRouter (Primary Provider)
+openai>=1.14.0           # Official OpenAI Python SDK, configured for OpenRouter
+                        # Documentation: https://github.com/openai/openai-python
+
+# Google Gemini (Deprecated V1 Provider)
+google-genai==1.2.0      # Official Google Generative AI SDK for Gemini models
+                        # Supports: gemini-2.5-flash, gemini-2.0-flash, gemini-2.5-flash-lite
+                        # Rate limits: 10-15 RPM, 250k-1M TPM
+                        # Documentation: https://ai.google.dev/
+
+# Groq (Ultra-Fast Inference Provider)
+groq==0.33.0             # Official Groq SDK for ultra-fast LPU inference
+                        # Supports: llama-3.1-8b-instant, openai/gpt-oss-120b, mixtral, gemma2
+                        # Rate limits: 30 RPM, 20k-200k TPM, ~250-800 tokens/sec
+                        # Documentation: https://console.groq.com/docs
+
+# Mistral AI (Complex Reasoning Provider)
+mistralai==1.0.3         # Official Mistral AI SDK for advanced reasoning models
+                        # Supports: mistral-large-latest, mistral-small-latest
+                        # Rate limits: 60 RPM (1 RPS), fair use policy
+                        # Documentation: https://docs.mistral.ai/
+
+# --- Observability & Tracing (Arize Phoenix) ---
+arize-phoenix>=4.0.0                              # Phoenix LLM observability SDK
+                                                 # Provides: Trace visualization, embedding analysis, latency debugging
+                                                 # Documentation: https://docs.arize.com/phoenix
+openinference-instrumentation-google-genai>=0.1.0 # Auto-instrumentation for Google GenAI SDK
+                                                 # Traces: generate_content, embed_content calls
+opentelemetry-exporter-otlp>=1.20.0               # OTLP exporter for sending traces to Phoenix
+                                                 # Supports: HTTP (/v1/traces) and gRPC (port 4317)
+
+# --- Agent Integration & Orchestration (Phase 3) ---
+langgraph>=0.1.0         # LangGraph for multi-agent state graphs and orchestration
+                        # Used for: Supervisor + Sub-Graph topology, state management
+                        # Documentation: https://langchain-ai.github.io/langgraph/
+                        
+langchain-core>=0.3.25,<0.4.0    # LangChain core components for agent tools and memory
+                        # Used for: Tool interfaces, message structures, callbacks
+                        # Documentation: https://python.langchain.com/docs/get_started/introduction
+
+langsmith>=0.1.17,<0.3.0  # LangChain tracing/evals client required by langchain 0.3.x
+
+fastapi>=0.100.0         # Modern web framework for building agent wrapper API
+                        # Used for: /run_turn endpoint, async request handling
+                        # Documentation: https://fastapi.tiangolo.com/
+
+uvicorn>=0.23.0          # ASGI server for FastAPI applications
+                        # Used for: Running the agent API server
+                        # Documentation: https://www.uvicorn.org/
+
+# --- HTTP Clients ---
+httpx>=0.27.0,<0.28.0     # Compatible with mistralai 1.0.3
+
+# --- Development & Testing Utilities ---
+fakeredis==2.23.1        # A mock Redis client, useful for running tests without a live Redis server.
+mypy==1.19.1             # Static type checker (mypy)
+# Note: For the __main__ demo block in memory_system.py to run self-contained.
+
+# --- Environment Management ---
+python-dotenv==1.2.1     # Loads provider keys and infra settings for scripts/tests

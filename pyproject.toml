@@ -1,0 +1,169 @@
+[tool.poetry]
+name = "mas-memory-layer"
+version = "0.1.0"
+description = "Four-tier cognitive memory system for Multi-Agent Systems"
+readme = "README.md"
+license = "MIT"
+authors = ["MAS Memory Layer Team"]
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = ">=3.12,<3.14"
+
+# Core Frameworks & Data Validation
+pydantic = ">=2.9.0,<3.0.0"
+
+# Operating Memory Layer (Redis)
+redis = "5.0.7"
+
+# PostgreSQL Async Driver
+psycopg = {version = ">=3.2.0", extras = ["binary"]}
+psycopg-pool = "3.2.7"
+
+# Vector Store Client
+qdrant-client = "1.9.2"
+
+# Graph Store Client
+neo4j = "5.22.0"
+
+# Search Store Client
+
+# LLM Providers (ADR-006: Free-Tier Multi-Provider Strategy)
+openai = ">=2.8.0,<3.0.0"
+google-genai = ">=1.57.0,<2.0.0"
+groq = "0.33.0"
+mistralai = ">=1.10.0,<2.0.0"
+
+# Observability & Tracing (Arize Phoenix)
+arize-phoenix = ">=4.0.0"
+openinference-instrumentation-google-genai = ">=0.1.0"
+openinference-semantic-conventions = ">=0.1.30,<0.2.0"
+opentelemetry-exporter-otlp = ">=1.20.0"
+
+# Agent Integration & Orchestration (Phase 3)
+langgraph = ">=0.1.0"
+langchain-core = ">=0.3.25,<0.4.0"
+langsmith = ">=0.1.17,<0.3.0"
+
+# Web Framework
+fastapi = ">=0.100.0"
+uvicorn = ">=0.23.0"
+
+# HTTP Clients
+httpx = ">=0.28.1,<1.0.0"
+
+# Development & Testing Utilities
+fakeredis = "2.23.1"
+python-dotenv = "1.2.1"
+opentelemetry-instrumentation-fastapi = "^0.62b0"
+openinference-instrumentation-openai = "^0.1.44"
+mcp = ">=1.12.4,<1.27.1"
+
+[tool.poetry.group.test]
+optional = true
+
+[tool.poetry.group.test.dependencies]
+pytest = ">=7.4.0"
+pytest-asyncio = ">=0.21.0"
+pytest-cov = ">=7.0.0"
+pytest-html = ">=3.1.0"
+pytest-mock = ">=3.12.0"
+requests = ">=2.31.0"
+
+[tool.poetry.group.dev]
+optional = true
+
+[tool.poetry.group.dev.dependencies]
+mypy = "1.19.1"
+ruff = ">=0.4.0"
+types-pyyaml = "^6.0.12.20250915"
+
+[tool.poetry.group.local-embeddings]
+optional = true
+
+[tool.poetry.group.local-embeddings.dependencies]
+sentence-transformers = "3.0.1"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+# ── Tool Configuration (preserved from original) ──────────────────────
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "smoke: connectivity checks (fast, no external deps)",
+    "integration: multi-component integration tests",
+    "unit: isolated unit tests with mocks",
+    "slow: long-running tests (real LLM calls)",
+    "llm_real: real LLM provider tests (requires GOOGLE_API_KEY)",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "I",      # isort
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "SIM",    # flake8-simplify
+    "RUF",    # ruff-specific
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "B008",   # function call in default argument (common in FastAPI)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+disallow_untyped_defs = false
+namespace_packages = true
+explicit_package_bases = true
+# Staged rollout: start with core modules, expand over time
+# See docs/plan/enterprise-practices-rollout.md for details
+files = [
+    "src/memory/",
+    "src/storage/",
+]
+
+[[tool.mypy.overrides]]
+module = "google.*"
+ignore_errors = true
+follow_imports = "skip"

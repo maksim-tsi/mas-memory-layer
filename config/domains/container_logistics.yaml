@@ -1,0 +1,196 @@
+# Container Logistics Domain Configuration
+# Defines metadata schema and filtering rules for container shipping operations
+
+domain:
+  name: "container_logistics"
+  description: "Container shipping, port operations, and supply chain logistics"
+  version: "1.0.0"
+
+# Metadata Schema
+# These fields are extracted from episodes and used for filtering before similarity search
+metadata_schema:
+  # Core Identifiers
+  terminal_id:
+    type: string
+    description: "Container terminal identifier (e.g., LBCT, APM, TTI)"
+    required: false
+    indexed: true
+    
+  port_code:
+    type: string
+    description: "UN/LOCODE port identifier (e.g., USLAX, USNYC, SGSIN)"
+    required: false
+    indexed: true
+    pattern: "^[A-Z]{5}$"
+    
+  shipping_line:
+    type: string
+    description: "Ocean carrier / shipping line (e.g., MAERSK, MSC, CMA)"
+    required: false
+    indexed: true
+    
+  container_type:
+    type: string
+    description: "Container type code (e.g., 40HC, 20GP, 45RF)"
+    required: false
+    indexed: true
+    enum:
+      - "20GP"  # 20ft General Purpose
+      - "40GP"  # 40ft General Purpose
+      - "40HC"  # 40ft High Cube
+      - "45HC"  # 45ft High Cube
+      - "20RF"  # 20ft Reefer
+      - "40RF"  # 40ft Reefer
+      - "20OT"  # 20ft Open Top
+      - "40OT"  # 40ft Open Top
+      - "20FR"  # 20ft Flat Rack
+      - "40FR"  # 40ft Flat Rack
+      
+  # Geographic Dimensions
+  trade_lane:
+    type: string
+    description: "Major trade route (e.g., TRANSPACIFIC, TRANSATLANTIC, ASIA_EUROPE)"
+    required: false
+    indexed: true
+    enum:
+      - "TRANSPACIFIC"
+      - "TRANSATLANTIC"
+      - "ASIA_EUROPE"
+      - "INTRA_ASIA"
+      - "LATIN_AMERICA"
+      - "MIDDLE_EAST"
+      - "AFRICA"
+      
+  region:
+    type: string
+    description: "Geographic region (e.g., APAC, EMEA, AMERICAS)"
+    required: false
+    indexed: true
+    enum:
+      - "APAC"      # Asia-Pacific
+      - "EMEA"      # Europe, Middle East, Africa
+      - "AMERICAS"  # North and South America
+      
+  # Business Context
+  customer_id:
+    type: string
+    description: "Customer account identifier"
+    required: false
+    indexed: true
+    
+  vessel_id:
+    type: string
+    description: "Vessel IMO number or identifier"
+    required: false
+    indexed: false
+
+# Matching Rules
+# Define how to filter knowledge documents based on query context
+matching_rules:
+  # Exact match rules - must match exactly if present in both query and document
+  exact_match_fields:
+    - terminal_id
+    - port_code
+    - customer_id
+    
+  # Hierarchical match rules - allow matching at different levels of specificity
+  hierarchical_fields:
+    region:
+      # If query specifies region, prefer documents with same region
+      # But don't exclude documents without region metadata
+      weight: 0.8
+      fallback: true
+      
+    trade_lane:
+      # Trade lane is more specific than region
+      weight: 0.9
+      fallback: true
+      
+  # Categorical match rules - prefer matching categories but allow mismatches
+  categorical_fields:
+    container_type:
+      # Prefer same container type but allow different types if similarity is high
+      weight: 0.6
+      fallback: true
+      
+    shipping_line:
+      # Prefer same carrier but allow cross-carrier knowledge
+      weight: 0.5
+      fallback: true
+
+# Filtering Strategy
+filtering:
+  # Metadata-first filtering (before similarity search)
+  metadata_first: true
+  
+  # Minimum number of metadata fields that must match
+  # Set to 0 to allow semantic similarity to dominate when metadata is sparse
+  min_matching_fields: 0
+  
+  # Boost factor for documents with matching metadata
+  # Applied as: final_score = similarity_score * (1 + boost_factor * matching_field_ratio)
+  metadata_boost: 0.3
+  
+  # Similarity threshold after metadata filtering
+  similarity_threshold: 0.85
+  
+  # Maximum results to return before synthesis
+  max_candidates: 20
+
+# Knowledge Types
+# Different types of knowledge documents that can be generated
+knowledge_types:
+  summary:
+    description: "Condensed overview of episode(s)"
+    llm_instruction: "Summarize the key facts and outcomes from these episodes in 2-3 sentences."
+    
+  insight:
+    description: "Deeper analysis or pattern recognition"
+    llm_instruction: "Identify non-obvious patterns, correlations, or insights from these episodes."
+    
+  pattern:
+    description: "Recurring behavior or trend"
+    llm_instruction: "Describe recurring patterns, common sequences, or typical workflows observed."
+    
+  recommendation:
+    description: "Actionable advice or best practice"
+    llm_instruction: "Based on these episodes, what recommendations or best practices can be extracted?"
+    
+  rule:
+    description: "Explicit rule or constraint"
+    llm_instruction: "Extract any explicit rules, policies, or constraints mentioned or implied."
+
+# Conflict Resolution
+conflicts:
+  # How to handle contradictory knowledge
+  strategy: "surface"  # Options: "surface", "resolve", "ignore"
+  
+  # Mark conflicting documents with this tag
+  conflict_tag: "CONFLICT_DETECTED"
+  
+  # Include conflict explanation in synthesis
+  explain_conflicts: true
+
+# Caching
+cache:
+  # Enable result caching for query-time synthesis
+  enabled: true
+  
+  # TTL for cached results (in seconds)
+  ttl_seconds: 3600  # 1 hour
+  
+  # Cache key includes query text + metadata filters
+  cache_key_fields:
+    - query_text
+    - metadata_filters
+    
+# Performance Targets
+performance:
+  # Target latency for metadata filtering + similarity search (ms)
+  target_retrieval_latency_ms: 200
+  
+  # Target latency for LLM synthesis (ms)
+  target_synthesis_latency_ms: 1500
+  
+  # Total target latency (ms)
+  target_total_latency_ms: 2000

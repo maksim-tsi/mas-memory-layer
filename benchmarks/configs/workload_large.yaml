@@ -1,0 +1,21 @@
+# Large Workload Configuration
+# Stress test for production capacity planning
+
+name: large
+size: 100000
+seed: 42
+
+# Operation distribution across storage layers
+distribution:
+  redis_l1: 0.40      # 40% - L1 hot cache
+  redis_l2: 0.30      # 30% - L2 warm cache
+  qdrant: 0.15        # 15% - L3 semantic search
+  neo4j: 0.10         # 10% - L3 graph traversal
+  typesense: 0.05     # 5%  - L3 full-text search
+
+# Expected runtime: ~30-60 minutes
+description: |
+  Large workload for stress testing and production capacity planning.
+  Simulates extended usage patterns and validates system stability
+  under sustained load. Use for performance regression testing
+  and capacity planning.

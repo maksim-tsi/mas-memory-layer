@@ -1,0 +1,50 @@
+# CIAR Scoring Configuration
+# Certainty-Impact-Age-Recency scoring system for memory promotion
+# See ADR-004 for normative scoring algorithm details
+
+ciar:
+  # Minimum CIAR score threshold for L1→L2 promotion
+  threshold: 0.6
+  
+  # Age decay parameters
+  # Formula: exp(-lambda * age_days)
+  # ADR-004 default lambda corresponds to an approximately 30-day half-life
+  age_decay:
+    lambda: 0.0231
+    max_age_days: null
+    min_score: 0.0
+  
+  # Recency boost parameters
+  # Formula: 1 + (boost_factor * access_count)
+  # ADR-004 uses linear reinforcement; max_boost is retained only for optional compatibility
+  recency:
+    boost_factor: 0.1
+    max_boost: null
+  
+  # Default certainty if not provided by LLM
+  certainty:
+    default: 0.7
+    # Heuristic adjustments
+    explicit_statement: 1.0  # "I prefer X"
+    implied_preference: 0.8  # "I usually do X"
+    observation: 0.6  # "User did X"
+    speculation: 0.4  # "User might like X"
+  
+  # Impact weights by fact type
+  # Higher weight = more important to remember
+  impact_weights:
+    preference: 0.9  # User preferences (critical)
+    constraint: 0.8  # Rules, requirements (important)
+    goal: 0.8  # User objectives
+    entity: 0.6  # Named entities, references (moderate)
+    relationship: 0.6  # Connections between entities
+    attribute: 0.5  # Properties, characteristics
+    mention: 0.3  # Simple mentions (low priority)
+    context: 0.4  # Background information
+  
+  # Scoring formula weights (for future tuning)
+  # Final score = clamp((certainty * impact) * age_decay * recency_boost, 0..1)
+  formula:
+    certainty_weight: 1.0
+    impact_weight: 1.0
+    temporal_weight: 1.0  # Combines age_decay and recency_boost

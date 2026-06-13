@@ -1,0 +1,559 @@
+"""API Wall server exposing OpenAI-compatible chat completions."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import time
+import uuid
+from collections.abc import Iterable
+from contextlib import asynccontextmanager, nullcontext
+from datetime import UTC, datetime
+from typing import Any, Literal
+
+import uvicorn
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
+from pydantic import BaseModel, ConfigDict, Field
+
+from src.agents.models import RunTurnRequest
+from src.api import v2_router
+from src.evaluation import agent_wrapper
+
+logger = logging.getLogger(__name__)
+
+
+class ChatCompletionMessage(BaseModel):
+    """OpenAI-compatible chat message payload."""
+
+    role: str
+    content: Any
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ChatCompletionRequest(BaseModel):
+    """OpenAI-compatible chat completion request payload."""
+
+    model: str | None = None
+    messages: list[ChatCompletionMessage]
+    stream: bool = False
+    metadata: dict[str, Any] | None = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ChatCompletionChoice(BaseModel):
+    """Single chat completion choice."""
+
+    index: int
+    message: ChatCompletionMessage
+    finish_reason: str | None = "stop"
+
+
+class ChatCompletionResponse(BaseModel):
+    """OpenAI-compatible chat completion response payload."""
+
+    id: str
+    object: Literal["chat.completion"] = "chat.completion"
+    created: int
+    model: str
+    choices: list[ChatCompletionChoice]
+    usage: dict[str, int] | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class FinalState(BaseModel):
+    prompt: str | None = None
+    drafts: list[Any] = Field(default_factory=list)
+    solver_iis_logs: list[Any] = Field(default_factory=list)
+    final_routing_parameters: dict[str, Any] = Field(default_factory=dict)
+
+
+class ConsolidationMetadata(BaseModel):
+    status: Literal["success", "infeasible", "timeout"]
+    duration_seconds: float
+    solver_attempts: int
+
+
+class ConsolidationRequest(BaseModel):
+    session_id: str
+    agent_id: str
+    final_state: FinalState
+    metadata: ConsolidationMetadata
+
+
+def _parse_mock_time(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        normalized = value.replace("Z", "+00:00") if value.endswith("Z") else value
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid X-Mock-Time: {value}") from exc
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def _coerce_message_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    try:
+        return json.dumps(content, ensure_ascii=True)
+    except TypeError:
+        return str(content)
+
+
+def _latest_message(messages: list[ChatCompletionMessage]) -> ChatCompletionMessage:
+    for message in reversed(messages):
+        if message.role.lower() == "user":
+            return message
+    return messages[-1]
+
+
+def _compute_turn_id(messages: list[ChatCompletionMessage]) -> int:
+    user_count = sum(1 for message in messages if message.role.lower() == "user")
+    return max(user_count - 1, 0)
+
+
+def _ensure_api_wall_tracing() -> None:
+    """Initialize Phoenix tracing before the API Wall starts serving requests."""
+    try:
+        from src.llm.client import ensure_phoenix_instrumentation
+    except Exception:  # pragma: no cover - optional import safety
+        return
+    ensure_phoenix_instrumentation()
+
+
+def _shutdown_api_wall_tracing() -> None:
+    """Flush and shut down YAAM-owned Phoenix tracing resources."""
+    try:
+        from src.llm.client import shutdown_phoenix_instrumentation
+    except Exception:  # pragma: no cover - optional import safety
+        return
+    shutdown_phoenix_instrumentation()
+
+
+def _extract_parent_context(traceparent: str | None) -> Any | None:
+    """Extract an OpenTelemetry parent context from an inbound trace header."""
+    if not traceparent:
+        return None
+    try:
+        from opentelemetry.propagate import extract
+    except Exception:  # pragma: no cover - optional dependency
+        return None
+    return extract({"traceparent": traceparent})
+
+
+def _get_api_wall_tracer() -> Any | None:
+    """Return the API Wall tracer when OpenTelemetry is available."""
+    try:
+        from opentelemetry import trace
+    except Exception:  # pragma: no cover - optional dependency
+        return None
+    return trace.get_tracer("yaam.api_wall")
+
+
+def _set_span_attributes(span: Any, attributes: dict[str, Any]) -> None:
+    """Attach normalized attributes to a recording span."""
+    if not span or not hasattr(span, "is_recording") or not span.is_recording():
+        return
+    for key, value in attributes.items():
+        if value is None:
+            continue
+        if isinstance(value, str | bool | int | float):
+            span.set_attribute(key, value)
+            continue
+        try:
+            span.set_attribute(key, json.dumps(value, ensure_ascii=True))
+        except TypeError:
+            span.set_attribute(key, str(value))
+
+
+def _set_span_error(span: Any, exc: Exception) -> None:
+    """Record error details on the active request span."""
+    _set_span_attributes(
+        span,
+        {
+            "error.type": type(exc).__name__,
+            "error.message": str(exc),
+        },
+    )
+    try:
+        from opentelemetry.trace import Status, StatusCode
+    except Exception:  # pragma: no cover - optional dependency
+        return
+    if span and hasattr(span, "set_status"):
+        span.set_status(Status(StatusCode.ERROR, str(exc)))
+
+
+def _current_trace_metadata(span: Any) -> dict[str, str]:
+    """Return trace identifiers for the active request span."""
+    if not span or not hasattr(span, "get_span_context"):
+        return {}
+    try:
+        span_context = span.get_span_context()
+    except Exception:  # pragma: no cover - defensive fallback
+        return {}
+    if not getattr(span_context, "is_valid", False):
+        return {}
+    return {
+        "yaam_trace_id": f"{span_context.trace_id:032x}",
+        "yaam_span_id": f"{span_context.span_id:016x}",
+    }
+
+
+def create_app(config: agent_wrapper.WrapperConfig) -> FastAPI:
+    """Create and configure the API Wall FastAPI application."""
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        _ensure_api_wall_tracing()
+        logger.info(
+            "Initializing API Wall for agent_type=%s agent_variant=%s",
+            config.agent_type,
+            config.agent_variant,
+        )
+        state = await agent_wrapper.initialize_state(config)
+        app.state.wrapper = state
+        yield
+        logger.info(
+            "Shutting down API Wall for agent_type=%s agent_variant=%s",
+            config.agent_type,
+            config.agent_variant,
+        )
+        await agent_wrapper.shutdown_state(state)
+        _shutdown_api_wall_tracing()
+
+    app = FastAPI(title="MAS API Wall", version="1.0", lifespan=lifespan)
+
+    @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
+    async def chat_completions(
+        request: ChatCompletionRequest,
+        x_session_id: str | None = Header(default=None, alias="X-Session-Id"),
+        x_mock_time: str | None = Header(default=None, alias="X-Mock-Time"),
+        traceparent: str | None = Header(default=None),
+    ) -> ChatCompletionResponse:
+        if request.stream:
+            raise HTTPException(status_code=400, detail="streaming is not supported")
+        if not x_session_id:
+            raise HTTPException(status_code=400, detail="X-Session-Id header is required")
+        if not request.messages:
+            raise HTTPException(status_code=400, detail="messages cannot be empty")
+
+        state: agent_wrapper.AgentWrapperState = app.state.wrapper
+        session_id = state.apply_prefix(x_session_id)
+        state.track_session(session_id)
+
+        history = [message.model_dump() for message in request.messages]
+        latest_message = _latest_message(request.messages)
+        mock_timestamp = _parse_mock_time(x_mock_time)
+
+        metadata: dict[str, Any] = dict(request.metadata or {})
+        if traceparent:
+            metadata["traceparent"] = traceparent
+        if x_mock_time:
+            metadata["mock_time"] = x_mock_time
+        metadata.setdefault("skip_l1_write", True)
+
+        run_request = RunTurnRequest(
+            session_id=session_id,
+            role=latest_message.role,
+            content=_coerce_message_content(latest_message.content),
+            turn_id=_compute_turn_id(request.messages),
+            metadata=metadata or None,
+            timestamp=mock_timestamp,
+            history=history,
+        )
+
+        estimated_input_tokens = agent_wrapper._estimate_tokens(run_request.content)
+        tracer = _get_api_wall_tracer()
+        span_context = (
+            tracer.start_as_current_span(
+                "yaam.api_wall.chat_completions",
+                context=_extract_parent_context(traceparent),
+            )
+            if tracer
+            else nullcontext(None)
+        )
+
+        with span_context as span:
+            _set_span_attributes(
+                span,
+                {
+                    "yaam.route": "/v1/chat/completions",
+                    "yaam.agent_type": config.agent_type,
+                    "yaam.agent_variant": config.agent_variant,
+                    "yaam.configured_model": config.model,
+                    "yaam.request_model": request.model,
+                    "yaam.client_session_id": x_session_id,
+                    "yaam.session_id": session_id,
+                    "yaam.turn_id": run_request.turn_id,
+                    "yaam.message_count": len(request.messages),
+                    "yaam.prompt_tokens": estimated_input_tokens,
+                    "yaam.traceparent_supplied": bool(traceparent),
+                    "yaam.mock_time": x_mock_time,
+                },
+            )
+
+            await state.rate_limiter.wait_if_needed(estimated_input_tokens)
+
+            try:
+                t0 = time.perf_counter()
+                await agent_wrapper._store_turn(state, run_request, role=run_request.role)
+                t1 = time.perf_counter()
+                response = await state.agent.run_turn(run_request, history=history)
+                t2 = time.perf_counter()
+                await agent_wrapper._store_turn(state, response, role=response.role)
+                t3 = time.perf_counter()
+                estimated_total_tokens = agent_wrapper._estimate_tokens(
+                    f"{run_request.content}\n{response.content}"
+                )
+                state.rate_limiter.record_usage(estimated_total_tokens)
+            except Exception as exc:
+                state.rate_limiter.register_error(exc)
+                _set_span_error(span, exc)
+                logger.exception("Error handling /v1/chat/completions for session %s", session_id)
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+            response_metadata = dict(response.metadata or {})
+            response_metadata.update(
+                {
+                    "yaam_session_id": session_id,
+                    "client_session_id": x_session_id,
+                    "yaam_turn_id": run_request.turn_id,
+                    "yaam_agent_type": config.agent_type,
+                    "yaam_agent_variant": config.agent_variant,
+                    "yaam_configured_model": config.model,
+                    "storage_ms_pre": (t1 - t0) * 1000,
+                    "llm_ms": (t2 - t1) * 1000,
+                    "storage_ms_post": (t3 - t2) * 1000,
+                    "storage_ms": (t1 - t0 + t3 - t2) * 1000,
+                }
+            )
+            response_metadata.update(_current_trace_metadata(span))
+            response = response.model_copy(update={"metadata": response_metadata})
+
+            completion_message = ChatCompletionMessage(
+                role=response.role,
+                content=response.content,
+            )
+            completion_tokens = agent_wrapper._estimate_tokens(response.content)
+
+            _set_span_attributes(
+                span,
+                {
+                    "yaam.llm_provider": response_metadata.get("llm_provider"),
+                    "yaam.llm_model": response_metadata.get("llm_model"),
+                    "yaam.llm_ms": response_metadata.get("llm_ms"),
+                    "yaam.storage_ms_pre": response_metadata.get("storage_ms_pre"),
+                    "yaam.storage_ms_post": response_metadata.get("storage_ms_post"),
+                    "yaam.storage_ms": response_metadata.get("storage_ms"),
+                    "yaam.completion_tokens": completion_tokens,
+                    "yaam.total_tokens": estimated_total_tokens,
+                    "yaam.response_model": request.model or config.model,
+                    "yaam.trace_id": response_metadata.get("yaam_trace_id"),
+                    "yaam.span_id": response_metadata.get("yaam_span_id"),
+                },
+            )
+
+            return ChatCompletionResponse(
+                id=f"chatcmpl-{uuid.uuid4().hex}",
+                created=int(time.time()),
+                model=request.model or config.model,
+                choices=[
+                    ChatCompletionChoice(
+                        index=0,
+                        message=completion_message,
+                        finish_reason="stop",
+                    )
+                ],
+                usage={
+                    "prompt_tokens": estimated_input_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": estimated_total_tokens,
+                },
+                metadata=response_metadata,
+            )
+
+    @app.post("/v1/memory/episode/consolidate", status_code=202)
+    async def consolidate_episode(
+        request: ConsolidationRequest,
+        background_tasks: BackgroundTasks,
+        traceparent: str | None = Header(default=None),
+    ) -> dict[str, str]:
+        """
+        Accept a completed reasoning episode from an external cognitive architecture
+        and asynchronously offload it to YAAM for Long-Term Memory processing.
+        """
+        state: agent_wrapper.AgentWrapperState = app.state.wrapper
+
+        # We need to explicitly extract the parent context to pass it to the background task
+        parent_context = _extract_parent_context(traceparent) if traceparent else None
+
+        async def _process_consolidation_handoff(
+            session_id: str,
+            agent_id: str,
+            final_state: dict[str, Any],
+            metadata: dict[str, Any],
+            context: Any,
+        ) -> None:
+            # Re-attach the trace context in the background worker thread
+            try:
+                from opentelemetry import trace
+
+                tracer = trace.get_tracer("yaam.api_wall.background")
+            except Exception:
+                tracer = None
+
+            span_context = (
+                tracer.start_as_current_span(
+                    "yaam.api_wall.process_consolidation_handoff",
+                    context=context,
+                )
+                if tracer
+                else nullcontext(None)
+            )
+
+            with span_context as span:
+                _set_span_attributes(
+                    span,
+                    {
+                        "yaam.session_id": session_id,
+                        "yaam.agent_id": agent_id,
+                        "yaam.route": "/v1/memory/episode/consolidate",
+                    },
+                )
+                try:
+                    await state.memory_system.handle_external_episode(
+                        session_id=session_id,
+                        agent_id=agent_id,
+                        final_state=final_state,
+                        metadata=metadata,
+                    )
+                except Exception as exc:
+                    _set_span_error(span, exc)
+                    logger.exception(
+                        f"Failed to process external episode consolidation for session {session_id}"
+                    )
+
+        # Dispatch the background task
+        background_tasks.add_task(
+            _process_consolidation_handoff,
+            session_id=request.session_id,
+            agent_id=request.agent_id,
+            final_state=request.final_state.model_dump(),
+            metadata=request.metadata.model_dump(),
+            context=parent_context,
+        )
+
+        return {"status": "accepted"}
+
+    @app.post("/control/session/reset")
+    async def reset_session(
+        x_session_id: str | None = Header(default=None, alias="X-Session-Id"),
+    ) -> dict[str, Any]:
+        if not x_session_id:
+            raise HTTPException(status_code=400, detail="X-Session-Id header is required")
+        state: agent_wrapper.AgentWrapperState = app.state.wrapper
+        session_id = state.apply_prefix(x_session_id)
+        result = await agent_wrapper._cleanup_session(state, session_id)
+        state.remove_session(session_id)
+        return {"session_id": session_id, "result": result}
+
+    @app.get("/health")
+    async def health() -> dict[str, Any]:
+        state: agent_wrapper.AgentWrapperState = app.state.wrapper
+        try:
+            redis_ok = bool(state.redis_client.ping())
+        except Exception:
+            redis_ok = False
+        return {
+            "status": "ok" if redis_ok else "degraded",
+            "agent_type": state.agent_type,
+            "agent_variant": state.agent_variant,
+            "redis": redis_ok,
+            "l1": await state.l1_tier.health_check(),
+            "l2": await state.l2_tier.health_check(),
+            "agent": await state.agent.health_check(),
+        }
+
+    app.include_router(v2_router.router)
+
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+        FastAPIInstrumentor.instrument_app(app)
+    except ImportError:
+        logger.debug("opentelemetry-instrumentation-fastapi is not installed.")
+
+    return app
+
+
+def build_config_from_env() -> agent_wrapper.WrapperConfig:
+    """Build wrapper configuration from environment variables."""
+    agent_type = os.environ.get("MAS_AGENT_TYPE") or os.environ.get("AGENT_TYPE") or "full"
+    os.environ["AGENT_TYPE"] = agent_type
+    agent_variant = os.environ.get("MAS_AGENT_VARIANT", "baseline")
+    runtime_settings = agent_wrapper.load_runtime_settings()
+    agent_wrapper.apply_runtime_env_defaults(runtime_settings)
+
+    redis_url = agent_wrapper._read_env_or_raise("REDIS_URL")
+    postgres_url = agent_wrapper._read_env_or_raise("POSTGRES_URL")
+    session_prefix = f"{agent_wrapper.SESSION_PREFIXES[agent_type]}__{agent_variant}"
+
+    window_size = int(os.environ.get("MAS_L1_WINDOW", "20"))
+    ttl_hours = int(os.environ.get("MAS_L1_TTL_HOURS", "24"))
+    min_ciar = float(os.environ.get("MAS_MIN_CIAR", "0.6"))
+    model = os.environ.get("MAS_MODEL", "gemini-3-flash-preview")
+    port = int(os.environ.get("MAS_PORT", "8080"))
+
+    return agent_wrapper.WrapperConfig(
+        agent_type=agent_type,
+        agent_variant=agent_variant,
+        port=port,
+        model=model,
+        redis_url=redis_url,
+        postgres_url=postgres_url,
+        session_prefix=session_prefix,
+        project_id=runtime_settings.project_id,
+        window_size=window_size,
+        ttl_hours=ttl_hours,
+        min_ciar=min_ciar,
+        openrouter_model=runtime_settings.openrouter_model,
+        openrouter_embedding_model=runtime_settings.openrouter_embedding_model,
+        max_output_tokens=runtime_settings.max_output_tokens,
+        openrouter_timeout=runtime_settings.openrouter_timeout,
+        openrouter_reasoning_effort=runtime_settings.openrouter_reasoning_effort,
+        openrouter_reasoning_exclude=runtime_settings.openrouter_reasoning_exclude,
+        l3_collection_name=runtime_settings.l3_collection_name,
+        l3_vector_size=runtime_settings.l3_vector_size,
+        l4_collection_name=runtime_settings.l4_collection_name,
+    )
+
+
+app = create_app(build_config_from_env())
+
+
+def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments for the API Wall service."""
+    parser = argparse.ArgumentParser(description="MAS API Wall Service")
+    parser.add_argument("--agent-type", choices=agent_wrapper.AGENT_TYPES.keys(), required=True)
+    parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--model", type=str, default="gemini-3-flash-preview")
+    return parser.parse_args(argv)
+
+
+def main(argv: Iterable[str] | None = None) -> None:
+    """Entrypoint for running the API Wall via Uvicorn."""
+    logging.basicConfig(level=logging.INFO)
+    args = parse_args(argv)
+    config = agent_wrapper.build_config(args)
+    app = create_app(config)
+    uvicorn.run(app, host="0.0.0.0", port=config.port)
+
+
+if __name__ == "__main__":
+    main()

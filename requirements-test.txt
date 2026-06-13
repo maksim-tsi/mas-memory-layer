@@ -1,0 +1,24 @@
+# Testing Dependencies
+# Install with: pip install -r requirements-test.txt
+
+# Test Framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=7.0.0
+pytest-html>=3.1.0
+pytest-mock>=3.12.0
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# Keep pydantic aligned with base requirements
+pydantic==2.8.2
+
+# For HTTP testing (Typesense)
+requests>=2.31.0
+
+# Development tools
+mypy==1.19.1
+
+# All dependencies from main requirements.txt are needed for testing
+-r requirements.txt
