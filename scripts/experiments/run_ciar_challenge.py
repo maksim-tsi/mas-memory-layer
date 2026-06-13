@@ -24,7 +24,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 DEFAULT_MODEL = "x-ai/grok-4.1-fast"
-DEFAULT_PHOENIX_DIRECT_ENDPOINT = "http://192.168.107.187:6006/v1/traces"
+DEFAULT_PHOENIX_DIRECT_ENDPOINT = "http://127.0.0.1:6006/v1/traces"
 DEFAULT_TUNNEL_ENDPOINT = "http://127.0.0.1:16006/v1/traces"
 DEFAULT_MIN_CIAR = 0.6
 REQUIRED_OPERATIONAL_ARTIFACTS = (
@@ -306,7 +306,7 @@ def resolve_phoenix_endpoint(
     """Resolve Phoenix collector endpoint and access mode.
 
     Localhost:6006 is rejected by default because MacBook development should use
-    skz-data-lv directly or via an explicit SSH tunnel.
+    local-yaam-host directly or via an explicit SSH tunnel.
     """
     if explicit_endpoint:
         endpoint = explicit_endpoint
@@ -326,7 +326,7 @@ def resolve_phoenix_endpoint(
     if is_localhost_6006 and not allow_localhost_6006:
         raise ValueError(
             "Refusing PHOENIX_COLLECTOR_ENDPOINT on localhost:6006. "
-            "For MacBook development use http://192.168.107.187:6006/v1/traces, "
+            "For MacBook development use http://127.0.0.1:6006/v1/traces, "
             "or create an SSH tunnel and use http://127.0.0.1:16006/v1/traces."
         )
     return endpoint, resolved_mode
@@ -1825,6 +1825,8 @@ class CIARChallengeExperiment:
                     "post_inheritance_ciar": provenance.get("post_inheritance_ciar"),
                     "stored_ciar": stored_ciar,
                     "ciar_score_source": provenance.get("ciar_score_source"),
+                    "lifetime_decision_class": provenance.get("lifetime_decision_class"),
+                    "lifetime_decision_reason": provenance.get("lifetime_decision_reason"),
                     "current_runtime_ciar": stored_score,
                     "fact_gate_decision": bool(
                         provenance.get("fact_gate_decision")
@@ -1879,6 +1881,10 @@ class CIARChallengeExperiment:
                     "post_inheritance_ciar": provenance.get("post_inheritance_ciar"),
                     "stored_ciar": None,
                     "ciar_score_source": provenance.get("ciar_score_source"),
+                    "lifetime_decision_class": provenance.get("lifetime_decision_class")
+                    or data.get("lifetime_decision_class"),
+                    "lifetime_decision_reason": provenance.get("lifetime_decision_reason")
+                    or data.get("lifetime_decision_reason"),
                     "current_runtime_ciar": None,
                     "fact_gate_decision": bool(provenance.get("fact_gate_decision")),
                     "floor_applied": False,

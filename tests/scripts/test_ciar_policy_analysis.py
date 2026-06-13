@@ -141,6 +141,8 @@ def make_run(
             "content": "Urgent container temperature excursion.",
             "raw_fact_ciar": 0.9,
             "stored_ciar": 0.9,
+            "lifetime_decision_class": "store_durable",
+            "lifetime_decision_reason": "stored as durable memory",
         },
         {
             "scenario_id": "segment_mismatch",
@@ -148,6 +150,8 @@ def make_run(
             "raw_fact_ciar": 0.135,
             "stored_ciar": None,
             "review_only": True,
+            "lifetime_decision_class": "review_conversational_residue",
+            "lifetime_decision_reason": "candidate is chatter",
             "evidence_quality_flags": {
                 "conversational_residue": True,
                 "low_value_chatter": True,
@@ -158,6 +162,8 @@ def make_run(
             "content": "Container MEDU7711009 missed its customs hold release window.",
             "raw_fact_ciar": 0.846,
             "stored_ciar": 0.846,
+            "lifetime_decision_class": "store_durable",
+            "lifetime_decision_reason": "stored as durable memory",
             "evidence_quality_flags": {"domain_signal": True},
         },
         {
@@ -169,6 +175,8 @@ def make_run(
             "raw_fact_ciar": 0.6624,
             "stored_ciar": None,
             "review_only": True,
+            "lifetime_decision_class": "review_conversational_residue",
+            "lifetime_decision_reason": "candidate is assistant-action residue",
             "evidence_quality_flags": {
                 "conversational_residue": True,
                 "assistant_action_residue": True,
@@ -181,6 +189,8 @@ def make_run(
             "raw_fact_ciar": 0.231,
             "stored_ciar": None,
             "review_only": True,
+            "lifetime_decision_class": "review_uncertain_or_inferred",
+            "lifetime_decision_reason": "candidate is speculative",
             "evidence_quality_flags": {
                 "speculative_claim": True,
                 "assistant_inference": False,
@@ -192,6 +202,8 @@ def make_run(
             "raw_fact_ciar": 0.336,
             "stored_ciar": None,
             "review_only": True,
+            "lifetime_decision_class": "review_uncertain_or_inferred",
+            "lifetime_decision_reason": "candidate is inferred",
             "evidence_quality_flags": {
                 "speculative_claim": False,
                 "assistant_inference": True,
@@ -203,6 +215,8 @@ def make_run(
             "raw_fact_ciar": 0.75,
             "stored_ciar": None,
             "review_only": True,
+            "lifetime_decision_class": "review_access_boost_only",
+            "lifetime_decision_reason": "access boost only",
             "evidence_quality_flags": {
                 "base_evidence_below_threshold": True,
                 "access_boosted_over_threshold": True,
@@ -214,6 +228,8 @@ def make_run(
             "content": "The shipment is rerouted to Los Angeles.",
             "raw_fact_ciar": 0.8,
             "stored_ciar": 0.8,
+            "lifetime_decision_class": "store_durable",
+            "lifetime_decision_reason": "stored as durable memory",
         },
     ]
     if suppression_enabled:
@@ -223,6 +239,8 @@ def make_run(
                     "scenario_id": "contradiction_update",
                     "content": "The shipment was scheduled for Oakland.",
                     "suppressed": True,
+                    "lifetime_decision_class": "suppress_superseded",
+                    "lifetime_decision_reason": "superseded by update",
                 },
                 {
                     "scenario_id": "repeated_correction",
@@ -232,16 +250,22 @@ def make_run(
                     ),
                     "raw_fact_ciar": 0.85,
                     "stored_ciar": 0.85,
+                    "lifetime_decision_class": "store_durable",
+                    "lifetime_decision_reason": "stored as durable memory",
                 },
                 {
                     "scenario_id": "repeated_correction",
                     "content": "Shipment ALFA-4421 was scheduled for Oakland.",
                     "suppressed": True,
+                    "lifetime_decision_class": "suppress_superseded",
+                    "lifetime_decision_reason": "superseded by update",
                 },
                 {
                     "scenario_id": "repeated_correction",
                     "content": "Update: shipment ALFA-4421 is now routed to Los Angeles.",
                     "suppressed": True,
+                    "lifetime_decision_class": "suppress_superseded",
+                    "lifetime_decision_reason": "superseded by update",
                 },
             ]
         )
@@ -253,18 +277,24 @@ def make_run(
                     "content": "The shipment was scheduled for Oakland.",
                     "raw_fact_ciar": 0.7,
                     "stored_ciar": 0.7,
+                    "lifetime_decision_class": "store_durable",
+                    "lifetime_decision_reason": "stored as durable memory",
                 },
                 {
                     "scenario_id": "repeated_correction",
                     "content": "Shipment ALFA-4421 was scheduled for Oakland.",
                     "raw_fact_ciar": 0.72,
                     "stored_ciar": 0.72,
+                    "lifetime_decision_class": "store_durable",
+                    "lifetime_decision_reason": "stored as durable memory",
                 },
                 {
                     "scenario_id": "repeated_correction",
                     "content": "Update: shipment ALFA-4421 is now routed to Los Angeles.",
                     "raw_fact_ciar": 0.75,
                     "stored_ciar": 0.75,
+                    "lifetime_decision_class": "store_durable",
+                    "lifetime_decision_reason": "stored as durable memory",
                 },
                 {
                     "scenario_id": "repeated_correction",
@@ -274,6 +304,8 @@ def make_run(
                     ),
                     "raw_fact_ciar": 0.85,
                     "stored_ciar": 0.85,
+                    "lifetime_decision_class": "store_durable",
+                    "lifetime_decision_reason": "stored as durable memory",
                 },
             ]
         )
@@ -319,6 +351,17 @@ def test_aggregate_runs_groups_by_policy_configuration(tmp_path: Path) -> None:
         == "policy_evidence_with_warnings"
     )
     assert report["run_quality_counts"] == {"policy_evidence_with_warnings": 1}
+    lifetime = report["lifetime_decision_evaluation"][
+        "hybrid_gate+suppress_superseded"
+    ]
+    assert lifetime["segment_mismatch"]["lifetime_decision_counts"] == {
+        "review_conversational_residue": 1,
+        "store_durable": 1,
+    }
+    assert lifetime["contradiction_update"]["lifetime_decision_counts"] == {
+        "store_durable": 1,
+        "suppress_superseded": 1,
+    }
     assert (
         report["recommendation_inputs"]["hybrid_gate+suppress_superseded"][
             "contradiction_suppressed"
@@ -345,10 +388,13 @@ def test_render_markdown_includes_recommendation_table(tmp_path: Path) -> None:
     assert "## Speculative Evaluation" in markdown
     assert "## Residue Evaluation" in markdown
     assert "## Recency/Access Evaluation" in markdown
+    assert "## Lifetime Decision Evaluation" in markdown
     assert "`contradiction_update`" in markdown
     assert "`speculative_claim`" in markdown
     assert "`urgent_with_chatter`" in markdown
     assert "`access_reinforced_low_signal`" in markdown
+    assert "`review_conversational_residue`" in markdown
+    assert "`store_durable`" in markdown
     assert "`policy_evidence_with_warnings`" in markdown
 
 

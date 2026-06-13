@@ -23,7 +23,7 @@ HARNESS = PROJECT_ROOT / "scripts" / "experiments" / "run_ciar_challenge.py"
 REQUIRED_KEYS = ("OPENROUTER_API_KEY", "REDIS_URL", "POSTGRES_URL")
 DEFAULT_SCENARIOS = ("segment_mismatch", "contradiction_update", "small_talk")
 DEFAULT_MODEL = "tencent/hy3-preview"
-DEFAULT_DATA_NODE_IP = "192.168.107.187"
+DEFAULT_DATA_NODE_IP = "127.0.0.1"
 DEFAULT_PROMOTION_POLICY_MODE = "hybrid_gate"
 
 

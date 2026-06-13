@@ -183,7 +183,7 @@ Implementing this refactor requires a surgical approach to avoid disrupting the 
 
 ### **6.2 Infrastructure Considerations**
 
-The project runs on a distributed cluster: skz-dev-lv (Orchestrator) and skz-data-lv (Data Node).1 The refactoring is purely application-level and does not require changes to the underlying infrastructure (PostgreSQL schemas, Redis keys, etc.). However, it improves the robustness of the interactions *with* this infrastructure. For example, the RedisAdapter uses Hash Tags ({session:ID}) for cluster compatibility.1 The ActiveContextTier can now enforce that the session\_id in the Turn object matches the hash tag in the key, adding a layer of application-side verification to the distributed storage logic.
+The project runs on a distributed cluster: development-host (Orchestrator) and local-yaam-host (Data Node).1 The refactoring is purely application-level and does not require changes to the underlying infrastructure (PostgreSQL schemas, Redis keys, etc.). However, it improves the robustness of the interactions *with* this infrastructure. For example, the RedisAdapter uses Hash Tags ({session:ID}) for cluster compatibility.1 The ActiveContextTier can now enforce that the session\_id in the Turn object matches the hash tag in the key, adding a layer of application-side verification to the distributed storage logic.
 
 ## **Part VII: Conclusion and Recommendations**
 
@@ -313,7 +313,7 @@ The RedisAdapter (L1) achieves a mean retrieve latency of **0.24ms**.1
 
 ### **B.2 Distributed Consistency**
 
-The system runs on skz-dev-lv (192.168.107.172) and skz-data-lv (192.168.107.187).1
+The system runs on development-host (127.0.0.1) and local-yaam-host (127.0.0.1).1
 
 * **Challenge:** Data serialization across nodes relies on JSON.  
 * **Solution:** Pydantic models handle serialization (model\_dump\_json) and deserialization (model\_validate\_json) natively and efficiently. Using them ensures that the data sent from the Data Node (L3) is exactly what the Orchestrator Node (Agent) expects to receive, preventing subtle serialization bugs that occur with manual json.dumps usage.13

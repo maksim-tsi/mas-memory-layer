@@ -1,12 +1,12 @@
 # Agent Memory Systems Synthesis
 
-**Date:** 2026-06-02  
-**Scope:** Tencent Hunyuan Hy-Memory, TencentDB-Agent-Memory, Graphiti/Zep, Mem0, Agentic Memory/AgeMem, LangMem, and A-MEM/A-mem-sys  
-**Method:** Documentation, paper, and repository analysis only. No benchmark runs, provider calls, dependency changes, or `skz-data-lv` checks were performed.
+**Date:** 2026-06-02
+**Scope:** Tencent Hunyuan Hy-Memory, TencentDB-Agent-Memory, Graphiti/Zep, Mem0, Agentic Memory/AgeMem, LangMem, A-MEM/A-mem-sys, and H-Mem
+**Method:** Documentation, paper, and repository analysis only. H-Mem was added on 2026-06-03. No benchmark runs, provider calls, dependency changes, or `local-yaam-host` checks were performed for this synthesis update.
 
 ## 1. Executive Synthesis
 
-The current agent-memory landscape is fragmenting into several distinct architectural families. Hy-Memory and TencentDB-Agent-Memory emphasize layered memory and persona/context persistence. Graphiti/Zep emphasizes temporal knowledge graphs. Mem0 emphasizes a broadly integrable memory service with extraction, update, and retrieval. LangMem emphasizes toolkit-level integration with LangGraph. A-MEM emphasizes linked, Zettelkasten-like memory notes. AgeMem shifts the research frontier toward learned, unified LTM/STM memory policy.
+The current agent-memory landscape is fragmenting into several distinct architectural families. Hy-Memory and TencentDB-Agent-Memory emphasize layered memory and persona/context persistence. Graphiti/Zep emphasizes temporal knowledge graphs. Mem0 emphasizes a broadly integrable memory service with extraction, update, and retrieval. LangMem emphasizes toolkit-level integration with LangGraph. A-MEM emphasizes linked, Zettelkasten-like memory notes. H-Mem introduces a hybrid temporal-semantic tree plus entity graph retrieval mechanism. AgeMem shifts the research frontier toward learned, unified LTM/STM memory policy.
 
 These systems are not interchangeable. They differ at the level of architecture, decision making, storage technology, inspectability, production readiness, and governance. A requirement-only comparison would miss the main issue: the field is moving from "store some relevant facts" toward systems that decide how memory should evolve over time.
 
@@ -36,6 +36,7 @@ The no-assumption rule is especially important for third-party systems. Absence 
 | AgeMem | Learned unified memory policy | LTM entries plus STM context actions | Progressive RL over memory tools | Research paper |
 | LangMem | LangGraph toolkit | Store-backed semantic/episodic/procedural memories | Agent tools plus background managers | Official toolkit documentation |
 | A-MEM / A-mem-sys | Agentic note network | Structured linked memory notes | LLM-driven note generation and linking | Paper/repo/demo system |
+| H-Mem | Hybrid tree-graph memory mechanism | Temporal event tree, summaries, entities, relations, linked fragments | Offline indexing plus query-time planning and evidence ranking | Research paper |
 
 ## 4. Architectural Comparison
 
@@ -51,7 +52,13 @@ Graphiti/Zep is the strongest representative of temporal graph memory. It treats
 
 The graph approach is powerful, but graph extraction and maintenance create their own governance challenges: relation confidence, stale edges, contradictory facts, partial extraction, and temporal validity semantics must be made inspectable.
 
-### 4.3 Service And Framework Memory
+### 4.3 Hybrid Tree-Graph Memory
+
+H-Mem is a distinct hybrid architecture. It builds a temporal-semantic tree for memory evolution and an entity knowledge graph for multi-hop retrieval. Its online path decomposes queries, predicts short/long/mixed memory scope, retrieves through graph and tree structures, and ranks evidence using semantic similarity, temporal relevance, and memory robustness.
+
+H-Mem is closer to an algorithmic indexing and retrieval proposal than to a full service platform. It is highly relevant to systems that already combine semantic retrieval and graph retrieval, but public evidence does not establish production contracts for deletion, tenant scoping, audit, or API/MCP surfaces.
+
+### 4.4 Service And Framework Memory
 
 Mem0 and LangMem represent different sides of integrability:
 
@@ -60,13 +67,13 @@ Mem0 and LangMem represent different sides of integrability:
 
 Both reduce adoption friction. Both also leave important deployment choices to integrators. This makes them strong ecosystem competitors but weaker sources of universal governance guarantees unless the downstream application adds those guarantees.
 
-### 4.4 Learned Memory Policy
+### 4.5 Learned Memory Policy
 
 AgeMem is the most research-forward system in the set. It argues that memory should be learned as part of the agent policy, including add, update, delete, retrieve, summarize, and filter actions.
 
 This is a serious conceptual challenge to fixed-threshold systems. However, AgeMem is not documented as a production service. Its contribution is best understood as a learned policy direction that future infrastructure systems may need to incorporate or evaluate against.
 
-### 4.5 Linked Note Memory
+### 4.6 Linked Note Memory
 
 A-MEM occupies a distinct niche. Its Zettelkasten-style linked note model is easier to inspect than pure vector search and less operationally heavy than a full temporal graph. It is attractive for personal knowledge, long-lived project memory, and knowledge browsing.
 
@@ -74,25 +81,26 @@ Its public gap is governance. The reviewed sources do not establish customer-gra
 
 ## 5. Lifecycle Comparison
 
-| Dimension | Hy-Memory | TencentDB-Agent-Memory | Graphiti/Zep | Mem0 | AgeMem | LangMem | A-MEM |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Capture | Layered conversation/persona capture | Local layered capture | Episode ingestion | Extract from conversations/events | Agent invokes add/update actions | Hot-path tools or background manager | Structured note generation |
-| Filtering | Documented at high level; exact internals partly unknown | Local pipeline; exact thresholds partly unknown | Extraction/update pipeline; exact filtering depends on implementation | Extraction and update pipeline | Learned policy and STM filter tool | Agent/tool or manager configuration | LLM-driven note selection and metadata |
-| Condensation | Multi-layer summaries/persona likely documented; exact details limited | Context offload/profile compression visible in repo framing | Episodes and graph facts condense interactions | Extracted memory statements; graph variant | Summary tool for STM | Summarization utilities | Note formation and metadata refinement |
-| Retrieval | Multi-layer retrieval | Local context/profile/graph retrieval | Temporal graph plus search | Semantic and optional graph retrieval | Retrieve tool into STM | Store semantic search/tool retrieval | Vector and linked-note retrieval |
-| Update | Memory evolution claimed | Profile/graph updates visible at high level | Temporal graph updates central | Extract-update pipeline central | Update tool | Tool/store dependent | Continuous refinement |
-| Delete/forget | Insufficient evidence for exact public semantics | Insufficient evidence | Graph invalidation/update better evidenced than user deletion semantics | Delete APIs may exist; exact audit semantics need deployment evidence | Delete tool | Store/tool dependent | Insufficient evidence |
-| Lifetime policy | Insufficient detail | Insufficient detail | Strong temporal orientation, but retention governance still deployment-dependent | Update/retention depends on configuration | Learned action policy, not product retention | Application-defined | Evolution-oriented, retention semantics unknown |
+| Dimension | Hy-Memory | TencentDB-Agent-Memory | Graphiti/Zep | Mem0 | AgeMem | LangMem | A-MEM | H-Mem |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Capture | Layered conversation/persona capture | Local layered capture | Episode ingestion | Extract from conversations/events | Agent invokes add/update actions | Hot-path tools or background manager | Structured note generation | Event and entity extraction from memory fragments |
+| Filtering | Documented at high level; exact internals partly unknown | Local pipeline; exact thresholds partly unknown | Extraction/update pipeline; exact filtering depends on implementation | Extraction and update pipeline | Learned policy and STM filter tool | Agent/tool or manager configuration | LLM-driven note selection and metadata | Temporal clustering, graph expansion, retrieval-scope planning, and reranking |
+| Condensation | Multi-layer summaries/persona likely documented; exact details limited | Context offload/profile compression visible in repo framing | Episodes and graph facts condense interactions | Extracted memory statements; graph variant | Summary tool for STM | Summarization utilities | Note formation and metadata refinement | Day/week/month/year tree summaries plus entity profiles |
+| Retrieval | Multi-layer retrieval | Local context/profile/graph retrieval | Temporal graph plus search | Semantic and optional graph retrieval | Retrieve tool into STM | Store semantic search/tool retrieval | Vector and linked-note retrieval | Query decomposition, graph retrieval, tree retrieval, semantic/temporal/robustness ranking |
+| Update | Memory evolution claimed | Profile/graph updates visible at high level | Temporal graph updates central | Extract-update pipeline central | Update tool | Tool/store dependent | Continuous refinement | Tree summary updates and graph relation/profile updates |
+| Delete/forget | Insufficient evidence for exact public semantics | Insufficient evidence | Graph invalidation/update better evidenced than user deletion semantics | Delete APIs may exist; exact audit semantics need deployment evidence | Delete tool | Store/tool dependent | Insufficient evidence | Practical deletion/editing is identified as a needed deployment feature, not established as a contract |
+| Lifetime policy | Insufficient detail | Insufficient detail | Strong temporal orientation, but retention governance still deployment-dependent | Update/retention depends on configuration | Learned action policy, not product retention | Application-defined | Evolution-oriented, retention semantics unknown | Memory robustness and temporal relevance in retrieval; retention governance insufficiently established |
 
 ## 6. Filtering Strategies
 
-External systems use at least five filtering strategies:
+External systems use at least six filtering strategies:
 
 1. **Pipeline extraction filtering:** Mem0 and Graphiti/Zep process inputs into candidate memories or graph facts.
 2. **Layer admission filtering:** Hy-Memory and TencentDB-Agent-Memory distribute information across memory layers.
 3. **Agent tool filtering:** LangMem and AgeMem let the model decide when to store or search.
 4. **Learned policy filtering:** AgeMem optimizes memory actions using RL.
 5. **Note curation filtering:** A-MEM uses LLM-driven note generation and linking.
+6. **Hybrid index filtering:** H-Mem uses temporal-semantic clustering, graph retrieval, short/long/mixed retrieval-scope planning, and evidence reranking.
 
 The public evidence rarely exposes exact negative filtering behavior: what is discarded, what becomes review-only, and how low-confidence or speculative content is treated. This is a major gap for enterprise and research users because memory quality depends as much on non-storage as on storage.
 
@@ -103,6 +111,7 @@ Condensation is now central to agent memory:
 - AgeMem treats summarization as an STM action.
 - LangMem provides summarization utilities for long-running conversations.
 - A-MEM condenses content into structured notes.
+- H-Mem condenses memory events into temporal tree summaries and maintains entity profiles.
 - Mem0 condenses interactions into memory statements.
 - Graphiti/Zep condenses episodes into graph structure.
 - Layered systems condense raw context into profile, graph, or long-term layers.
@@ -118,14 +127,15 @@ Retrieval strategies differ substantially:
 - **Layered context assembly:** Hy-Memory and TencentDB-Agent-Memory.
 - **Learned retrieval action:** AgeMem.
 - **Linked-note traversal:** A-MEM.
+- **Hybrid tree-graph retrieval:** H-Mem.
 
-The likely future direction is hybrid retrieval: vector search alone is too weak for temporal and relational questions; graph retrieval alone is brittle when extraction misses implicit context; learned retrieval alone needs governance and explanation. Systems that combine semantic search, graph structure, explicit provenance, and bounded context assembly are better positioned for production research use.
+The likely future direction is hybrid retrieval: vector search alone is too weak for temporal and relational questions; graph retrieval alone is brittle when extraction misses implicit context; learned retrieval alone needs governance and explanation. H-Mem makes this trend explicit by combining tree, graph, semantic, temporal, and robustness signals. Systems that combine semantic search, graph structure, explicit provenance, and bounded context assembly are better positioned for production research use.
 
 ## 9. Memory Evolution And Lifetime Management
 
 Memory lifetime is the least consistently documented dimension.
 
-Graphiti/Zep and A-MEM are strongest on memory evolution as a concept. Mem0 is strong on update-oriented memory pipelines. AgeMem is strongest on learned update/delete action selection. LangMem is flexible but application-defined. Tencent's systems are promising on layered and local memory, but public evidence does not expose enough exact semantics for retention and audit.
+Graphiti/Zep and A-MEM are strongest on memory evolution as a concept. H-Mem is strongest on temporal summarization as an explicit indexing mechanism. Mem0 is strong on update-oriented memory pipelines. AgeMem is strongest on learned update/delete action selection. LangMem is flexible but application-defined. Tencent's systems are promising on layered and local memory, but public evidence does not expose enough exact semantics for retention and audit.
 
 The critical distinction is between **capability** and **governance**:
 
@@ -145,10 +155,11 @@ Most public sources provide stronger evidence for capability than governance.
 | AgeMem | Research framework, not a documented production service. |
 | LangMem | Production-useful toolkit for LangGraph users, but not a standalone governed memory service. |
 | A-MEM | Research/demo implementation signal; production governance unclear. |
+| H-Mem | Research paper with detailed experiments; no public production service contract or implementation repository identified in this pass. |
 
 ## 11. Auditability And Inspectability
 
-Inspectable memory is becoming more important. Graphiti/Zep's graph, A-MEM's linked notes, TencentDB-Agent-Memory's local-first posture, and layered memory systems all improve inspectability relative to opaque vector stores.
+Inspectable memory is becoming more important. Graphiti/Zep's graph, A-MEM's linked notes, H-Mem's tree plus graph evidence structures, TencentDB-Agent-Memory's local-first posture, and layered memory systems all improve inspectability relative to opaque vector stores.
 
 However, inspectability is not the same as auditability. Auditability requires stable source ids, provenance fields, policy decisions, trace correlation, redaction, and scoped access. Public evidence for these properties is limited across most competitors.
 
@@ -158,6 +169,7 @@ The reviewed systems differ in benchmark posture:
 
 - AgeMem reports research benchmark results across long-horizon tasks.
 - A-MEM reports paper/repository benchmark claims.
+- H-Mem reports paper benchmark claims on LoCoMo, LongMemEvalS, and REALTALK, including ablations for tree, graph, long-term memory, robustness scoring, missing-information queries, and entity profiles.
 - Mem0 and Graphiti/Zep have public benchmark narratives and comparisons in their ecosystems.
 - LangMem is more documentation/toolkit oriented.
 - Tencent systems have public claims, but exact reproducible benchmark artifacts were not fully evaluated in this review.
@@ -176,6 +188,7 @@ The main gaps across the landscape are:
 - limited benchmark contamination controls;
 - deployment-specific scoping rather than universal session/task/tenant/run semantics;
 - limited documentation of memory condensation loss.
+- limited evidence that hybrid tree/graph indexing systems can preserve deletion, audit, and scoped access guarantees without adding operational complexity.
 
 These gaps do not imply that the systems cannot implement such features. They mean that the reviewed public sources do not establish them sufficiently for requirement-level confidence.
 
@@ -189,6 +202,7 @@ The field is moving toward memory systems that are:
 - agentic rather than purely background;
 - inspectable rather than opaque;
 - integrated with application frameworks rather than isolated databases.
+- hybrid in retrieval and ranking, combining semantic, temporal, graph, and durability/robustness signals.
 
 The next research frontier is not just better retrieval. It is governed memory evolution: when to remember, when to summarize, when to update, when to forget, how to prove why, and how to prevent leaked or invalid evidence from entering downstream reasoning.
 
@@ -202,4 +216,4 @@ The next research frontier is not just better retrieval. It is governed memory e
 - LangMem documentation. https://langchain-ai.github.io/langmem/
 - WujiangXu/A-mem. https://github.com/WujiangXu/A-mem
 - WujiangXu/A-mem-sys. https://github.com/WujiangXu/A-mem-sys
-
+- Jiawei Yu et al. "H-Mem: A Novel Memory Mechanism for Evolving and Retrieving Agent Memory via a Hybrid Structure." https://arxiv.org/html/2605.15701v1

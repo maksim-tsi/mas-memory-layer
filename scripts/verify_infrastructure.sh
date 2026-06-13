@@ -41,7 +41,7 @@ echo ""
 # Track failures
 FAILED=0
 
-# PostgreSQL (skz-dev-lv)
+# PostgreSQL (development-host)
 echo -n "PostgreSQL (${POSTGRES_HOST}:${POSTGRES_PORT})... "
 if timeout 5 bash -c "cat < /dev/null > /dev/tcp/${POSTGRES_HOST}/${POSTGRES_PORT}" 2>/dev/null; then
     echo -e "${GREEN}✓ Reachable${NC}"
@@ -50,7 +50,7 @@ else
     FAILED=$((FAILED + 1))
 fi
 
-# Redis (skz-dev-lv)
+# Redis (development-host)
 echo -n "Redis (${REDIS_HOST}:${REDIS_PORT})... "
 if timeout 5 bash -c "cat < /dev/null > /dev/tcp/${REDIS_HOST}/${REDIS_PORT}" 2>/dev/null; then
     echo -e "${GREEN}✓ Reachable${NC}"
@@ -59,7 +59,7 @@ else
     FAILED=$((FAILED + 1))
 fi
 
-# Qdrant (skz-stg-lv)
+# Qdrant (staging-host)
 echo -n "Qdrant (${QDRANT_HOST}:${QDRANT_PORT})... "
 if timeout 5 bash -c "cat < /dev/null > /dev/tcp/${QDRANT_HOST}/${QDRANT_PORT}" 2>/dev/null; then
     if command -v curl &> /dev/null; then
@@ -76,7 +76,7 @@ else
     FAILED=$((FAILED + 1))
 fi
 
-# Neo4j (skz-stg-lv)
+# Neo4j (staging-host)
 echo -n "Neo4j Bolt (${NEO4J_HOST}:${NEO4J_BOLT_PORT})... "
 if timeout 5 bash -c "cat < /dev/null > /dev/tcp/${NEO4J_HOST}/${NEO4J_BOLT_PORT}" 2>/dev/null; then
     echo -e "${GREEN}✓ Reachable${NC}"
@@ -93,7 +93,7 @@ else
     FAILED=$((FAILED + 1))
 fi
 
-# Typesense (skz-stg-lv)
+# Typesense (staging-host)
 echo -n "Typesense (${TYPESENSE_HOST}:${TYPESENSE_PORT})... "
 if timeout 5 bash -c "cat < /dev/null > /dev/tcp/${TYPESENSE_HOST}/${TYPESENSE_PORT}" 2>/dev/null; then
     if command -v curl &> /dev/null; then

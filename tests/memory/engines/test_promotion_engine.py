@@ -229,6 +229,11 @@ async def test_process_session_batch_success(
 
     # Verify L2 store was called twice
     assert mock_l2.store.call_count == 2
+    stored_facts = [call.args[0] for call in mock_l2.store.await_args_list]
+    assert {
+        fact.metadata["ciar_provenance"]["lifetime_decision_class"]
+        for fact in stored_facts
+    } == {"store_durable"}
 
 
 @pytest.mark.asyncio
@@ -282,6 +287,8 @@ async def test_segment_gate_records_provenance_and_preserves_current_inheritance
     assert provenance["stored_ciar"] == 0.81
     assert provenance["segment_inherited"] is True
     assert provenance["fact_gate_decision"] is False
+    assert provenance["lifetime_decision_class"] == "store_segment_inherited"
+    assert "inheriting segment-level" in provenance["lifetime_decision_reason"]
 
 
 @pytest.mark.asyncio
@@ -379,6 +386,7 @@ async def test_fact_gate_filters_by_pre_inheritance_ciar(
     assert provenance["raw_fact_ciar"] == 0.12
     assert provenance["stored_ciar"] is None
     assert provenance["segment_inherited"] is False
+    assert provenance["lifetime_decision_class"] == "filter_low_ciar"
 
 
 @pytest.mark.asyncio
@@ -429,6 +437,57 @@ async def test_hybrid_gate_marks_conversational_residue_review_only(
     provenance = fact.metadata["ciar_provenance"]
     assert provenance["review_only"] is True
     assert provenance["evidence_quality_flags"]["conversational_residue"] is True
+    assert provenance["lifetime_decision_class"] == "review_conversational_residue"
+
+
+@pytest.mark.asyncio
+async def test_hybrid_gate_reviews_low_evidence_without_specific_quality_flag(
+    mock_l1, mock_l2, mock_segmenter, mock_extractor, sample_turns
+):
+    """hybrid_gate labels low-evidence review-only facts when no stronger class applies."""
+    mock_l1.retrieve.return_value = sample_turns
+    mock_l2.ciar_threshold = 0.5
+    segment = TopicSegment(
+        segment_id="seg-low-evidence",
+        topic="Weak operational note",
+        summary="Segment is important enough for extraction.",
+        key_points=["Weak note"],
+        turn_indices=[0, 1, 2],
+        certainty=0.9,
+        impact=0.9,
+    )
+    fact = Fact(
+        fact_id="fact-weak",
+        session_id="123",
+        content="The schedule note is incomplete.",
+        certainty=0.5,
+        impact=0.5,
+        fact_type=FactType.EVENT,
+        fact_category=FactCategory.OPERATIONAL,
+    )
+    mock_segmenter.segment_turns.return_value = [segment]
+    mock_extractor.extract_facts.return_value = [fact]
+    engine = PromotionEngine(
+        l1_tier=mock_l1,
+        l2_tier=mock_l2,
+        topic_segmenter=mock_segmenter,
+        fact_extractor=mock_extractor,
+        ciar_scorer=CIARScorer(),
+        config={
+            "promotion_threshold": 0.5,
+            "batch_min_turns": 10,
+            "promotion_policy_mode": "hybrid_gate",
+        },
+    )
+
+    stats = await engine.process(session_id="123")
+
+    assert stats["facts_promoted"] == 0
+    assert stats["facts_review_only"] == 1
+    provenance = fact.metadata["ciar_provenance"]
+    assert provenance["review_only"] is True
+    assert provenance["lifetime_decision_class"] == "review_low_evidence"
+    assert provenance["lifetime_decision_reason"] == "candidate failed the hybrid evidence gate"
 
 
 @pytest.mark.asyncio
@@ -494,6 +553,7 @@ async def test_hybrid_gate_reviews_assistant_action_but_stores_operational_state
     assert stored_flags["assistant_action_residue"] is False
     assistant_provenance = assistant_fact.metadata["ciar_provenance"]
     assert assistant_provenance["review_only"] is True
+    assert assistant_provenance["lifetime_decision_class"] == "review_conversational_residue"
     assert assistant_provenance["evidence_quality_flags"]["domain_signal"] is True
     assert assistant_provenance["evidence_quality_flags"]["assistant_action_residue"] is True
     assert assistant_provenance["evidence_quality_flags"]["conversational_residue"] is True
@@ -571,9 +631,17 @@ async def test_hybrid_gate_reviews_speculation_and_inference_but_stores_confirme
     inferred_flags = inferred_fact.metadata["ciar_provenance"]["evidence_quality_flags"]
     confirmed_flags = confirmed_fact.metadata["ciar_provenance"]["evidence_quality_flags"]
     assert speculative_fact.metadata["ciar_provenance"]["review_only"] is True
+    assert (
+        speculative_fact.metadata["ciar_provenance"]["lifetime_decision_class"]
+        == "review_uncertain_or_inferred"
+    )
     assert speculative_flags["speculative_claim"] is True
     assert speculative_flags["assistant_inference"] is False
     assert inferred_fact.metadata["ciar_provenance"]["review_only"] is True
+    assert (
+        inferred_fact.metadata["ciar_provenance"]["lifetime_decision_class"]
+        == "review_uncertain_or_inferred"
+    )
     assert inferred_flags["assistant_inference"] is True
     assert inferred_flags["speculative_claim"] is False
     assert confirmed_fact.metadata["ciar_provenance"]["review_only"] is False
@@ -645,6 +713,7 @@ async def test_hybrid_gate_reviews_access_reinforced_low_base_evidence(
     assert low_flags["base_evidence_below_threshold"] is True
     assert low_flags["access_boosted_over_threshold"] is True
     assert low_flags["recency_access_guardrail"] is True
+    assert low_provenance["lifetime_decision_class"] == "review_access_boost_only"
     strong_flags = strong_base_fact.metadata["ciar_provenance"]["evidence_quality_flags"]
     assert strong_base_fact.metadata["ciar_provenance"]["review_only"] is False
     assert strong_flags["base_evidence_below_threshold"] is False
@@ -701,6 +770,7 @@ async def test_fact_gate_preserves_access_boost_storage_semantics(
     provenance = fact.metadata["ciar_provenance"]
     assert provenance["stored_ciar"] == 0.75
     assert provenance["review_only"] is False
+    assert provenance["lifetime_decision_class"] == "store_durable"
     assert provenance["evidence_quality_flags"]["recency_access_guardrail"] is True
 
 
@@ -768,10 +838,19 @@ async def test_contradiction_policy_suppresses_superseded_batch_fact(
     ]
     assert old_fact.metadata["contradiction_policy"]["decision"] == "SUPPRESS"
     assert old_fact.metadata["contradiction_policy"]["superseded_by_fact_id"] == "fact-new-route"
+    assert (
+        old_fact.metadata["ciar_provenance"]["lifetime_decision_class"]
+        == "suppress_superseded"
+    )
     assert any(
         call.kwargs.get("event_type") == "fact_suppressed"
         for call in telemetry.publish.await_args_list
     )
+    suppressed_call = next(
+        call for call in telemetry.publish.await_args_list
+        if call.kwargs.get("event_type") == "fact_suppressed"
+    )
+    assert suppressed_call.kwargs["data"]["lifetime_decision_class"] == "suppress_superseded"
 
 
 @pytest.mark.asyncio

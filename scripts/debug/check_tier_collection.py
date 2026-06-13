@@ -9,7 +9,7 @@ from src.storage.qdrant_adapter import QdrantAdapter
 async def main() -> None:
     q = QdrantAdapter(
         {
-            "url": os.getenv("QDRANT_URL", "http://192.168.107.187:6333"),
+            "url": os.getenv("QDRANT_URL", "http://127.0.0.1:6333"),
             "collection_name": os.getenv("QDRANT_COLLECTION", "episodes"),
             "vector_size": int(os.getenv("QDRANT_VECTOR_SIZE", EpisodicMemoryTier.VECTOR_SIZE)),
         }
@@ -17,7 +17,7 @@ async def main() -> None:
     await q.connect()
     n = Neo4jAdapter(
         {
-            "uri": os.getenv("NEO4J_URI", "bolt://192.168.107.187:7687"),
+            "uri": os.getenv("NEO4J_URI", "bolt://127.0.0.1:7687"),
             "user": os.getenv("NEO4J_USER", "neo4j"),
             "password": os.getenv("NEO4J_PASSWORD", "password"),
         }

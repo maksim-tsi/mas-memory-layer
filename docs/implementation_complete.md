@@ -9,8 +9,8 @@
 ## What Was Requested
 
 Implement the metrics integration for the remaining storage adapters (Neo4j and Typesense) as described in:
-- `/home/max/code/mas-memory-layer/docs/reports/metrics_program_overview_version-0.9_upto10feb2026.md`
-- `/home/max/code/mas-memory-layer/docs/reports/implementation_consolidated_version-0.9_upto10feb2026.md`
+- `<repo>/docs/reports/metrics_program_overview_version-0.9_upto10feb2026.md`
+- `<repo>/docs/reports/implementation_consolidated_version-0.9_upto10feb2026.md`
 
 ---
 

@@ -27,6 +27,16 @@ RESIDUE_SCENARIOS = (
 )
 SPECULATIVE_SCENARIOS = ("speculative_claim", "assistant_inferred")
 RECENCY_ACCESS_SCENARIOS = ("access_reinforced_low_signal",)
+LIFETIME_DECISION_CLASSES = (
+    "store_durable",
+    "store_segment_inherited",
+    "review_conversational_residue",
+    "review_uncertain_or_inferred",
+    "review_access_boost_only",
+    "review_low_evidence",
+    "filter_low_ciar",
+    "suppress_superseded",
+)
 
 
 @dataclass
@@ -49,6 +59,8 @@ class ScenarioAggregate:
     assistant_inference_review_only: int = 0
     recency_access_guardrail_promoted: int = 0
     recency_access_guardrail_review_only: int = 0
+    lifetime_decision_counts: dict[str, int] = field(default_factory=dict)
+    lifetime_decision_contents: dict[str, list[str]] = field(default_factory=dict)
     promoted_contents: list[str] = field(default_factory=list)
     review_only_contents: list[str] = field(default_factory=list)
     suppressed_contents: list[str] = field(default_factory=list)
@@ -107,6 +119,20 @@ class ScenarioAggregate:
         else:
             self.recency_access_guardrail_promoted += 1
 
+    def add_lifetime_decision(self, row: dict[str, Any]) -> None:
+        decision_class = row.get("lifetime_decision_class")
+        if not isinstance(decision_class, str) or not decision_class:
+            return
+        self.lifetime_decision_counts[decision_class] = (
+            self.lifetime_decision_counts.get(decision_class, 0) + 1
+        )
+        content = str(row.get("content") or "")
+        if not content:
+            return
+        examples = self.lifetime_decision_contents.setdefault(decision_class, [])
+        if content not in examples:
+            examples.append(content)
+
     def to_dict(self) -> dict[str, Any]:
         avg_delta = None
         if self.raw_stored_delta_count:
@@ -129,6 +155,11 @@ class ScenarioAggregate:
             "assistant_inference_review_only": self.assistant_inference_review_only,
             "recency_access_guardrail_promoted": self.recency_access_guardrail_promoted,
             "recency_access_guardrail_review_only": self.recency_access_guardrail_review_only,
+            "lifetime_decision_counts": dict(sorted(self.lifetime_decision_counts.items())),
+            "lifetime_decision_contents": {
+                key: values
+                for key, values in sorted(self.lifetime_decision_contents.items())
+            },
             "promoted_contents": self.promoted_contents,
             "review_only_contents": self.review_only_contents,
             "suppressed_contents": self.suppressed_contents,
@@ -225,6 +256,7 @@ def analyze_run(run_dir: Path) -> dict[str, Any]:
         aggregate.add_residue_signal(row)
         aggregate.add_speculative_signal(row)
         aggregate.add_recency_access_signal(row)
+        aggregate.add_lifetime_decision(row)
 
     for event in events:
         event_type = event.get("event_type")
@@ -304,6 +336,23 @@ def aggregate_runs(run_dirs: list[Path]) -> dict[str, Any]:
             aggregate.recency_access_guardrail_review_only += int(
                 stats.get("recency_access_guardrail_review_only", 0) or 0
             )
+            for decision_class, count in (
+                stats.get("lifetime_decision_counts") or {}
+            ).items():
+                aggregate.lifetime_decision_counts[str(decision_class)] = (
+                    aggregate.lifetime_decision_counts.get(str(decision_class), 0)
+                    + int(count or 0)
+                )
+            for decision_class, contents in (
+                stats.get("lifetime_decision_contents") or {}
+            ).items():
+                target = aggregate.lifetime_decision_contents.setdefault(
+                    str(decision_class), []
+                )
+                for content in contents or []:
+                    text = str(content)
+                    if text and text not in target:
+                        target.append(text)
             if stats["avg_stored_minus_raw_ciar"] is not None:
                 count = len(stats["promoted_contents"])
                 aggregate.raw_stored_delta_sum += (
@@ -331,6 +380,7 @@ def aggregate_runs(run_dirs: list[Path]) -> dict[str, Any]:
         "residue_evaluation": build_residue_evaluation(summary),
         "speculative_evaluation": build_speculative_evaluation(summary),
         "recency_access_evaluation": build_recency_access_evaluation(summary),
+        "lifetime_decision_evaluation": build_lifetime_decision_evaluation(summary),
         "recommendation_inputs": build_recommendation_inputs(summary),
     }
 
@@ -476,6 +526,43 @@ def build_recency_access_evaluation(by_config: dict[str, Any]) -> dict[str, Any]
                 ),
                 "promoted_contents": unique_texts(stats.get("promoted_contents", [])),
                 "review_only_contents": unique_texts(stats.get("review_only_contents", [])),
+            }
+        if focused:
+            evaluation[config_key] = focused
+    return evaluation
+
+
+def build_lifetime_decision_evaluation(by_config: dict[str, Any]) -> dict[str, Any]:
+    def unique_texts(values: list[str]) -> list[str]:
+        seen = set()
+        unique = []
+        for value in values:
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            unique.append(value)
+        return unique
+
+    evaluation: dict[str, Any] = {}
+    for config_key, scenarios in sorted(by_config.items()):
+        focused: dict[str, Any] = {}
+        for scenario_id, stats in sorted(scenarios.items()):
+            counts = stats.get("lifetime_decision_counts") or {}
+            if not counts:
+                continue
+            contents_by_class = stats.get("lifetime_decision_contents") or {}
+            focused[scenario_id] = {
+                "runs": int(stats.get("runs", 0) or 0),
+                "lifetime_decision_counts": {
+                    decision_class: int(counts.get(decision_class, 0) or 0)
+                    for decision_class in LIFETIME_DECISION_CLASSES
+                    if int(counts.get(decision_class, 0) or 0)
+                },
+                "representative_contents": {
+                    decision_class: unique_texts(contents_by_class.get(decision_class, []))[:3]
+                    for decision_class in LIFETIME_DECISION_CLASSES
+                    if contents_by_class.get(decision_class)
+                },
             }
         if focused:
             evaluation[config_key] = focused
@@ -688,6 +775,43 @@ def render_markdown(report: dict[str, Any]) -> str:
                 )
     else:
         lines.append("| n/a | n/a | 0 | 0 | 0 | 0 | 0 |")
+    lines.extend([
+        "",
+        "## Lifetime Decision Evaluation",
+        "",
+        "| Config | Scenario | Runs | Lifetime Decision Class | Count |",
+        "|---|---|---:|---|---:|",
+    ])
+    lifetime_decision_evaluation = report.get("lifetime_decision_evaluation") or {}
+    if lifetime_decision_evaluation:
+        for config_key, scenarios in sorted(lifetime_decision_evaluation.items()):
+            for scenario_id, stats in sorted(scenarios.items()):
+                counts = stats.get("lifetime_decision_counts") or {}
+                for decision_class, count in sorted(counts.items()):
+                    lines.append(
+                        "| "
+                        + " | ".join(
+                            [
+                                f"`{config_key}`",
+                                f"`{scenario_id}`",
+                                str(stats["runs"]),
+                                f"`{decision_class}`",
+                                str(count),
+                            ]
+                        )
+                        + " |"
+                    )
+        lines.extend(["", "### Lifetime Decision Contents", ""])
+        for config_key, scenarios in sorted(lifetime_decision_evaluation.items()):
+            for scenario_id, stats in sorted(scenarios.items()):
+                contents_by_class = stats.get("representative_contents") or {}
+                for decision_class, contents in sorted(contents_by_class.items()):
+                    rendered = "; ".join(contents) or "None"
+                    lines.append(
+                        f"- `{config_key}` / `{scenario_id}` / `{decision_class}`: {rendered}"
+                    )
+    else:
+        lines.append("| n/a | n/a | 0 | n/a | 0 |")
     lines.extend([
         "",
         "## Recommendation Inputs",

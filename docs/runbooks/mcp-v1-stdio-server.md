@@ -65,7 +65,7 @@ runtime:
 The lab Compose runtime publishes this service at:
 
 ```text
-http://192.168.107.187:8003/mcp
+http://127.0.0.1:8003/mcp
 ```
 
 Streamable HTTP exposes the same tools, resources, prompts, permissions, and
@@ -179,7 +179,7 @@ Live Streamable HTTP validation is read-only and environment-gated:
 
 ```bash
 YAAM_MCP_RUN_LIVE_HTTP_CONTRACT=1 \
-YAAM_MCP_HTTP_URL=http://192.168.107.187:8003/mcp \
+YAAM_MCP_HTTP_URL=http://127.0.0.1:8003/mcp \
 ./.venv/bin/pytest tests/mcp/test_streamable_http_contract.py::test_mcp_streamable_http_live_read_contract_is_env_gated -v
 ```
 

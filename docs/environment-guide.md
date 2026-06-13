@@ -17,7 +17,7 @@ pwd
 Interpretation:
 
 - **macOS local checkout** – `uname` prints `Darwin` and `pwd` resolves to `/Users/<name>/Documents/code/mas-memory-layer` (or similar). Use the `./.venv/bin/...` commands documented below.
-- **Remote Ubuntu via SSH** – `uname` prints `Linux`, `hostname` typically includes the jumpbox label (for example, `skz-dev-lv`), and `pwd` resolves to `/home/max/code/mas-memory-layer`. Follow the repository instructions that reference `/home/max/code/mas-memory-layer/.venv/bin/...`.
+- **Remote Ubuntu via SSH** – `uname` prints `Linux`, `hostname` typically includes the jumpbox label (for example, `development-host`), and `pwd` resolves to `<repo>`. Follow the repository instructions that reference `<repo>/.venv/bin/...`.
 - **Local Ubuntu desktop/RDP** – `uname` prints `Linux`, `hostname` matches the physical workstation, and `pwd` resolves to `/home/<user>/Documents/code/mas-memory-layer`. Use the relative-path commands from this document to keep scripts portable.
 
 Document the answers in the worklog when switching contexts so that reviewers understand which interpreter produced a given artifact.
@@ -76,7 +76,7 @@ Run the diagnostic below immediately after installing requirements. The printed 
 When working on the remote Ubuntu host that mandates absolute paths, the equivalent command is:
 
 ```bash
-/home/max/code/mas-memory-layer/.venv/bin/python -c "import sys; print(sys.executable)"
+<repo>/.venv/bin/python -c "import sys; print(sys.executable)"
 ```
 
 If the output differs, restart the session and recreate the environment. Continuing with the wrong interpreter will pollute system packages or CI caches.
@@ -90,12 +90,12 @@ After the interpreter check passes, run the lightweight diagnostics to confirm t
 ./scripts/run_smoke_tests.sh --summary
 ```
 
-For remote hosts replace the interpreter path with `/home/max/code/mas-memory-layer/.venv/bin/python` if required by operations.
+For remote hosts replace the interpreter path with `<repo>/.venv/bin/python` if required by operations.
 
 ## 6. Relative vs. Absolute Paths
 
 - Use **relative paths** (`./.venv/bin/python`, `./scripts/...`) in documentation and shared snippets. These commands succeed on macOS, local Ubuntu, and most CI runners.
-- Use **absolute paths** only when interacting with the managed remote environment that enforces `/home/max/code/mas-memory-layer/.venv/bin/...`. When documenting such commands, explicitly note the host requirement.
+- Use **absolute paths** only when interacting with the managed remote environment that enforces `<repo>/.venv/bin/...`. When documenting such commands, explicitly note the host requirement.
 
 Maintaining both forms prevents accidental edits to the remote interpreter while still honouring operational safeguards.
 

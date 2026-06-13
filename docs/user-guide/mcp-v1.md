@@ -7,7 +7,7 @@ available through both supported transports:
 
 - **stdio** for local MCP hosts that launch YAAM as a subprocess.
 - **Streamable HTTP** for shared lab or production MCP runtimes operated on a
-  server such as `skz-data-lv`.
+  server such as `local-yaam-host`.
 
 ## Launch With Stdio
 
@@ -37,7 +37,7 @@ For shared remote access, run the same MCP server with Streamable HTTP:
 The lab deployment publishes this as:
 
 ```text
-http://192.168.107.187:8003/mcp
+http://127.0.0.1:8003/mcp
 ```
 
 Use Streamable HTTP when the consumer system should connect to a centrally

@@ -19,11 +19,11 @@ This specification defines the implementation requirements for Phase 1 of the mu
 ## Prerequisites
 
 ### Infrastructure Requirements ✅
-- PostgreSQL 16.10 on 192.168.107.172:5432 (Database: `mas_memory`)
-- Redis 6+ on 192.168.107.172:6379
-- Qdrant 1.9+ on 192.168.107.187:6333
-- Neo4j 5.22+ on 192.168.107.187:7687
-- Typesense 8+ on 192.168.107.187:8108
+- PostgreSQL 16.10 on 127.0.0.1:5432 (Database: `mas_memory`)
+- Redis 6+ on 127.0.0.1:6379
+- Qdrant 1.9+ on 127.0.0.1:6333
+- Neo4j 5.22+ on 127.0.0.1:7687
+- Typesense 8+ on 127.0.0.1:8108
 
 **Status**: All services verified operational (see `docs/reports/smoke-tests-2025-10-20.md`)
 
@@ -3770,7 +3770,7 @@ class QdrantAdapter(StorageAdapter):
     Example:
         ```python
         config = {
-            'url': 'http://192.168.107.187:6333',
+            'url': 'http://127.0.0.1:6333',
             'collection_name': 'episodic_memory',
             'vector_size': 384
         }
@@ -4036,7 +4036,7 @@ class Neo4jAdapter(StorageAdapter):
     Example:
         ```python
         config = {
-            'uri': 'bolt://192.168.107.187:7687',
+            'uri': 'bolt://127.0.0.1:7687',
             'user': 'neo4j',
             'password': 'your_password'
         }
@@ -4322,7 +4322,7 @@ class TypesenseAdapter(StorageAdapter):
     Example:
         ```python
         config = {
-            'url': 'http://192.168.107.187:8108',
+            'url': 'http://127.0.0.1:8108',
             'api_key': os.getenv('TYPESENSE_API_KEY'),
             'collection_name': 'semantic_memory'
         }
@@ -6267,11 +6267,11 @@ Test configuration - loads from environment or uses defaults.
 import os
 
 # Database URLs (use environment variables or defaults)
-POSTGRES_URL = os.getenv("POSTGRES_URL", "postgresql://postgres:postgres@192.168.107.172:5432/mas_memory")
-REDIS_URL = os.getenv("REDIS_URL", "redis://192.168.107.172:6379/0")
-QDRANT_URL = os.getenv("QDRANT_URL", "http://192.168.107.187:6333")
-NEO4J_URL = os.getenv("NEO4J_URL", "bolt://192.168.107.187:7687")
-TYPESENSE_URL = os.getenv("TYPESENSE_URL", "http://192.168.107.187:8108")
+POSTGRES_URL = os.getenv("POSTGRES_URL", "postgresql://postgres:postgres@127.0.0.1:5432/mas_memory")
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379/0")
+QDRANT_URL = os.getenv("QDRANT_URL", "http://127.0.0.1:6333")
+NEO4J_URL = os.getenv("NEO4J_URL", "bolt://127.0.0.1:7687")
+TYPESENSE_URL = os.getenv("TYPESENSE_URL", "http://127.0.0.1:8108")
 TYPESENSE_API_KEY = os.getenv("TYPESENSE_API_KEY", "xyz")
 
 # Test configuration
@@ -6906,21 +6906,21 @@ All **6 Priorities** have been fully populated with detailed implementation inst
 
 ```bash
 # PostgreSQL
-POSTGRES_URL=postgresql://user:pass@192.168.107.172:5432/mas_memory
+POSTGRES_URL=postgresql://user:pass@127.0.0.1:5432/mas_memory
 
 # Redis
-REDIS_URL=redis://192.168.107.172:6379/0
+REDIS_URL=redis://127.0.0.1:6379/0
 
 # Qdrant
-QDRANT_URL=http://192.168.107.187:6333
+QDRANT_URL=http://127.0.0.1:6333
 
 # Neo4j
-NEO4J_URL=bolt://192.168.107.187:7687
+NEO4J_URL=bolt://127.0.0.1:7687
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=your_password
 
 # Typesense
-TYPESENSE_URL=http://192.168.107.187:8108
+TYPESENSE_URL=http://127.0.0.1:8108
 TYPESENSE_API_KEY=your_api_key
 ```
 
@@ -7174,7 +7174,7 @@ See `docs/plan/implementation_master_plan_version-0.9.md` for full roadmap.
 ### Contact
 - Project Lead: TBD
 - Technical Lead: TBD
-- Infrastructure: Home Lab (skz-dev-lv, skz-stg-lv)
+- Infrastructure: Home Lab (development-host, staging-host)
 
 ---
 

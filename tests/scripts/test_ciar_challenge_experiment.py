@@ -319,8 +319,17 @@ async def test_dry_residue_tightening_reviews_chatter_without_losing_operational
         for row in state.alternative_scores
         if row.get("review_only")
     }
+    lifetime_classes = {
+        row["content"]: row["lifetime_decision_class"]
+        for row in state.alternative_scores
+    }
     assert "Container MAEU9182736 had a temperature excursion above threshold." in promoted
     assert "Container MEDU7711009 missed its customs hold release window." in promoted
+    assert all(row.get("lifetime_decision_class") for row in state.alternative_scores)
+    assert (
+        lifetime_classes["Container MAEU9182736 had a temperature excursion above threshold."]
+        == "store_durable"
+    )
     assert (
         "The user said thanks and asked to continue later."
         in review_only
@@ -328,6 +337,10 @@ async def test_dry_residue_tightening_reviews_chatter_without_losing_operational
     assert review_only[
         "The user said thanks and asked to continue later."
     ]["conversational_residue"] is True
+    assert (
+        lifetime_classes["The user said thanks and asked to continue later."]
+        == "review_conversational_residue"
+    )
     assistant_row = (
         "The assistant will record that container MEDU7711009 missed its "
         "customs hold release window."
@@ -335,6 +348,7 @@ async def test_dry_residue_tightening_reviews_chatter_without_losing_operational
     assert assistant_row in review_only
     assert review_only[assistant_row]["assistant_action_residue"] is True
     assert review_only[assistant_row]["conversational_residue"] is True
+    assert lifetime_classes[assistant_row] == "review_conversational_residue"
 
 
 @pytest.mark.asyncio
@@ -383,9 +397,17 @@ async def test_dry_speculative_claims_are_review_only_with_positive_controls(
     assert review_only["speculative_claim"]["evidence_quality_flags"][
         "speculative_claim"
     ] is True
+    assert (
+        review_only["speculative_claim"]["lifetime_decision_class"]
+        == "review_uncertain_or_inferred"
+    )
     assert review_only["assistant_inferred"]["evidence_quality_flags"][
         "assistant_inference"
     ] is True
+    assert (
+        review_only["assistant_inferred"]["lifetime_decision_class"]
+        == "review_uncertain_or_inferred"
+    )
     assert all(
         not row.get("review_only")
         for row in state.alternative_scores
@@ -435,6 +457,7 @@ async def test_dry_recency_access_guardrail_reviews_low_signal_access_boost(
     guardrail_row = review_only["access_reinforced_low_signal"]
     flags = guardrail_row["evidence_quality_flags"]
     assert guardrail_row["raw_fact_ciar"] == 0.75
+    assert guardrail_row["lifetime_decision_class"] == "review_access_boost_only"
     assert flags["base_evidence_below_threshold"] is True
     assert flags["access_boosted_over_threshold"] is True
     assert flags["recency_access_guardrail"] is True
@@ -497,9 +520,13 @@ async def test_dry_repeated_correction_suppresses_old_and_middle_routes(
     assert len(suppressed_rows) == 2
     assert len(stored_rows) == 1
     assert "Long Beach" in stored_rows[0]["content"]
+    assert stored_rows[0]["lifetime_decision_class"] == "store_durable"
     assert {row["content"] for row in suppressed_rows} == {
         "Shipment ALFA-4421 was scheduled for Oakland.",
         "Update: shipment ALFA-4421 is now routed to Los Angeles.",
+    }
+    assert {row["lifetime_decision_class"] for row in suppressed_rows} == {
+        "suppress_superseded"
     }
 
 
@@ -628,6 +655,8 @@ async def test_score_alternatives_recovers_provenance_from_events_when_storage_d
                     "ciar_score_source": "raw_fact",
                     "segment_inherited": False,
                     "fact_gate_decision": True,
+                    "lifetime_decision_class": "store_durable",
+                    "lifetime_decision_reason": "stored as durable memory",
                     "evidence_quality_flags": {"domain_signal": True},
                 },
             },
@@ -656,6 +685,7 @@ async def test_score_alternatives_recovers_provenance_from_events_when_storage_d
     assert row["raw_fact_ciar"] == 0.8
     assert row["stored_ciar"] == 0.8
     assert row["ciar_score_source"] == "raw_fact"
+    assert row["lifetime_decision_class"] == "store_durable"
     assert row["evidence_quality_flags"]["domain_signal"] is True
 
 
@@ -697,6 +727,8 @@ async def test_score_alternatives_records_suppressed_facts_from_events(
                     "promotion_policy_mode": "hybrid_gate",
                     "raw_fact_ciar": 0.72,
                     "fact_gate_decision": True,
+                    "lifetime_decision_class": "suppress_superseded",
+                    "lifetime_decision_reason": "superseded_by_explicit_update",
                 },
                 "contradiction_policy": {
                     "mode": "suppress_superseded",
@@ -715,6 +747,7 @@ async def test_score_alternatives_records_suppressed_facts_from_events(
     assert row["suppressed"] is True
     assert row["contradiction_policy_mode"] == "suppress_superseded"
     assert row["contradiction_policy"]["superseded_by_fact_id"] == "fact-new-route"
+    assert row["lifetime_decision_class"] == "suppress_superseded"
 
 
 @pytest.mark.asyncio

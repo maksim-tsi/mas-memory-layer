@@ -11,7 +11,7 @@ async def main() -> None:
     adapter = PostgresAdapter(
         {
             "url": os.getenv(
-                "POSTGRES_URL", "postgresql://pgadmin:password@192.168.107.187:5432/mas_memory"
+                "POSTGRES_URL", "postgresql://pgadmin:password@127.0.0.1:5432/mas_memory"
             ),
         }
     )
